@@ -4,18 +4,31 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
+import { AutomationModal } from '@/components/dashboard/AutomationModal';
+import { AutomationTimer } from '@/components/dashboard/AutomationTimer';
 import { 
   Send, MessageCircle, Search, CheckCircle, Eye, Copy,
-  Smartphone, ExternalLink, Zap
+  Smartphone, ExternalLink, Zap, Bot
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency, Product } from '@/lib/mockData';
+
+interface AutomationConfig {
+  intervalMinutes: number;
+  categories: string[];
+  marketplaces: string[];
+}
 
 export function DistributionPage() {
   const { products } = useDashboard();
@@ -27,6 +40,12 @@ export function DistributionPage() {
   const [telegramEnabled, setTelegramEnabled] = useState(true);
   const [botConnected, setBotConnected] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
+  
+  // Automation states
+  const [showAutomationModal, setShowAutomationModal] = useState(false);
+  const [automationActive, setAutomationActive] = useState(false);
+  const [automationPaused, setAutomationPaused] = useState(false);
+  const [automationConfig, setAutomationConfig] = useState<AutomationConfig | null>(null);
 
   const activeProducts = products.filter(p => p.status === 'active' || p.status === 'protected');
   
@@ -37,6 +56,17 @@ export function DistributionPage() {
   }, [activeProducts, search]);
 
   const selectedProducts = products.filter(p => selectedIds.includes(p.id));
+
+  // Extract unique categories and marketplaces
+  const availableCategories = useMemo(() => {
+    const categories = new Set(products.map(p => p.category));
+    return Array.from(categories).sort();
+  }, [products]);
+
+  const availableMarketplaces = useMemo(() => {
+    const marketplaces = new Set(products.map(p => p.marketplace));
+    return Array.from(marketplaces).sort();
+  }, [products]);
 
   const handleSelect = (id: string) => {
     setSelectedIds(prev => 
@@ -83,6 +113,44 @@ export function DistributionPage() {
     setSelectedIds([]);
   };
 
+  const handleStartAutomation = (config: AutomationConfig) => {
+    setAutomationConfig(config);
+    setAutomationActive(true);
+    setAutomationPaused(false);
+    
+    toast({
+      title: "Automação iniciada!",
+      description: `Bot enviará ofertas a cada ${config.intervalMinutes} minutos.`,
+    });
+  };
+
+  const handlePauseAutomation = () => {
+    setAutomationPaused(true);
+    toast({
+      title: "Automação pausada",
+      description: "O bot foi pausado e aguarda retomada.",
+    });
+  };
+
+  const handleResumeAutomation = () => {
+    setAutomationPaused(false);
+    toast({
+      title: "Automação retomada",
+      description: "O bot voltou a enviar ofertas automaticamente.",
+    });
+  };
+
+  const handleCancelAutomation = () => {
+    setAutomationActive(false);
+    setAutomationPaused(false);
+    setAutomationConfig(null);
+    toast({
+      title: "Automação cancelada",
+      description: "O bot foi desativado com sucesso.",
+      variant: "destructive"
+    });
+  };
+
   const generateMessagePreview = (product: Product) => {
     const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!*\n\n`;
     return `${message}📦 *${product.name}*\n\n` +
@@ -103,13 +171,49 @@ export function DistributionPage() {
             Selecione produtos e compartilhe via bot nos seus canais
           </p>
         </div>
-        {botConnected && (
-          <Badge variant="outline" className="gap-2 px-3 py-1.5 border-status-active text-status-active">
-            <CheckCircle className="w-4 h-4" />
-            Bot Conectado
-          </Badge>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Automation Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowAutomationModal(true)}
+                  disabled={!botConnected || automationActive}
+                  className="h-10 w-10 relative group hover:border-violet-500 hover:bg-violet-50 dark:hover:bg-violet-950/20 transition-all"
+                >
+                  <Bot className="w-5 h-5 text-violet-600 dark:text-violet-400 group-hover:scale-110 transition-transform" />
+                  {automationActive && (
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-background animate-pulse" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Configurar automação</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {botConnected && (
+            <Badge variant="outline" className="gap-2 px-3 py-1.5 border-status-active text-status-active">
+              <CheckCircle className="w-4 h-4" />
+              Bot Conectado
+            </Badge>
+          )}
+        </div>
       </div>
+
+      {/* Automation Timer */}
+      {automationActive && automationConfig && (
+        <AutomationTimer
+          intervalMinutes={automationConfig.intervalMinutes}
+          isPaused={automationPaused}
+          onPause={handlePauseAutomation}
+          onResume={handleResumeAutomation}
+          onCancel={handleCancelAutomation}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Product Selection */}
@@ -175,7 +279,7 @@ export function DistributionPage() {
             {selectedIds.length > 0 && (
               <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg">
                 <span className="font-medium">{selectedIds.length} produtos selecionados</span>
-                <Button onClick={() => setSelectedIds([])}>Limpar seleção</Button>
+                <Button variant="ghost" onClick={() => setSelectedIds([])}>Limpar seleção</Button>
               </div>
             )}
           </CardContent>
@@ -305,6 +409,15 @@ export function DistributionPage() {
           </Card>
         </div>
       </div>
+
+      {/* Automation Modal */}
+      <AutomationModal
+        open={showAutomationModal}
+        onClose={() => setShowAutomationModal(false)}
+        onStart={handleStartAutomation}
+        availableCategories={availableCategories}
+        availableMarketplaces={availableMarketplaces}
+      />
     </div>
   );
 }
