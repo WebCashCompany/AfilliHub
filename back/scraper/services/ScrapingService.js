@@ -17,7 +17,8 @@ class ScrapingService {
     };
   }
 
-  async scrapeMarketplaces(marketplaces, minDiscount = 30) {
+  // AGORA ACEITA O LIMITE COMO PARÂMETRO!
+  async scrapeMarketplaces(marketplaces, minDiscount = 30, limitPerMarketplace = 50) {
     if (this.isRunning) {
       throw new Error('Scraping já está em execução');
     }
@@ -36,7 +37,8 @@ class ScrapingService {
     console.log('   INICIANDO SCRAPING MULTI-MARKETPLACE');
     console.log('🚀 ===================================\n');
     console.log(`📋 Marketplaces: ${marketplaces.join(', ')}`);
-    console.log(`🎯 Desconto mínimo: ${minDiscount}%\n`);
+    console.log(`🎯 Desconto mínimo: ${minDiscount}%`);
+    console.log(`📦 Limite por marketplace: ${limitPerMarketplace} produtos\n`);
 
     try {
       const allProducts = [];
@@ -51,7 +53,12 @@ class ScrapingService {
         console.log('─'.repeat(50));
 
         const scraper = this.getScraper(marketplace, minDiscount);
-        const products = await scraper.scrapeCategory(scraper.baseUrl, 50);
+        
+        // USA O LIMITE DINÂMICO!
+        const products = await scraper.scrapeCategory(
+          scraper.baseUrl, 
+          limitPerMarketplace // ← AGORA É VARIÁVEL!
+        );
 
         if (products.length > 0) {
           console.log(`💾 Salvando ${products.length} produtos no MongoDB...`);

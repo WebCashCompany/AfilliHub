@@ -11,7 +11,7 @@ class BaseScraper {
   async init() {
     if (!this.browser) {
       this.browser = await playwright.chromium.launch({
-        headless: false,
+        headless: true,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -31,73 +31,39 @@ class BaseScraper {
     }
   }
 
+  // Método unificado para processar as listas
   async scrapeCategory(url, limit = 50) {
     await this.init();
     
     try {
-      console.log(`\n🔍 Iniciando scraping: ${this.marketplace}`);
-      console.log(`📍 URL: ${url}`);
-      console.log(`🎯 Limite: ${limit} produtos`);
-      console.log(`📊 Desconto mínimo: ${this.minDiscount}%\n`);
-
       const productUrls = await this.getProductUrls(url, limit);
-      console.log(`📦 ${productUrls.length} URLs encontradas\n`);
-
       const products = [];
-      let processed = 0;
-
+      
       for (const productUrl of productUrls) {
-        try {
-          processed++;
-          console.log(`[${processed}/${productUrls.length}] Processando...`);
-          
-          const product = await this.scrapeProduct(productUrl);
-          
-          if (product) {
-            const discount = this.extractDiscountNumber(product.desconto);
-            
-            if (discount >= this.minDiscount) {
-              products.push(product);
-              console.log(`✅ ${product.nome.substring(0, 50)}... (${product.desconto})`);
-            } else {
-              console.log(`⏭️  Desconto baixo: ${product.desconto}`);
-            }
+        const product = await this.scrapeProduct(productUrl);
+        if (product) {
+          const discount = this.extractDiscountNumber(product.desconto);
+          if (discount >= this.minDiscount) {
+            products.push(product);
           }
-        } catch (error) {
-          console.error(`❌ Erro: ${error.message}`);
         }
+        if (products.length >= limit) break;
       }
-
-      console.log(`\n🎉 ${this.marketplace}: ${products.length} produtos coletados\n`);
       return products;
     } finally {
       await this.close();
     }
   }
 
-  async getProductUrls(url, limit) {
-    throw new Error('Must implement getProductUrls');
-  }
-
-  async scrapeProduct(url) {
-    throw new Error('Must implement scrapeProduct');
-  }
-
-  generateAffiliateUrl(url) {
-    return url;
-  }
-
   extractDiscountNumber(desconto) {
-    const match = desconto.match(/(\d+)%/);
+    if (!desconto) return 0;
+    const match = desconto.match(/(\d+)/);
     return match ? parseInt(match[1]) : 0;
   }
 
-  formatPrice(price) {
-    return `R$ ${price.toFixed(2).replace('.', ',')}`;
-  }
-
   extractPrice(priceText) {
-    if (!priceText) return 0;
+    if (!priceText || priceText === 'Não disponível') return 0;
+    // Remove tudo que não é número ou vírgula, depois troca vírgula por ponto
     const cleaned = priceText.replace(/[^\d,]/g, '').replace(',', '.');
     return parseFloat(cleaned) || 0;
   }
