@@ -1,0 +1,34 @@
+# Dependências
+node_modules/
+jspm_packages/
+
+# Variáveis de ambiente (IMPORTANTE: Nunca suba o .env para o GitHub)
+.env
+.env.test
+.env.production
+.env.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs
+*.log
+
+# IDEs e Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# Build/Dist (caso venha a usar TypeScript ou compiladores)
+dist/
+build/
+
+# Testes (caso gere relatórios de cobertura)
+coverage/
+.nyc_output/
