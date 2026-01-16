@@ -11,90 +11,86 @@ class MercadoLivreScraper {
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
-    const page = await context.newPage();
+    
+    let allProducts = [];
+    let pageNum = 1;
 
     try {
-      console.log(`🌐 Abrindo Mercado Livre (Meta: ${this.limit} produtos)...`);
-      
-      // Abre a página oficial de ofertas
-      await page.goto('https://www.mercadolivre.com.br/ofertas', {
-        waitUntil: 'networkidle',
-        timeout: 60000
-      });
+      while (allProducts.length < this.limit && pageNum <= 5) {
+        const page = await context.newPage();
+        // O ML muda de página pelo parâmetro _Desde_ (48 produtos por página)
+        const offset = (pageNum - 1) * 48;
+        const url = `https://www.mercadolivre.com.br/ofertas?page=${pageNum}${offset > 0 ? `&_Desde_${offset + 1}` : ''}`;
+        
+        console.log(`🌐 Varrendo Página ${pageNum}... (Total atual: ${allProducts.length})`);
+        
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
 
-      // SCROLL AGRESSIVO: O ML esconde os produtos se não rolar
-      await page.evaluate(async () => {
-        await new Promise((resolve) => {
-          let totalHeight = 0;
-          let distance = 400;
-          let timer = setInterval(() => {
-            window.scrollBy(0, distance);
-            totalHeight += distance;
-            if (totalHeight >= 3000) { // Rola 3000px para garantir carregamento inicial
-              clearInterval(timer);
-              resolve();
-            }
-          }, 150);
+        // Scroll para carregar os itens dessa página
+        await page.evaluate(async () => {
+          await new Promise(resolve => {
+            let t = 0;
+            const timer = setInterval(() => {
+              window.scrollBy(0, 800);
+              t += 800;
+              if (t >= 4000) { clearInterval(timer); resolve(); }
+            }, 150);
+          });
         });
-      });
 
-      // CAPTURA REAL COM SELETORES ATUALIZADOS
-      const products = await page.evaluate(({ minDisc, maxLimit }) => {
-        // Seletores atualizados que englobam os diferentes layouts do ML
-        const items = document.querySelectorAll('.poly-card, .promotion-item__container, .ui-search-result');
-        const results = [];
+        const productsFromPage = await page.evaluate(({ minDisc, maxLimit, currentCount }) => {
+          const items = document.querySelectorAll('.poly-card, .promotion-item__container, .ui-search-result');
+          const results = [];
+          const needed = maxLimit - currentCount;
 
-        items.forEach(item => {
-          if (results.length >= maxLimit) return;
+          items.forEach(item => {
+            if (results.length >= needed) return;
 
-          // Busca o desconto em vários lugares possíveis
-          const discEl = item.querySelector('.poly-discount-badge, .andes-money-amount__discount, .promotion-item__discount-text');
-          const discountVal = discEl ? parseInt(discEl.innerText.replace(/[^\d]/g, '')) : 0;
+            const discEl = item.querySelector('.poly-discount-badge, .andes-money-amount__discount, .promotion-item__discount-text');
+            const discountVal = discEl ? parseInt(discEl.innerText.replace(/[^\d]/g, '')) : 0;
 
-          if (discountVal >= minDisc) {
-            // Seletores de Título, Link e Imagem
-            const titleEl = item.querySelector('.poly-component__title, .promotion-item__title, .ui-search-item__title');
-            const linkEl = item.querySelector('a.poly-component__title, a.promotion-item__link-container, a');
-            const imgEl = item.querySelector('img');
+            if (discountVal >= minDisc) {
+              const titleEl = item.querySelector('.poly-component__title, .promotion-item__title, .ui-search-item__title');
+              const linkEl = item.querySelector('a');
+              const imgEl = item.querySelector('img');
+              const price = item.querySelector('.andes-money-amount__fraction')?.innerText || "0";
 
-            const precoPara = item.querySelector('.andes-money-amount__fraction')?.innerText || "0";
-            const precoDeEl = item.querySelector('.andes-money-amount--previous .andes-money-amount__fraction, s .andes-money-amount__fraction');
-            const precoDe = precoDeEl ? precoDeEl.innerText : precoPara;
-
-            if (titleEl && linkEl && linkEl.href) {
-              results.push({
-                nome: titleEl.innerText.trim(),
-                imagem: imgEl ? (imgEl.src || imgEl.getAttribute('data-src')) : '',
-                link_original: linkEl.href,
-                link_afiliado: linkEl.href,
-                preco: `R$ ${precoPara}`,
-                preco_anterior: `R$ ${precoDe}`,
-                preco_de: precoDe,
-                preco_para: precoPara,
-                desconto: `${discountVal}%`,
-                marketplace: 'ML',
-                isActive: true
-              });
+              if (titleEl && linkEl?.href) {
+                results.push({
+                  nome: titleEl.innerText.trim(),
+                  imagem: imgEl ? (imgEl.src || imgEl.getAttribute('data-src')) : '',
+                  link_original: linkEl.href,
+                  preco: `R$ ${price}`,
+                  desconto: `${discountVal}%`,
+                  marketplace: 'ML',
+                  isActive: true
+                });
+              }
             }
-          }
-        });
-        return results;
-      }, { minDisc: this.minDiscount, maxLimit: this.limit });
+          });
+          return results;
+        }, { minDisc: this.minDiscount, maxLimit: this.limit, currentCount: allProducts.length });
+
+        allProducts.push(...productsFromPage);
+        await page.close();
+
+        if (productsFromPage.length === 0) break; // Se a página não tem ofertas, para.
+        pageNum++;
+      }
 
       await browser.close();
-      console.log(`🔒 Browser fechado. Encontrados: ${products.length} produtos.`);
+      console.log(`🔒 Finalizado. Total: ${allProducts.length} produtos.`);
 
-      // Adiciona o seu ID de Afiliado (77997172) nos links encontrados
       const affiliateId = process.env.ML_AFFILIATE_ID || '77997172';
-      return products.map(p => ({
+      return allProducts.map(p => ({
         ...p,
         link_afiliado: `${p.link_original.split('?')[0]}?matt_tool=${affiliateId}&utm_source=affiliate&utm_medium=webcash`
       }));
 
     } catch (error) {
-      console.error('❌ Erro no Scraper ML:', error.message);
+      console.error('❌ Erro:', error.message);
       if (browser) await browser.close();
-      return [];
+      return allProducts;
     }
   }
 }
