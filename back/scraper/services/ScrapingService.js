@@ -1,12 +1,10 @@
 const Product = require('../../database/models/Product');
-const MLProductAPI = require('../../api/mercadolivre/MLProductAPI');
-const MLAffiliateAPI = require('../../api/mercadolivre/MLAffiliateAPI');
 const MercadoLivreScraper = require('../scrapers/MercadoLivreScraper');
 
 class ScrapingService {
   constructor() {
     this.marketplaces = new Map();
-    this.mlAffiliateApi = new MLAffiliateAPI();
+    // ✅ REMOVIDO: this.mlAffiliateApi = new MLAffiliateAPI();
     this.initializeMarketplaces();
   }
 
@@ -15,7 +13,7 @@ class ScrapingService {
       this.marketplaces.set('mercadolivre', {
         name: 'Mercado Livre',
         code: 'ML',
-        api: new MLProductAPI(),
+        // ✅ REMOVIDO: api: new MLProductAPI(),
         scraper: new MercadoLivreScraper(),
         enabled: true
       });
@@ -33,43 +31,22 @@ class ScrapingService {
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
 
-    if (mode === 'api' || mode === 'auto') {
-      try {
-        console.log('🔵 Tentando via API oficial...');
-        const connected = await marketplace.api.testConnection();
-        if (connected) {
-          products = await marketplace.api.searchDeals(minDiscount, limit);
-        }
-      } catch (err) {
-        console.log('⚠️ API bloqueada ou offline, mudando para Scraper...');
-      }
-    }
+    // ✅ SIMPLIFICADO: Apenas scraper agora (sem tentativa de API)
+    console.log('🟡 Usando Web Scraper (Playwright)...');
+    marketplace.scraper.minDiscount = minDiscount;
+    marketplace.scraper.limit = limit;
+    
+    // ✅ NOVO: Passa callback para saber quantos foram salvos
+    products = await marketplace.scraper.scrapeCategory();
 
-    if (products.length === 0 && (mode === 'scraper' || mode === 'auto')) {
-      console.log('🟡 Usando Web Scraper (Playwright)...');
-      marketplace.scraper.minDiscount = minDiscount;
-      marketplace.scraper.limit = limit;
-      products = await marketplace.scraper.scrapeCategory();
-    }
-
-    // Gera links de afiliado (formato oficial ML)
+    // ✅ NOVO: Gera links de afiliado manualmente (sem API)
     if (products.length > 0) {
-      console.log(`🔗 Gerando ${products.length} links de afiliado (formato oficial)...`);
+      console.log(`🔗 Gerando ${products.length} links de afiliado...`);
       
-      const urls = products.map(p => p.link_original);
-      const affiliateLinks = await this.mlAffiliateApi.generateAffiliateLinks(urls);
-
-      // Mapeia os links gerados para os produtos
       products.forEach(product => {
-        const found = affiliateLinks.find(link => link.source === product.link_original);
-        
-        if (found && found.success) {
-          product.link_afiliado = found.affiliate_link;
-        } else {
-          console.warn(`⚠️  Falha ao gerar link para: ${product.nome.substring(0, 30)}...`);
-          // Mantém link original se falhar
-          product.link_afiliado = product.link_original;
-        }
+        // Adiciona parâmetros de afiliado diretamente na URL
+        const separator = product.link_original.includes('?') ? '&' : '?';
+        product.link_afiliado = `${product.link_original}${separator}matt_tool=77997172&utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
       });
 
       console.log('✅ Links de afiliado aplicados!\n');
@@ -80,40 +57,74 @@ class ScrapingService {
 
   async saveProducts(products, marketplaceCode = 'ML') {
     console.log(`\n💾 Salvando/Atualizando no MongoDB...`);
-    let inserted = 0, updated = 0, errors = 0, duplicates = 0;
+    let inserted = 0, updated = 0, errors = 0, duplicates = 0, betterOffers = 0;
 
     for (const product of products) {
       try {
-        // Normaliza nome para detectar duplicatas
         const normalizedName = this.normalizeProductName(product.nome);
         
-        // Busca por link original
-        const query = { link_original: product.link_original };
-        const existing = await Product.findOne(query);
+        // ✅ GARANTIR que link_original existe
+        if (!product.link_original) {
+          console.log(`   ⚠️ Produto sem link ignorado: ${product.nome.substring(0, 40)}...`);
+          continue;
+        }
+        
+        // ✅ NOVO: Verifica se é atualização de oferta melhor
+        if (product._shouldUpdate) {
+          const query = { link_original: product._oldLink || product.link_original };
+          const existing = await Product.findOne(query);
 
-        if (existing) {
-          // Atualiza produto existente
-          await Product.updateOne(
-            { _id: existing._id }, 
-            { 
-              $set: { 
-                ...product, 
-                nome_normalizado: normalizedName,
-                updatedAt: new Date(), 
-                isActive: true 
-              } 
-            }
-          );
-          updated++;
+          if (existing) {
+            await Product.updateOne(
+              { _id: existing._id }, 
+              { 
+                $set: { 
+                  ...product, 
+                  nome_normalizado: normalizedName,
+                  updatedAt: new Date(), 
+                  isActive: true 
+                } 
+              }
+            );
+            betterOffers++;
+            console.log(`   🔥 MELHOR OFERTA: ${product.nome.substring(0, 35)}... (${product.desconto})`);
+          } else {
+            // Se não encontrou para atualizar, insere como novo
+            await Product.create({ 
+              ...product, 
+              nome_normalizado: normalizedName,
+              createdAt: new Date() 
+            });
+            inserted++;
+            console.log(`   ✨ ${product.nome.substring(0, 40)}...`);
+          }
         } else {
-          // Cria novo produto
-          await Product.create({ 
-            ...product, 
-            nome_normalizado: normalizedName,
-            createdAt: new Date() 
-          });
-          inserted++;
-          console.log(`   ✨ ${product.nome.substring(0, 40)}...`);
+          // Produto novo normal
+          const query = { link_original: product.link_original };
+          const existing = await Product.findOne(query);
+
+          if (existing) {
+            await Product.updateOne(
+              { _id: existing._id }, 
+              { 
+                $set: { 
+                  ...product, 
+                  nome_normalizado: normalizedName,
+                  updatedAt: new Date(), 
+                  isActive: true 
+                } 
+              }
+            );
+            updated++;
+          } else {
+            await Product.create({ 
+              ...product, 
+              nome_normalizado: normalizedName,
+              createdAt: new Date() 
+            });
+            inserted++;
+            console.log(`   ✨ ${product.nome.substring(0, 40)}...`);
+          }
         }
       } catch (err) {
         if (err.code === 11000) {
@@ -130,12 +141,21 @@ class ScrapingService {
     console.log(`║        📊 RESULTADO FINAL 📊         ║`);
     console.log(`╚═══════════════════════════════════════╝`);
     console.log(`✨ Novos produtos: ${inserted}`);
+    console.log(`🔥 Ofertas melhoradas: ${betterOffers}`);
     console.log(`📝 Atualizados: ${updated}`);
     console.log(`⏭️  Duplicatas ignoradas: ${duplicates}`);
     console.log(`❌ Erros: ${errors}`);
-    console.log(`📦 Total processados: ${products.length}\n`);
+    console.log(`📦 Total processados: ${products.length}`);
+    
+    // ✅ NOVO: Mostra se atingiu o objetivo
+    const totalSaved = inserted + betterOffers;
+    if (totalSaved < products.length) {
+      console.log(`\n⚠️  ATENÇÃO: Apenas ${totalSaved} produtos NOVOS foram salvos de ${products.length} coletados`);
+      console.log(`   ${duplicates} já existiam no banco com ofertas iguais/melhores`);
+    }
+    console.log('');
 
-    return { inserted, updated, duplicates, errors };
+    return { inserted, updated, duplicates, errors, betterOffers, totalSaved };
   }
 
   /**
