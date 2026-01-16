@@ -14,17 +14,15 @@ const ScrapingService = require('../scraper/services/ScrapingService');
     const MIN_DISCOUNT = Number(process.env.MIN_DISCOUNT || 30);
     const TARGET_PRODUCTS = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
     const MODE = process.env.SCRAPING_MODE || 'auto';
-    const MAX_ATTEMPTS = 5; // ✅ Máximo de tentativas
+    const MAX_ATTEMPTS = 5;
 
     const scrapingService = new ScrapingService();
     
     let totalSaved = 0;
     let attempt = 0;
-    let allCollectedProducts = [];
 
     console.log(`🎯 OBJETIVO: Salvar ${TARGET_PRODUCTS} produtos NOVOS no banco\n`);
 
-    // ✅ Loop até conseguir salvar produtos suficientes
     while (totalSaved < TARGET_PRODUCTS && attempt < MAX_ATTEMPTS) {
       attempt++;
       
@@ -32,10 +30,15 @@ const ScrapingService = require('../scraper/services/ScrapingService');
       console.log(`🔄 TENTATIVA ${attempt}/${MAX_ATTEMPTS} | Salvos até agora: ${totalSaved}/${TARGET_PRODUCTS}`);
       console.log(`${'='.repeat(60)}\n`);
 
-      // Coleta mais produtos (sempre busca o TARGET completo)
+      // ✅ FIX: Calcula quantos produtos ainda faltam
+      const remainingProducts = TARGET_PRODUCTS - totalSaved;
+      
+      console.log(`📌 Faltam ${remainingProducts} produtos para atingir a meta\n`);
+
+      // ✅ FIX: Coleta APENAS a quantidade necessária
       const products = await scrapingService.collectFromMarketplace('mercadolivre', {
         minDiscount: MIN_DISCOUNT,
-        limit: TARGET_PRODUCTS,
+        limit: remainingProducts, // ✅ AGORA pede só o que falta!
         mode: MODE
       });
 
@@ -47,15 +50,15 @@ const ScrapingService = require('../scraper/services/ScrapingService');
       // Salva produtos
       const result = await scrapingService.saveProducts(products, 'ML');
       
-      // Atualiza contador de produtos salvos
+      // Conta APENAS produtos NOVOS (inserted + betterOffers)
       const savedThisRound = result.inserted + result.betterOffers;
       totalSaved += savedThisRound;
 
-      console.log(`📊 Progresso: ${totalSaved}/${TARGET_PRODUCTS} produtos salvos`);
+      console.log(`📊 Progresso: ${totalSaved}/${TARGET_PRODUCTS} produtos NOVOS salvos`);
 
       // Se já atingiu o objetivo, para
       if (totalSaved >= TARGET_PRODUCTS) {
-        console.log(`\n✅ OBJETIVO ATINGIDO! ${totalSaved} produtos salvos no banco.`);
+        console.log(`\n✅ OBJETIVO ATINGIDO! ${totalSaved} produtos NOVOS salvos no banco.`);
         break;
       }
 

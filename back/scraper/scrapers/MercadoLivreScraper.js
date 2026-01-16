@@ -6,8 +6,8 @@ class MercadoLivreScraper {
     this.minDiscount = minDiscount;
     this.limit = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
     this.duplicatesIgnored = 0;
-    this.betterOffersUpdated = 0; // ✅ NOVO: Contador de ofertas melhoradas
-    this.existingProductsMap = new Map(); // ✅ NOVO: Map para busca rápida
+    this.betterOffersUpdated = 0;
+    this.existingProductsMap = new Map();
   }
 
   /**
@@ -17,14 +17,6 @@ class MercadoLivreScraper {
     console.log('🔍 Carregando produtos existentes do banco...');
     
     try {
-      // ✅ DEBUG: Testa diferentes valores de marketplace
-      const allProducts = await Product.find({}).select('marketplace').lean();
-      const marketplaceValues = [...new Set(allProducts.map(p => p.marketplace))];
-      
-      console.log(`   📊 Debug - Total de produtos no banco: ${allProducts.length}`);
-      console.log(`   📊 Debug - Valores únicos de marketplace: ${JSON.stringify(marketplaceValues)}`);
-      
-      // Busca produtos do ML (testa variações)
       const products = await Product.find({ 
         marketplace: { $in: ['ML', 'ml', 'Mercado Livre', 'mercadolivre', 'MercadoLivre'] }
       }).select('link_original nome desconto preco_para preco_de isActive marketplace').lean();
@@ -35,7 +27,7 @@ class MercadoLivreScraper {
         console.log(`   📊 Exemplo do primeiro produto:`, {
           nome: products[0].nome?.substring(0, 30),
           marketplace: products[0].marketplace,
-          link_original: products[0].link_original ? 'OK' : '❌ VAZIO',
+          link_original: products[0].link_original ? products[0].link_original.substring(0, 50) + '...' : '❌ VAZIO',
           isActive: products[0].isActive
         });
       }
@@ -49,18 +41,15 @@ class MercadoLivreScraper {
         if (p.link_original) {
           // Garante que desconto e preço sejam números
           p.desconto = String(p.desconto || '0').replace(/\D/g, '');
-          p.preco_para = String(p.preco_para || '0');
+          p.preco_para = String(p.preco_para || '0').replace(/\D/g, '');
           this.existingProductsMap.set(p.link_original, p);
           added++;
-        } else {
-          console.log(`   ⚠️  Produto sem link_original: ${p.nome?.substring(0, 30)}`);
         }
       });
       
-      console.log(`   ✅ ${added} produtos carregados no cache (${products.length - added} sem link)\n`);
+      console.log(`   ✅ ${added} produtos carregados no cache\n`);
     } catch (error) {
       console.error('⚠️  Erro ao carregar produtos do banco:', error.message);
-      console.error('   Stack:', error.stack);
     }
   }
 
@@ -216,27 +205,51 @@ class MercadoLivreScraper {
                   );
                   const linkEl = item.querySelector('a');
                   const imgEl = item.querySelector('img');
-                  const priceEl = item.querySelector('.andes-money-amount__fraction');
-                  const price = priceEl ? priceEl.innerText : '0';
-                  const oldPriceEl = item.querySelector('.andes-money-amount--previous .andes-money-amount__fraction, s .andes-money-amount__fraction');
-                  const oldPrice = oldPriceEl ? oldPriceEl.innerText : price;
+                  
+                  // ✅ FIX BUG 3: Pega TODOS os preços corretamente
+                  const priceElements = item.querySelectorAll('.andes-money-amount__fraction');
+                  let currentPrice = '0';
+                  let oldPrice = '0';
+                  
+                  if (priceElements.length >= 2) {
+                    // Primeiro é o preço atual, segundo é o antigo (riscado)
+                    currentPrice = priceElements[0].innerText.replace(/\./g, '');
+                    oldPrice = priceElements[1].innerText.replace(/\./g, '');
+                  } else if (priceElements.length === 1) {
+                    // Só tem preço atual
+                    currentPrice = priceElements[0].innerText.replace(/\./g, '');
+                    // Calcula preço antigo baseado no desconto
+                    const currentVal = parseInt(currentPrice);
+                    oldPrice = Math.round(currentVal / (1 - discountVal / 100)).toString();
+                  }
 
+                  // ✅ FIX BUG 1: Valida link ANTES de adicionar
                   if (titleEl && linkEl && linkEl.href) {
+                    const cleanLink = linkEl.href.split('?')[0];
+                    
+                    // Valida se o link é válido
+                    if (!cleanLink || cleanLink.length < 20 || !cleanLink.startsWith('http')) {
+                      console.log('⚠️ Link inválido detectado:', cleanLink);
+                      return;
+                    }
+                    
                     results.push({
                       nome: titleEl.innerText.trim(),
                       imagem: imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '',
-                      link_original: linkEl.href.split('?')[0],
-                      preco: `R$ ${price}`,
+                      link_original: cleanLink,
+                      preco: `R$ ${currentPrice}`,
                       preco_anterior: `R$ ${oldPrice}`,
-                      preco_de: oldPrice.replace(/\D/g, ''),
-                      preco_para: price.replace(/\D/g, ''),
+                      preco_de: oldPrice,
+                      preco_para: currentPrice,
                       desconto: `${discountVal}%`,
                       marketplace: 'ML',
                       isActive: true
                     });
                   }
                 }
-              } catch (e) {}
+              } catch (e) {
+                console.error('Erro ao processar item:', e.message);
+              }
             });
             
             return results;
@@ -244,6 +257,12 @@ class MercadoLivreScraper {
 
           // ✅ Processa cada produto com lógica inteligente
           for (const product of productsFromPage) {
+            // ✅ Valida novamente no Node.js
+            if (!product.link_original || product.link_original.length < 20) {
+              console.log(`   ⚠️ Produto sem link válido ignorado: ${product.nome.substring(0, 30)}...`);
+              continue;
+            }
+
             const result = await this.processProduct(product, allProducts);
             
             if (result.action === 'add' || result.action === 'update') {

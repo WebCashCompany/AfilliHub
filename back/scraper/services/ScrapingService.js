@@ -4,7 +4,6 @@ const MercadoLivreScraper = require('../scrapers/MercadoLivreScraper');
 class ScrapingService {
   constructor() {
     this.marketplaces = new Map();
-    // ✅ REMOVIDO: this.mlAffiliateApi = new MLAffiliateAPI();
     this.initializeMarketplaces();
   }
 
@@ -13,7 +12,6 @@ class ScrapingService {
       this.marketplaces.set('mercadolivre', {
         name: 'Mercado Livre',
         code: 'ML',
-        // ✅ REMOVIDO: api: new MLProductAPI(),
         scraper: new MercadoLivreScraper(),
         enabled: true
       });
@@ -31,20 +29,17 @@ class ScrapingService {
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
 
-    // ✅ SIMPLIFICADO: Apenas scraper agora (sem tentativa de API)
     console.log('🟡 Usando Web Scraper (Playwright)...');
     marketplace.scraper.minDiscount = minDiscount;
     marketplace.scraper.limit = limit;
     
-    // ✅ NOVO: Passa callback para saber quantos foram salvos
     products = await marketplace.scraper.scrapeCategory();
 
-    // ✅ NOVO: Gera links de afiliado manualmente (sem API)
+    // Gera links de afiliado
     if (products.length > 0) {
       console.log(`🔗 Gerando ${products.length} links de afiliado...`);
       
       products.forEach(product => {
-        // Adiciona parâmetros de afiliado diretamente na URL
         const separator = product.link_original.includes('?') ? '&' : '?';
         product.link_afiliado = `${product.link_original}${separator}matt_tool=77997172&utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
       });
@@ -64,8 +59,8 @@ class ScrapingService {
         const normalizedName = this.normalizeProductName(product.nome);
         
         // ✅ GARANTIR que link_original existe
-        if (!product.link_original) {
-          console.log(`   ⚠️ Produto sem link ignorado: ${product.nome.substring(0, 40)}...`);
+        if (!product.link_original || product.link_original.length < 20) {
+          console.log(`   ⚠️ Produto sem link válido ignorado: ${product.nome.substring(0, 40)}...`);
           continue;
         }
         
@@ -75,11 +70,14 @@ class ScrapingService {
           const existing = await Product.findOne(query);
 
           if (existing) {
+            // Remove flags internas antes de salvar
+            const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
+            
             await Product.updateOne(
               { _id: existing._id }, 
               { 
                 $set: { 
-                  ...product, 
+                  ...cleanProduct, 
                   nome_normalizado: normalizedName,
                   updatedAt: new Date(), 
                   isActive: true 
@@ -90,8 +88,10 @@ class ScrapingService {
             console.log(`   🔥 MELHOR OFERTA: ${product.nome.substring(0, 35)}... (${product.desconto})`);
           } else {
             // Se não encontrou para atualizar, insere como novo
+            const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
+            
             await Product.create({ 
-              ...product, 
+              ...cleanProduct, 
               nome_normalizado: normalizedName,
               createdAt: new Date() 
             });
@@ -147,7 +147,6 @@ class ScrapingService {
     console.log(`❌ Erros: ${errors}`);
     console.log(`📦 Total processados: ${products.length}`);
     
-    // ✅ NOVO: Mostra se atingiu o objetivo
     const totalSaved = inserted + betterOffers;
     if (totalSaved < products.length) {
       console.log(`\n⚠️  ATENÇÃO: Apenas ${totalSaved} produtos NOVOS foram salvos de ${products.length} coletados`);
@@ -155,12 +154,10 @@ class ScrapingService {
     }
     console.log('');
 
+    // ✅ FIX BUG 2: Retorna APENAS produtos NOVOS salvos
     return { inserted, updated, duplicates, errors, betterOffers, totalSaved };
   }
 
-  /**
-   * Normaliza nome do produto para detectar duplicatas
-   */
   normalizeProductName(name) {
     return name
       .toLowerCase()
