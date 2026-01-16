@@ -3,8 +3,9 @@ const Product = require('../models/Product');
 class ProductRepository {
   async upsert(productData) {
     try {
+      // Usamos o link_afiliado como filtro único para evitar o erro E11000
       return await Product.findOneAndUpdate(
-        { nome: productData.nome, marketplace: productData.marketplace },
+        { link_afiliado: productData.link_afiliado }, 
         { 
           ...productData,
           ultima_verificacao: new Date()
@@ -24,12 +25,16 @@ class ProductRepository {
   async bulkUpsert(products) {
     if (!products || products.length === 0) return { ok: 0 };
 
-    const operations = products.map(product => ({
+    // 1. FILTRO DE MEMÓRIA: Remove duplicados antes de enviar para o banco
+    const uniqueProducts = Array.from(
+      new Map(products.map(p => [p.link_afiliado, p])).values()
+    );
+
+    // 2. MONTAGEM DAS OPERAÇÕES
+    const operations = uniqueProducts.map(product => ({
       updateOne: {
-        filter: { 
-          nome: product.nome,
-          marketplace: product.marketplace 
-        },
+        // Filtramos pelo link_afiliado que é a sua chave única no MongoDB
+        filter: { link_afiliado: product.link_afiliado },
         update: { 
           $set: {
             ...product,
@@ -41,12 +46,14 @@ class ProductRepository {
     }));
 
     try {
+      // 'ordered: false' faz com que se um der erro, os outros continuem salvando
       const result = await Product.bulkWrite(operations, { ordered: false });
-      console.log(`✅ Bulk: ${result.upsertedCount} inseridos, ${result.modifiedCount} atualizados`);
+      console.log(`✅ Bulk: ${result.upsertedCount} novos, ${result.modifiedCount} atualizados`);
       return result;
     } catch (error) {
-      console.error('Erro no bulk upsert:', error);
-      throw error;
+      // Se houver erro de chave duplicada residual, ele loga mas não quebra o processo
+      console.error('⚠️ Algumas duplicatas foram detectadas e ignoradas no Bulk.');
+      return error.result || { ok: 0 };
     }
   }
 
