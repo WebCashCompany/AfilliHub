@@ -50,7 +50,7 @@ class MercadoLivreScraper {
     const page = await context.newPage();
     let allProducts = [];
     let pageNum = 1;
-    const maxPages = 15; // Aumentado para garantir que encontramos 50 únicos
+    const maxPages = 15; 
 
     try {
       console.log(`🎯 Meta: ${this.limit} produtos únicos com ${this.minDiscount}%+ de desconto\n`);
@@ -64,7 +64,6 @@ class MercadoLivreScraper {
         try {
           await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
           
-          // Aguarda os cards carregarem
           await page.waitForTimeout(2000);
 
           // Scroll progressivo para carregar lazy-load
@@ -84,7 +83,6 @@ class MercadoLivreScraper {
 
             items.forEach(item => {
               try {
-                // Busca o elemento de desconto
                 const discEl = item.querySelector(
                   '.poly-discount-badge, .andes-money-amount__discount, .promotion-item__discount-text, [class*="discount"]'
                 );
@@ -92,22 +90,13 @@ class MercadoLivreScraper {
                 const discountVal = parseInt(discountText.replace(/[^\d]/g, '')) || 0;
 
                 if (discountVal >= minDisc) {
-                  // Busca título
                   const titleEl = item.querySelector(
                     '.poly-component__title, .promotion-item__title, .ui-search-item__title, h2, [class*="title"]'
                   );
-                  
-                  // Busca link
                   const linkEl = item.querySelector('a');
-                  
-                  // Busca imagem
                   const imgEl = item.querySelector('img');
-                  
-                  // Busca preço atual
                   const priceEl = item.querySelector('.andes-money-amount__fraction');
                   const price = priceEl ? priceEl.innerText : '0';
-                  
-                  // Busca preço anterior (se houver)
                   const oldPriceEl = item.querySelector('.andes-money-amount--previous .andes-money-amount__fraction, s .andes-money-amount__fraction');
                   const oldPrice = oldPriceEl ? oldPriceEl.innerText : price;
 
@@ -115,20 +104,18 @@ class MercadoLivreScraper {
                     results.push({
                       nome: titleEl.innerText.trim(),
                       imagem: imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '',
-                      link_original: linkEl.href.split('?')[0], // Remove query params para comparação
+                      link_original: linkEl.href.split('?')[0],
                       preco: `R$ ${price}`,
                       preco_anterior: `R$ ${oldPrice}`,
-                      preco_de: oldPrice,
-                      preco_para: price,
+                      preco_de: oldPrice.replace(/\D/g, ''),
+                      preco_para: price.replace(/\D/g, ''),
                       desconto: `${discountVal}%`,
                       marketplace: 'ML',
                       isActive: true
                     });
                   }
                 }
-              } catch (e) {
-                // Ignora erros individuais de produtos
-              }
+              } catch (e) {}
             });
             
             return results;
@@ -136,74 +123,41 @@ class MercadoLivreScraper {
 
           console.log(`   └─ Encontrados na página: ${productsFromPage.length}`);
 
-          // Adiciona apenas produtos únicos
-          let addedFromPage = 0;
           for (const product of productsFromPage) {
             if (!this.isDuplicate(product, allProducts)) {
               allProducts.push(product);
-              addedFromPage++;
-              
-              // Para se atingiu o limite
-              if (allProducts.length >= this.limit) {
-                break;
-              }
+              if (allProducts.length >= this.limit) break;
             }
           }
 
-          console.log(`   └─ Adicionados únicos: ${addedFromPage}`);
-          console.log(`   └─ Total acumulado: ${allProducts.length}\n`);
+          console.log(`   └─ Adicionados únicos: ${allProducts.length}\n`);
 
-          // Se não encontrou nada na página, provavelmente acabaram as ofertas
-          if (productsFromPage.length === 0) {
-            console.log('⚠️  Página sem ofertas. Finalizando busca.\n');
-            break;
-          }
-
-          // Se atingiu o limite, para
-          if (allProducts.length >= this.limit) {
-            console.log(`✅ Meta atingida! ${allProducts.length} produtos únicos coletados.\n`);
-            break;
-          }
+          if (productsFromPage.length === 0) break;
+          if (allProducts.length >= this.limit) break;
 
           pageNum++;
-          
-          // Delay entre páginas para evitar bloqueio
           await page.waitForTimeout(1500 + Math.random() * 1000);
 
         } catch (pageError) {
           console.error(`❌ Erro na página ${pageNum}:`, pageError.message);
-          // Continua para a próxima página
           pageNum++;
         }
       }
 
       await browser.close();
-
-      // Garante que retorna exatamente o limite (ou menos se não houver)
       const finalProducts = allProducts.slice(0, this.limit);
       
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`🏁 Scraping finalizado!`);
       console.log(`📊 Produtos únicos coletados: ${finalProducts.length}`);
-      console.log(`📄 Páginas navegadas: ${pageNum - 1}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-      // Adiciona links de afiliado
-      const affiliateId = process.env.ML_AFFILIATE_ID || '77997172';
-      return finalProducts.map(p => ({
-        ...p,
-        link_afiliado: `${p.link_original}?matt_tool=${affiliateId}&utm_source=affiliate&utm_medium=webcash`
-      }));
+      return finalProducts;
 
     } catch (error) {
       console.error('❌ Erro crítico no scraper:', error.message);
       await browser.close();
-      
-      // Retorna o que conseguiu coletar até o erro
-      return allProducts.slice(0, this.limit).map(p => ({
-        ...p,
-        link_afiliado: `${p.link_original}?matt_tool=${process.env.ML_AFFILIATE_ID || '77997172'}&utm_source=affiliate&utm_medium=webcash`
-      }));
+      return allProducts.slice(0, this.limit);
     }
   }
 }

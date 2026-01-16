@@ -1,152 +1,130 @@
 require('dotenv').config();
 
 const connectDB = require('./database/mongodb');
-const Product = require('./database/models/Product');
-const MercadoLivreScraper = require('./scraper/scrapers/MercadoLivreScraper');
+const ScrapingService = require('./services/ScrapingService');
 
 /**
- * Normaliza o nome do produto para comparação (remove caracteres especiais, espaços extras, etc)
+ * AUTOMAÇÃO PRINCIPAL - MULTI-MARKETPLACE
+ * 
+ * Pode rodar:
+ * 1. TODOS os marketplaces de uma vez
+ * 2. Apenas um marketplace específico
+ * 
+ * Uso:
+ * - node index.js                    → Roda TODOS
+ * - node index.js mercadolivre       → Roda apenas ML
+ * - node index.js shopee             → Roda apenas Shopee
  */
-function normalizeProductName(name) {
-  return name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
-    .replace(/[^\w\s]/g, '') // Remove caracteres especiais
-    .replace(/\s+/g, ' ') // Remove espaços extras
-    .trim();
-}
-
-/**
- * Extrai o valor numérico do desconto
- */
-function getDiscountValue(desconto) {
-  if (!desconto) return 0;
-  const match = desconto.match(/(\d+)/);
-  return match ? parseInt(match[1]) : 0;
-}
-
-/**
- * Extrai o valor numérico do preço
- */
-function getPriceValue(preco) {
-  if (!preco) return 0;
-  const cleaned = preco.replace(/[^\d,]/g, '').replace(',', '.');
-  return parseFloat(cleaned) || 0;
-}
-
-/**
- * Verifica se o produto deve ser atualizado (promoção melhor)
- */
-function shouldUpdate(existingProduct, newProduct) {
-  const existingDiscount = getDiscountValue(existingProduct.desconto);
-  const newDiscount = getDiscountValue(newProduct.desconto);
-  const existingPrice = getPriceValue(existingProduct.preco);
-  const newPrice = getPriceValue(newProduct.preco);
-
-  // Atualiza se:
-  // 1. Desconto maior, OU
-  // 2. Desconto igual mas preço menor
-  return newDiscount > existingDiscount || 
-         (newDiscount === existingDiscount && newPrice < existingPrice);
-}
 
 (async () => {
+  const startTime = Date.now();
+
   try {
-    console.log('🚀 Iniciando automação Affiliate Hub Pro');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    console.log('\n');
+    console.log('╔════════════════════════════════════════════════════╗');
+    console.log('║     🚀 AFFILIATE HUB PRO - MULTI-MARKETPLACE 🚀  ║');
+    console.log('╚════════════════════════════════════════════════════╝');
+    console.log('\n');
 
+    // Conecta MongoDB
+    console.log('🔌 Conectando ao MongoDB...');
     await connectDB();
+    console.log('✅ MongoDB conectado!\n');
 
-    const scraper = new MercadoLivreScraper(
-      Number(process.env.MIN_DISCOUNT || 30)
-    );
+    // Configurações
+    const MIN_DISCOUNT = Number(process.env.MIN_DISCOUNT || 30);
+    const LIMIT = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
+    const MODE = process.env.SCRAPING_MODE || 'auto';
 
-    console.log('📡 Capturando produtos do Mercado Livre...\n');
-    const scrapedProducts = await scraper.scrapeCategory();
+    console.log('⚙️  CONFIGURAÇÕES GLOBAIS:');
+    console.log(`   └─ Desconto mínimo: ${MIN_DISCOUNT}%`);
+    console.log(`   └─ Limite por marketplace: ${LIMIT}`);
+    console.log(`   └─ Modo: ${MODE.toUpperCase()}\n`);
 
-    console.log(`\n📦 Produtos capturados: ${scrapedProducts.length}`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    // Inicia scraping service
+    const scrapingService = new ScrapingService();
 
-    let inserted = 0;
-    let updated = 0;
-    let skipped = 0;
-    let errors = 0;
+    // Verifica se foi especificado um marketplace específico
+    const targetMarketplace = process.argv[2]; // node index.js mercadolivre
 
-    console.log('💾 Processando produtos no banco de dados...\n');
+    const options = {
+      minDiscount: MIN_DISCOUNT,
+      limit: LIMIT,
+      mode: MODE
+    };
 
-    for (const product of scrapedProducts) {
-      try {
-        const normalizedName = normalizeProductName(product.nome);
+    let allProducts = [];
+    let marketplacesProcessed = 0;
 
-        // Busca produto existente por link_afiliado OU nome similar
-        const existingProduct = await Product.findOne({
-          $or: [
-            { link_afiliado: product.link_afiliado },
-            { link_original: product.link_original },
-            { nome: { $regex: new RegExp(normalizedName.split(' ').slice(0, 5).join('.*'), 'i') } }
-          ],
-          marketplace: 'ML'
-        });
+    // MODO 1: Marketplace específico
+    if (targetMarketplace) {
+      console.log(`🎯 Executando apenas: ${targetMarketplace.toUpperCase()}\n`);
+      
+      const products = await scrapingService.collectFromMarketplace(
+        targetMarketplace,
+        options
+      );
 
-        if (existingProduct) {
-          // Produto já existe - verifica se deve atualizar
-          if (shouldUpdate(existingProduct, product)) {
-            await Product.updateOne(
-              { _id: existingProduct._id },
-              { 
-                $set: {
-                  ...product,
-                  updatedAt: new Date()
-                }
-              }
-            );
-            updated++;
-            console.log(`🔄 Atualizado: ${product.nome.substring(0, 60)}...`);
-            console.log(`   └─ Desconto: ${existingProduct.desconto} → ${product.desconto}`);
-            console.log(`   └─ Preço: ${existingProduct.preco} → ${product.preco}\n`);
-          } else {
-            skipped++;
-            console.log(`⏭️  Pulado (já existe melhor): ${product.nome.substring(0, 50)}...\n`);
-          }
-        } else {
-          // Produto novo - insere
-          await Product.create({
-            ...product,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          });
-          inserted++;
-          console.log(`✅ Novo produto: ${product.nome.substring(0, 60)}...`);
-          console.log(`   └─ Desconto: ${product.desconto} | Preço: ${product.preco}\n`);
+      if (products && products.length > 0) {
+        allProducts.push(...products);
+        await scrapingService.saveProducts(products);
+        marketplacesProcessed = 1;
+      }
+    }
+    // MODO 2: Todos os marketplaces
+    else {
+      console.log('🌐 Executando TODOS os marketplaces\n');
+      
+      scrapingService.listMarketplaces();
+
+      const results = await scrapingService.collectFromAll(options);
+
+      // Salva produtos de cada marketplace
+      for (const [name, result] of Object.entries(results)) {
+        if (result.success && result.products.length > 0) {
+          console.log(`\n💾 Salvando produtos: ${name}\n`);
+          
+          await scrapingService.saveProducts(result.products);
+          allProducts.push(...result.products);
+          marketplacesProcessed++;
         }
-
-      } catch (err) {
-        errors++;
-        console.error(`❌ Erro ao processar "${product.nome}":`, err.message, '\n');
       }
     }
 
-    // Relatório final
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📊 RELATÓRIO FINAL');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`✅ Novos produtos inseridos: ${inserted}`);
-    console.log(`🔄 Produtos atualizados: ${updated}`);
-    console.log(`⏭️  Produtos pulados: ${skipped}`);
-    console.log(`❌ Erros: ${errors}`);
-    console.log(`📦 Total processado: ${scrapedProducts.length}`);
-    
-    const totalInDB = await Product.countDocuments({ marketplace: 'ML', isActive: true });
-    console.log(`\n💾 Total de produtos ML ativos no banco: ${totalInDB}`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    // Resumo geral
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
-    console.log('🟢 Automação finalizada com sucesso!');
+    console.log('\n╔════════════════════════════════════════════════════╗');
+    console.log('║           ✅ AUTOMAÇÃO CONCLUÍDA ✅              ║');
+    console.log('╚════════════════════════════════════════════════════╝');
+    console.log(`📊 Marketplaces processados: ${marketplacesProcessed}`);
+    console.log(`📦 Total de produtos coletados: ${allProducts.length}`);
+    console.log(`⏱️  Tempo total: ${duration}s\n`);
+
+    // Estatísticas por marketplace
+    if (!targetMarketplace) {
+      console.log('📈 ESTATÍSTICAS POR MARKETPLACE:\n');
+      
+      const stats = {};
+      for (const product of allProducts) {
+        stats[product.marketplace] = (stats[product.marketplace] || 0) + 1;
+      }
+
+      for (const [marketplace, count] of Object.entries(stats)) {
+        console.log(`   ${marketplace}: ${count} produtos`);
+      }
+      console.log('');
+    }
+
     process.exit(0);
 
-  } catch (err) {
-    console.error('\n❌ ERRO CRÍTICO NA AUTOMAÇÃO:', err);
-    console.error('Stack trace:', err.stack);
+  } catch (error) {
+    console.error('\n╔════════════════════════════════════════════════════╗');
+    console.error('║                 ❌ ERRO CRÍTICO ❌                ║');
+    console.error('╚════════════════════════════════════════════════════╝\n');
+    console.error('Mensagem:', error.message);
+    console.error('Stack:', error.stack, '\n');
+    
     process.exit(1);
   }
 })();
