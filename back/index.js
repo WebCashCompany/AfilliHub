@@ -1,25 +1,35 @@
 require('dotenv').config();
 
+const connectDB = require('./database/mongodb');
+const Product = require('./database/models/Product');
 const MercadoLivreScraper = require('./scraper/scrapers/MercadoLivreScraper');
 
-
 (async () => {
-    try {
-        console.log('🚀 Iniciando automação Affiliate Hub Pro');
+  try {
+    console.log('🚀 Iniciando automação Affiliate Hub Pro');
 
-        const minDiscount = Number(process.env.MIN_DISCOUNT || 30);
-        const maxProducts = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
+    await connectDB();
 
-        const scraper = new MercadoLivreScraper(minDiscount);
+    const scraper = new MercadoLivreScraper(
+      Number(process.env.MIN_DISCOUNT || 30)
+    );
 
-        const produtos = await scraper.scrapeCategory(null, maxProducts);
+    const products = await scraper.scrapeCategory();
 
-        console.log(`✅ Automação finalizada`);
-        console.log(`📦 Produtos capturados: ${produtos.length}`);
+    console.log(`📦 Produtos capturados: ${products.length}`);
 
-        process.exit(0);
-    } catch (err) {
-        console.error('❌ Erro na automação:', err);
-        process.exit(1);
+    for (const product of products) {
+      await Product.updateOne(
+        { link_afiliado: product.link_afiliado },
+        { $set: product },
+        { upsert: true }
+      );
     }
+
+    console.log(`🟢 ${products.length} produtos salvos no MongoDB`);
+    process.exit(0);
+  } catch (err) {
+    console.error('❌ ERRO GERAL:', err);
+    process.exit(1);
+  }
 })();
