@@ -1,5 +1,6 @@
 const Product = require('../../database/models/Product');
 const MercadoLivreScraper = require('../scrapers/MercadoLivreScraper');
+const MagaluScraper = require('../scrapers/MagaluScraper');
 
 class ScrapingService {
   constructor() {
@@ -8,6 +9,7 @@ class ScrapingService {
   }
 
   initializeMarketplaces() {
+    // ✅ Mercado Livre
     try {
       this.marketplaces.set('mercadolivre', {
         name: 'Mercado Livre',
@@ -17,6 +19,18 @@ class ScrapingService {
       });
     } catch (error) {
       console.error('⚠️ Mercado Livre não disponível:', error.message);
+    }
+
+    // ✅ Magazine Luiza
+    try {
+      this.marketplaces.set('magalu', {
+        name: 'Magazine Luiza',
+        code: 'MAGALU',
+        scraper: new MagaluScraper(),
+        enabled: true
+      });
+    } catch (error) {
+      console.error('⚠️ Magazine Luiza não disponível:', error.message);
     }
   }
 
@@ -40,8 +54,19 @@ class ScrapingService {
       console.log(`🔗 Gerando ${products.length} links de afiliado...`);
       
       products.forEach(product => {
-        const separator = product.link_original.includes('?') ? '&' : '?';
-        product.link_afiliado = `${product.link_original}${separator}matt_tool=77997172&utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
+        // ✅ Links de afiliado específicos por marketplace
+        if (marketplace.code === 'ML') {
+          const separator = product.link_original.includes('?') ? '&' : '?';
+          product.link_afiliado = `${product.link_original}${separator}matt_tool=77997172&utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
+        } else if (marketplace.code === 'MAGALU') {
+          // Magalu já vem com link de afiliado no próprio link_original
+          // Adiciona UTM tracking se necessário
+          const separator = product.link_original.includes('?') ? '&' : '?';
+          product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
+        } else {
+          // Fallback para outros marketplaces
+          product.link_afiliado = product.link_original;
+        }
       });
 
       console.log('✅ Links de afiliado aplicados!\n');
