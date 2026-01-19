@@ -4,14 +4,14 @@ const { getCategoria } = require('../../config/categorias-ml');
 
 /**
  * ═══════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - VERSÃO COM CATEGORIAS
+ * MERCADO LIVRE SCRAPER - VERSÃO CORRIGIDA
  * ═══════════════════════════════════════════════════════════════
  * 
+ * ✅ CORREÇÃO: Preços não invertidos (preco_de > preco_para)
+ * ✅ CORREÇÃO: Filtro de preço máximo funcional
  * ✅ MANTÉM: Sistema de links afiliados
  * ✅ MANTÉM: Detecção de duplicatas
- * ✅ MANTÉM: Detecção de ofertas melhores
- * ✅ MANTÉM: Validação de links
- * ✅ NOVO: Suporte a múltiplas categorias
+ * ✅ MANTÉM: Suporte a categorias
  */
 
 class MercadoLivreScraper {
@@ -22,14 +22,13 @@ class MercadoLivreScraper {
     this.betterOffersUpdated = 0;
     this.existingProductsMap = new Map();
     
-    // ✅ NOVO: Suporte a categorias
     this.categoria = options.categoria || 'todas';
     this.categoriaInfo = getCategoria(this.categoria);
+    
+    // ✅ NOVO: Suporte a filtro de preço
+    this.maxPrice = options.maxPrice || null;
   }
 
-  /**
-   * Carrega produtos existentes do MongoDB
-   */
   async loadExistingProducts() {
     console.log('🔍 Carregando produtos existentes do banco...');
    
@@ -53,11 +52,9 @@ class MercadoLivreScraper {
       console.log(`   ├─ Ativos: ${products.filter(p => p.isActive).length}`);
       console.log(`   └─ Inativos: ${products.filter(p => !p.isActive).length}`);
      
-      // Cria Map para busca O(1) por link_original
       let added = 0;
       products.forEach(p => {
         if (p.link_original) {
-          // Garante que desconto e preço sejam números
           p.desconto = String(p.desconto || '0').replace(/\D/g, '');
           p.preco_para = String(p.preco_para || '0').replace(/\D/g, '');
           this.existingProductsMap.set(p.link_original, p);
@@ -71,9 +68,6 @@ class MercadoLivreScraper {
     }
   }
 
-  /**
-   * Normaliza o nome do produto para evitar duplicatas
-   */
   normalizeProductName(name) {
     return name
       .toLowerCase()
@@ -84,9 +78,6 @@ class MercadoLivreScraper {
       .trim();
   }
 
-  /**
-   * Compara se a nova oferta é melhor que a existente
-   */
   isBetterOffer(newProduct, existingProduct) {
     const newDiscount = parseInt(newProduct.desconto) || 0;
     const existingDiscount = parseInt(existingProduct.desconto) || 0;
@@ -94,20 +85,15 @@ class MercadoLivreScraper {
     const newPrice = parseInt(newProduct.preco_para) || 0;
     const existingPrice = parseInt(existingProduct.preco_para) || 0;
 
-    // É melhor se: desconto maior OU (desconto igual + preço menor)
     if (newDiscount > existingDiscount) return true;
     if (newDiscount === existingDiscount && newPrice < existingPrice) return true;
    
     return false;
   }
 
-  /**
-   * Verifica duplicatas E ofertas melhores
-   */
   async processProduct(product, collectedProducts) {
     const normalizedName = this.normalizeProductName(product.nome);
    
-    // 1️⃣ Verifica produtos já coletados NESTA execução
     const duplicateInMemory = collectedProducts.some(p => {
       const existingNormalized = this.normalizeProductName(p.nome);
       return p.link_original === product.link_original ||
@@ -119,17 +105,14 @@ class MercadoLivreScraper {
       return { action: 'skip', reason: 'duplicate_in_memory' };
     }
 
-    // 2️⃣ Verifica se existe no BANCO
     const existingInDb = this.existingProductsMap.get(product.link_original);
    
     if (!existingInDb) {
-      // 2️⃣A - Busca por nome similar (segunda verificação)
       for (const [link, existingProd] of this.existingProductsMap.entries()) {
         const existingNormalized = this.normalizeProductName(existingProd.nome);
         if (existingNormalized.split(' ').slice(0, 5).join(' ') ===
             normalizedName.split(' ').slice(0, 5).join(' ')) {
          
-          // Produto similar encontrado, verifica se é melhor oferta
           if (this.isBetterOffer(product, existingProd)) {
             return {
               action: 'update',
@@ -142,11 +125,9 @@ class MercadoLivreScraper {
         }
       }
      
-      // Produto realmente novo!
       return { action: 'add', reason: 'new_product' };
     }
 
-    // 3️⃣ Produto existe, verifica se nova oferta é melhor
     if (this.isBetterOffer(product, existingInDb)) {
       return {
         action: 'update',
@@ -155,13 +136,9 @@ class MercadoLivreScraper {
       };
     }
 
-    // Oferta pior ou igual, ignora
     return { action: 'skip', reason: 'worse_or_equal_offer' };
   }
 
-  /**
-   * ✅ ATUALIZADO: Scraping com suporte a categorias
-   */
   async scrapeCategory() {
     await this.loadExistingProducts();
 
@@ -183,7 +160,6 @@ class MercadoLivreScraper {
     this.betterOffersUpdated = 0;
 
     try {
-      // ✅ Mostra categoria sendo processada
       console.log(`╔════════════════════════════════════════════════════╗`);
       if (this.categoriaInfo) {
         console.log(`║  ${this.categoriaInfo.emoji}  CATEGORIA: ${this.categoriaInfo.nome.padEnd(38)} ║`);
@@ -194,7 +170,6 @@ class MercadoLivreScraper {
       while (allProducts.length < this.limit && pageNum <= maxPages) {
         const offset = (pageNum - 1) * 48;
         
-        // ✅ NOVO: Usa URL da categoria
         const baseUrl = this.categoriaInfo ? this.categoriaInfo.url : 'https://www.mercadolivre.com.br/ofertas';
         const separator = baseUrl.includes('?') ? '&' : '?';
         const url = `${baseUrl}${separator}page=${pageNum}${offset > 0 ? `&_Desde_${offset + 1}` : ''}`;
@@ -216,7 +191,8 @@ class MercadoLivreScraper {
 
           await page.waitForTimeout(1500);
 
-          const productsFromPage = await page.evaluate(({ minDisc }) => {
+          // ✅ CORRIGIDO: Extração de preços + filtro de preço
+          const productsFromPage = await page.evaluate(({ minDisc, maxPriceLimit }) => {
             const items = document.querySelectorAll('.poly-card, .promotion-item__container, .ui-search-result, [class*="promotion-item"]');
             const results = [];
 
@@ -235,21 +211,48 @@ class MercadoLivreScraper {
                   const linkEl = item.querySelector('a');
                   const imgEl = item.querySelector('img');
                  
-                  // Pega TODOS os preços corretamente
+                  // ✅ CORREÇÃO CRÍTICA: Extração correta dos preços
                   const priceElements = item.querySelectorAll('.andes-money-amount__fraction');
                   let currentPrice = '0';
                   let oldPrice = '0';
                  
                   if (priceElements.length >= 2) {
+                    // Primeiro preço = PREÇO ATUAL (COM DESCONTO)
                     currentPrice = priceElements[0].innerText.replace(/\./g, '');
+                    // Segundo preço = PREÇO ANTIGO (SEM DESCONTO)
                     oldPrice = priceElements[1].innerText.replace(/\./g, '');
                   } else if (priceElements.length === 1) {
                     currentPrice = priceElements[0].innerText.replace(/\./g, '');
+                    // Calcula preço antigo baseado no desconto
                     const currentVal = parseInt(currentPrice);
                     oldPrice = Math.round(currentVal / (1 - discountVal / 100)).toString();
                   }
 
-                  // Valida link ANTES de adicionar
+                  // ✅ VALIDAÇÃO: preco_de DEVE ser maior que preco_para
+                  const currentPriceNum = parseInt(currentPrice);
+                  const oldPriceNum = parseInt(oldPrice);
+                  
+                  // Se estiver invertido, corrige
+                  let finalCurrentPrice = currentPrice;
+                  let finalOldPrice = oldPrice;
+                  
+                  if (currentPriceNum > oldPriceNum) {
+                    // Preços invertidos! Troca
+                    finalCurrentPrice = oldPrice;
+                    finalOldPrice = currentPrice;
+                  }
+
+                  // ✅ FILTRO DE PREÇO MÁXIMO
+                  if (maxPriceLimit) {
+                    const maxPrice = parseInt(maxPriceLimit);
+                    const productPrice = parseInt(finalCurrentPrice);
+                    
+                    if (productPrice > maxPrice) {
+                      return; // Ignora produto acima do preço máximo
+                    }
+                  }
+
+                  // Valida link
                   if (titleEl && linkEl && linkEl.href) {
                     const cleanLink = linkEl.href.split('?')[0];
                    
@@ -261,10 +264,10 @@ class MercadoLivreScraper {
                       nome: titleEl.innerText.trim(),
                       imagem: imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '',
                       link_original: cleanLink,
-                      preco: `R$ ${currentPrice}`,
-                      preco_anterior: `R$ ${oldPrice}`,
-                      preco_de: oldPrice,
-                      preco_para: currentPrice,
+                      preco: `R$ ${finalCurrentPrice}`,
+                      preco_anterior: `R$ ${finalOldPrice}`,
+                      preco_de: finalOldPrice,        // ✅ PREÇO ANTIGO (MAIOR)
+                      preco_para: finalCurrentPrice,  // ✅ PREÇO ATUAL (MENOR)
                       desconto: `${discountVal}%`,
                       marketplace: 'ML',
                       isActive: true
@@ -277,7 +280,10 @@ class MercadoLivreScraper {
             });
            
             return results;
-          }, { minDisc: this.minDiscount });
+          }, { 
+            minDisc: this.minDiscount,
+            maxPriceLimit: this.maxPrice  // ✅ Passa filtro de preço
+          });
 
           // Processa cada produto
           for (const product of productsFromPage) {
@@ -285,7 +291,6 @@ class MercadoLivreScraper {
               continue;
             }
 
-            // ✅ NOVO: Adiciona categoria ao produto
             product.categoria = this.categoriaInfo ? this.categoriaInfo.nome : 'Todas as Ofertas';
 
             const result = await this.processProduct(product, allProducts);
@@ -328,7 +333,6 @@ class MercadoLivreScraper {
 
       const finalProducts = allProducts.slice(0, this.limit);
      
-      // ✅ CRÍTICO: Adiciona links afiliados (MANTÉM FUNCIONALIDADE ORIGINAL)
       const affiliateId = process.env.ML_AFFILIATE_ID || '77997172';
       const productsWithAffiliate = finalProducts.map(p => ({
         ...p,
@@ -344,11 +348,18 @@ class MercadoLivreScraper {
       console.log(`⏭️  Ignorados (pior/igual oferta): ${this.duplicatesIgnored}`);
       console.log(`📄 Páginas percorridas: ${pageNum - 1}`);
       console.log(`💾 Produtos no banco antes: ${this.existingProductsMap.size}`);
+      
+      // ✅ Mostra filtro de preço aplicado
+      if (this.maxPrice) {
+        console.log(`💰 Filtro de preço: Máximo R$ ${this.maxPrice}`);
+      }
      
       if (finalProducts.length < this.limit) {
         console.log(`\n⚠️  ATENÇÃO: Só ${finalProducts.length} produtos válidos.`);
         console.log(`   • Reduza MIN_DISCOUNT para mais resultados`);
-        console.log(`   • Ou limpe produtos antigos do banco`);
+        if (this.maxPrice) {
+          console.log(`   • Aumente o filtro de preço (atual: R$ ${this.maxPrice})`);
+        }
       }
      
       console.log('╚════════════════════════════════════════════════════╝\n');
@@ -359,7 +370,6 @@ class MercadoLivreScraper {
       console.error('❌ Erro crítico:', error.message);
       await browser.close();
       
-      // ✅ CRÍTICO: Mesmo em erro, adiciona links afiliados
       const affiliateId = process.env.ML_AFFILIATE_ID || '77997172';
       return allProducts.slice(0, this.limit).map(p => ({
         ...p,
