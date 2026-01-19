@@ -1,4 +1,5 @@
-const Product = require('../../database/models/Product');
+const { getProductConnection } = require('../../database/mongodb');
+const { getProductModel } = require('../../database/models/Products');
 const MercadoLivreScraper = require('../scrapers/MercadoLivreScraper');
 const MagaluScraper = require('../scrapers/MagaluScraper');
 
@@ -65,32 +66,42 @@ class ScrapingService {
     
     products = await marketplace.scraper.scrapeCategory();
 
+    // ═══════════════════════════════════════════════════════════
+    // ✅ GERAÇÃO DE LINKS DE AFILIADO
+    // ═══════════════════════════════════════════════════════════
     if (products.length > 0) {
       console.log(`🔗 Gerando ${products.length} links de afiliado...`);
       
-      products.forEach(product => {
+      let gerados = 0;
+      
+      products.forEach((product, index) => {
         if (marketplace.code === 'ML') {
           const baseUrl = product.link_original.split('?')[0].split('#')[0];
+          const affiliateId = process.env.ML_AFFILIATE_ID || '77997172';
           
-          const params = [
-            `matt_word=${process.env.ML_AFFILIATE_WORD || 'baga20231223204119'}`,
-            `matt_tool=${process.env.ML_AFFILIATE_ID || '77997172'}`,
-            'utm_source=webcash',
-            'utm_medium=affiliate',
-            'utm_campaign=deals'
-          ];
+          product.link_afiliado = `${baseUrl}?matt_tool=${affiliateId}&utm_source=affiliate&utm_medium=webcash`;
+          gerados++;
           
-          product.link_afiliado = `${baseUrl}?${params.join('&')}`;
+          if (index < 3) {
+            console.log(`   [${index + 1}] ${product.nome.substring(0, 30)}...`);
+            console.log(`       🔗 ${product.link_afiliado.substring(0, 90)}...`);
+          }
           
         } else if (marketplace.code === 'MAGALU') {
           const separator = product.link_original.includes('?') ? '&' : '?';
           product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
+          gerados++;
         } else {
           product.link_afiliado = product.link_original;
         }
       });
 
-      console.log('✅ Links de afiliado aplicados!\n');
+      if (marketplace.code === 'ML') {
+        console.log(`✅ Links ML gerados: ${gerados} | ID Afiliado: ${process.env.ML_AFFILIATE_ID || '77997172'}`);
+      } else {
+        console.log(`✅ Links gerados: ${gerados}`);
+      }
+      console.log('');
     }
 
     return products;
@@ -98,6 +109,13 @@ class ScrapingService {
 
   async saveProducts(products, marketplaceCode = 'ML') {
     console.log(`\n💾 Salvando/Atualizando no MongoDB...`);
+    
+    // ═══════════════════════════════════════════════════════════
+    // OBTER CONEXÃO E MODEL CORRETOS
+    // ═══════════════════════════════════════════════════════════
+    const conn = getProductConnection(); // Database "produtos"
+    const Product = getProductModel(marketplaceCode, conn); // Collection "ML", "shopee", etc
+    
     let inserted = 0, updated = 0, errors = 0, duplicates = 0, betterOffers = 0;
 
     for (const product of products) {

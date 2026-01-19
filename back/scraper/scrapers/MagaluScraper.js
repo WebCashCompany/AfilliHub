@@ -1,5 +1,5 @@
 const { chromium } = require('playwright');
-const Product = require('../../database/models/Product');
+const Product = require('../../database/models/Products');
 
 class MagaluScraper {
   constructor(minDiscount = 30) {

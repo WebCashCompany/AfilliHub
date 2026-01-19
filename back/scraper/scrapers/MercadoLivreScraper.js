@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
-const Product = require('../../database/models/Product');
+const { getProductConnection } = require('../../database/mongodb');
+const { getProductModel } = require('../../database/models/Products');
 const { getCategoria } = require('../../config/categorias-ml');
 
 class MercadoLivreScraper {
@@ -19,9 +20,13 @@ class MercadoLivreScraper {
     console.log('🔍 Carregando produtos existentes do banco...');
    
     try {
-      const products = await Product.find({
-        marketplace: { $in: ['ML', 'ml', 'Mercado Livre', 'mercadolivre', 'MercadoLivre'] }
-      }).select('link_original nome desconto preco_para preco_de isActive marketplace categoria').lean();
+      // ═══════════════════════════════════════════════════════════
+      // OBTER CONEXÃO E MODEL CORRETOS
+      // ═══════════════════════════════════════════════════════════
+      const conn = getProductConnection(); // Database "produtos"
+      const Product = getProductModel('ML', conn); // Collection "ML"
+      
+      const products = await Product.find({}).select('link_original nome desconto preco_para preco_de isActive marketplace categoria').lean();
      
       console.log(`   📊 Produtos do Mercado Livre encontrados: ${products.length}`);
      
@@ -144,7 +149,7 @@ class MercadoLivreScraper {
     const maxPages = 50;
     this.duplicatesIgnored = 0;
     this.betterOffersUpdated = 0;
-    let emptyPagesCount = 0; // ✅ Contador de páginas vazias consecutivas
+    let emptyPagesCount = 0;
 
     try {
       console.log(`╔════════════════════════════════════════════════════╗`);
@@ -165,8 +170,8 @@ class MercadoLivreScraper {
         console.log(`📄 Pág ${pageNum.toString().padStart(2, '0')}/${maxPages} ${progressBar} [${allProducts.length}/${this.limit}] (${this.duplicatesIgnored} ignorados | ${this.betterOffersUpdated} melhorados)`);
        
         try {
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 }); // ✅ Aumentado para 60s
-          await page.waitForTimeout(3000); // ✅ Aumentado para 3s
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          await page.waitForTimeout(3000);
 
           await page.evaluate(async () => {
             for (let i = 0; i < 5; i++) {
@@ -289,18 +294,16 @@ class MercadoLivreScraper {
             }
           }
 
-          // Contador de páginas vazias consecutivas
           if (productsFromPage.length === 0) {
             emptyPagesCount = (emptyPagesCount || 0) + 1;
             console.log(`   ⚠️  Página vazia (${emptyPagesCount}/3).\n`);
             
-            // Só para se tiver 3 páginas vazias seguidas
             if (emptyPagesCount >= 3) {
               console.log(`   ⚠️  3 páginas vazias consecutivas, encerrando.\n`);
               break;
             }
           } else {
-            emptyPagesCount = 0; // Reseta contador se encontrou produtos
+            emptyPagesCount = 0;
           }
 
           if (allProducts.length >= this.limit) break;

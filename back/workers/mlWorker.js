@@ -1,24 +1,24 @@
 require('dotenv').config();
 
-const connectDB = require('../database/mongodb');
+const { connectDB, getProductConnection } = require('../database/mongodb');
+const { getProductModel } = require('../database/models/Products');
 const ScrapingService = require('../scraper/services/ScrapingService');
 const readline = require('readline');
 
 /**
  * ═══════════════════════════════════════════════════════════════
- * WORKER MERCADO LIVRE - VERSÃO UNIFICADA
+ * WORKER MERCADO LIVRE - VERSÃO ATUALIZADA
  * ═══════════════════════════════════════════════════════════════
  * 
+ * ✅ Nova estrutura de database (produtos/ML)
  * ✅ Sistema de links afiliados
  * ✅ Sistema de tentativas (até 5x)
  * ✅ Seleção interativa de categorias
  * ✅ Filtro de preço máximo
- * ✅ Detecção de produtos novos vs atualizados
- * ✅ Relatórios detalhados
  * 
  * MODOS DE USO:
- * 1. Interativo: node workers/worker-ml.js
- * 2. Via argumentos: node workers/worker-ml.js --categorias=informatica,games --preco=100
+ * 1. Interativo: node workers/mlWorker.js
+ * 2. Via argumentos: node workers/mlWorker.js --categorias=informatica,games --preco=100
  */
 
 const rl = readline.createInterface({ 
@@ -28,7 +28,7 @@ const rl = readline.createInterface({
 
 const question = (query) => new Promise((resolve) => rl.question(query, resolve));
 
-// Mapa de categorias (deve corresponder a categorias-ml.js)
+// Mapa de categorias
 const CATEGORY_MAP = {
   '1': { key: 'celulares', name: 'Celulares' },
   '2': { key: 'beleza', name: 'Beleza' },
@@ -124,6 +124,10 @@ async function selecionarInterativo() {
   const startTime = Date.now();
   
   try {
+    // ═══════════════════════════════════════════════════════════
+    // CONECTAR NO BANCO DE DADOS
+    // ═══════════════════════════════════════════════════════════
+    console.log('📡 Conectando no banco de dados...\n');
     await connectDB();
     
     const MIN_DISCOUNT = Number(process.env.MIN_DISCOUNT || 30);
@@ -138,11 +142,9 @@ async function selecionarInterativo() {
     const argsConfig = parseArguments(process.argv);
     
     if (argsConfig.categorias) {
-      // Via argumentos
       config = argsConfig;
       console.log('\n📋 Configuração via argumentos da linha de comando\n');
     } else {
-      // Via interface interativa
       config = await selecionarInterativo();
       rl.close();
     }
