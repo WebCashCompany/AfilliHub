@@ -38,12 +38,12 @@ class ScrapingService {
    * Coleta produtos de um marketplace específico com suporte a filtros
    */
   async collectFromMarketplace(marketplaceName, options = {}) {
-    // Adicionado category e maxPrice às opções padrão
+    // ✅ CORRIGIDO: Mudado de 'category' para 'categoria'
     const { 
       minDiscount = 30, 
       limit = 50, 
       mode = 'auto', 
-      category = null, 
+      categoria = null,  // ✅ NOME CORRETO
       maxPrice = null 
     } = options;
 
@@ -53,8 +53,8 @@ class ScrapingService {
     if (!marketplace) throw new Error(`Marketplace "${marketplaceName}" não encontrado`);
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
-    if (category || maxPrice) {
-      console.log(`🎯 FILTROS ATIVOS: ${category ? `Categoria: ${category}` : ''} ${maxPrice ? `| Preço Máx: R$ ${maxPrice}` : ''}`);
+    if (categoria || maxPrice) {
+      console.log(`🎯 FILTROS ATIVOS: ${categoria ? `Categoria: ${categoria}` : ''} ${maxPrice ? `| Preço Máx: R$ ${maxPrice}` : ''}`);
     }
 
     console.log('🟡 Usando Web Scraper (Playwright)...');
@@ -63,12 +63,17 @@ class ScrapingService {
     marketplace.scraper.minDiscount = minDiscount;
     marketplace.scraper.limit = limit;
     
-    // ✅ Passa o objeto de opções completo (incluindo filtros) para o método scrapeCategory do Scraper
-    products = await marketplace.scraper.scrapeCategory({
-      category,
-      maxPrice,
-      mode
-    });
+    // ✅ CORRIGIDO: Passa 'categoria' ao invés de 'category'
+    marketplace.scraper.categoria = categoria;
+    marketplace.scraper.maxPrice = maxPrice;
+    
+    // ✅ Recalcula a categoriaInfo quando a categoria mudar
+    if (categoria && marketplace.code === 'ML') {
+      const { getCategoria } = require('../../config/categorias-ml');
+      marketplace.scraper.categoriaInfo = getCategoria(categoria);
+    }
+    
+    products = await marketplace.scraper.scrapeCategory();
 
     // Gera links de afiliado
     if (products.length > 0) {
