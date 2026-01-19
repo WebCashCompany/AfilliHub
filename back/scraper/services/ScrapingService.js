@@ -34,20 +34,41 @@ class ScrapingService {
     }
   }
 
+  /**
+   * Coleta produtos de um marketplace específico com suporte a filtros
+   */
   async collectFromMarketplace(marketplaceName, options = {}) {
-    const { minDiscount = 30, limit = 50, mode = 'auto' } = options;
+    // Adicionado category e maxPrice às opções padrão
+    const { 
+      minDiscount = 30, 
+      limit = 50, 
+      mode = 'auto', 
+      category = null, 
+      maxPrice = null 
+    } = options;
+
     const marketplace = this.marketplaces.get(marketplaceName.toLowerCase());
     let products = [];
 
     if (!marketplace) throw new Error(`Marketplace "${marketplaceName}" não encontrado`);
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
+    if (category || maxPrice) {
+      console.log(`🎯 FILTROS ATIVOS: ${category ? `Categoria: ${category}` : ''} ${maxPrice ? `| Preço Máx: R$ ${maxPrice}` : ''}`);
+    }
 
     console.log('🟡 Usando Web Scraper (Playwright)...');
+    
+    // Configura o scraper com os limites e filtros
     marketplace.scraper.minDiscount = minDiscount;
     marketplace.scraper.limit = limit;
     
-    products = await marketplace.scraper.scrapeCategory();
+    // ✅ Passa o objeto de opções completo (incluindo filtros) para o método scrapeCategory do Scraper
+    products = await marketplace.scraper.scrapeCategory({
+      category,
+      maxPrice,
+      mode
+    });
 
     // Gera links de afiliado
     if (products.length > 0) {
@@ -59,12 +80,9 @@ class ScrapingService {
           const separator = product.link_original.includes('?') ? '&' : '?';
           product.link_afiliado = `${product.link_original}${separator}matt_tool=77997172&utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
         } else if (marketplace.code === 'MAGALU') {
-          // Magalu já vem com link de afiliado no próprio link_original
-          // Adiciona UTM tracking se necessário
           const separator = product.link_original.includes('?') ? '&' : '?';
           product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
         } else {
-          // Fallback para outros marketplaces
           product.link_afiliado = product.link_original;
         }
       });
@@ -83,19 +101,16 @@ class ScrapingService {
       try {
         const normalizedName = this.normalizeProductName(product.nome);
         
-        // ✅ GARANTIR que link_original existe
         if (!product.link_original || product.link_original.length < 20) {
           console.log(`   ⚠️ Produto sem link válido ignorado: ${product.nome.substring(0, 40)}...`);
           continue;
         }
         
-        // ✅ NOVO: Verifica se é atualização de oferta melhor
         if (product._shouldUpdate) {
           const query = { link_original: product._oldLink || product.link_original };
           const existing = await Product.findOne(query);
 
           if (existing) {
-            // Remove flags internas antes de salvar
             const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
             
             await Product.updateOne(
@@ -112,7 +127,6 @@ class ScrapingService {
             betterOffers++;
             console.log(`   🔥 MELHOR OFERTA: ${product.nome.substring(0, 35)}... (${product.desconto})`);
           } else {
-            // Se não encontrou para atualizar, insere como novo
             const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
             
             await Product.create({ 
@@ -124,7 +138,6 @@ class ScrapingService {
             console.log(`   ✨ ${product.nome.substring(0, 40)}...`);
           }
         } else {
-          // Produto novo normal
           const query = { link_original: product.link_original };
           const existing = await Product.findOne(query);
 
@@ -163,7 +176,7 @@ class ScrapingService {
     }
 
     console.log(`\n╔═══════════════════════════════════════╗`);
-    console.log(`║        📊 RESULTADO FINAL 📊         ║`);
+    console.log(`║         📊 RESULTADO FINAL 📊         ║`);
     console.log(`╚═══════════════════════════════════════╝`);
     console.log(`✨ Novos produtos: ${inserted}`);
     console.log(`🔥 Ofertas melhoradas: ${betterOffers}`);
@@ -179,7 +192,6 @@ class ScrapingService {
     }
     console.log('');
 
-    // ✅ FIX BUG 2: Retorna APENAS produtos NOVOS salvos
     return { inserted, updated, duplicates, errors, betterOffers, totalSaved };
   }
 
