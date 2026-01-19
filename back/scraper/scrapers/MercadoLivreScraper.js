@@ -2,18 +2,6 @@ const { chromium } = require('playwright');
 const Product = require('../../database/models/Product');
 const { getCategoria } = require('../../config/categorias-ml');
 
-/**
- * ═══════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - VERSÃO CORRIGIDA
- * ═══════════════════════════════════════════════════════════════
- * 
- * ✅ CORREÇÃO: Preços não invertidos (preco_de > preco_para)
- * ✅ CORREÇÃO: Filtro de preço máximo funcional
- * ✅ MANTÉM: Sistema de links afiliados
- * ✅ MANTÉM: Detecção de duplicatas
- * ✅ MANTÉM: Suporte a categorias
- */
-
 class MercadoLivreScraper {
   constructor(minDiscount = 30, options = {}) {
     this.minDiscount = minDiscount;
@@ -24,8 +12,6 @@ class MercadoLivreScraper {
     
     this.categoria = options.categoria || 'todas';
     this.categoriaInfo = getCategoria(this.categoria);
-    
-    // ✅ NOVO: Suporte a filtro de preço
     this.maxPrice = options.maxPrice || null;
   }
 
@@ -158,6 +144,7 @@ class MercadoLivreScraper {
     const maxPages = 50;
     this.duplicatesIgnored = 0;
     this.betterOffersUpdated = 0;
+    let emptyPagesCount = 0; // ✅ Contador de páginas vazias consecutivas
 
     try {
       console.log(`╔════════════════════════════════════════════════════╗`);
@@ -178,8 +165,8 @@ class MercadoLivreScraper {
         console.log(`📄 Pág ${pageNum.toString().padStart(2, '0')}/${maxPages} ${progressBar} [${allProducts.length}/${this.limit}] (${this.duplicatesIgnored} ignorados | ${this.betterOffersUpdated} melhorados)`);
        
         try {
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-          await page.waitForTimeout(2000);
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 }); // ✅ Aumentado para 60s
+          await page.waitForTimeout(3000); // ✅ Aumentado para 3s
 
           await page.evaluate(async () => {
             for (let i = 0; i < 5; i++) {
@@ -191,7 +178,6 @@ class MercadoLivreScraper {
 
           await page.waitForTimeout(1500);
 
-          // ✅ CORRIGIDO: Extração de preços + filtro de preço
           const productsFromPage = await page.evaluate(({ minDisc, maxPriceLimit }) => {
             const items = document.querySelectorAll('.poly-card, .promotion-item__container, .ui-search-result, [class*="promotion-item"]');
             const results = [];
@@ -211,48 +197,39 @@ class MercadoLivreScraper {
                   const linkEl = item.querySelector('a');
                   const imgEl = item.querySelector('img');
                  
-                  // ✅ CORREÇÃO CRÍTICA: Extração correta dos preços
                   const priceElements = item.querySelectorAll('.andes-money-amount__fraction');
                   let currentPrice = '0';
                   let oldPrice = '0';
                  
                   if (priceElements.length >= 2) {
-                    // Primeiro preço = PREÇO ATUAL (COM DESCONTO)
                     currentPrice = priceElements[0].innerText.replace(/\./g, '');
-                    // Segundo preço = PREÇO ANTIGO (SEM DESCONTO)
                     oldPrice = priceElements[1].innerText.replace(/\./g, '');
                   } else if (priceElements.length === 1) {
                     currentPrice = priceElements[0].innerText.replace(/\./g, '');
-                    // Calcula preço antigo baseado no desconto
                     const currentVal = parseInt(currentPrice);
                     oldPrice = Math.round(currentVal / (1 - discountVal / 100)).toString();
                   }
 
-                  // ✅ VALIDAÇÃO: preco_de DEVE ser maior que preco_para
                   const currentPriceNum = parseInt(currentPrice);
                   const oldPriceNum = parseInt(oldPrice);
                   
-                  // Se estiver invertido, corrige
                   let finalCurrentPrice = currentPrice;
                   let finalOldPrice = oldPrice;
                   
                   if (currentPriceNum > oldPriceNum) {
-                    // Preços invertidos! Troca
                     finalCurrentPrice = oldPrice;
                     finalOldPrice = currentPrice;
                   }
 
-                  // ✅ FILTRO DE PREÇO MÁXIMO
                   if (maxPriceLimit) {
                     const maxPrice = parseInt(maxPriceLimit);
                     const productPrice = parseInt(finalCurrentPrice);
                     
                     if (productPrice > maxPrice) {
-                      return; // Ignora produto acima do preço máximo
+                      return;
                     }
                   }
 
-                  // Valida link
                   if (titleEl && linkEl && linkEl.href) {
                     const cleanLink = linkEl.href.split('?')[0];
                    
@@ -266,8 +243,8 @@ class MercadoLivreScraper {
                       link_original: cleanLink,
                       preco: `R$ ${finalCurrentPrice}`,
                       preco_anterior: `R$ ${finalOldPrice}`,
-                      preco_de: finalOldPrice,        // ✅ PREÇO ANTIGO (MAIOR)
-                      preco_para: finalCurrentPrice,  // ✅ PREÇO ATUAL (MENOR)
+                      preco_de: finalOldPrice,
+                      preco_para: finalCurrentPrice,
                       desconto: `${discountVal}%`,
                       marketplace: 'ML',
                       isActive: true
@@ -282,10 +259,9 @@ class MercadoLivreScraper {
             return results;
           }, { 
             minDisc: this.minDiscount,
-            maxPriceLimit: this.maxPrice  // ✅ Passa filtro de preço
+            maxPriceLimit: this.maxPrice
           });
 
-          // Processa cada produto
           for (const product of productsFromPage) {
             if (!product.link_original || product.link_original.length < 20) {
               continue;
@@ -313,9 +289,18 @@ class MercadoLivreScraper {
             }
           }
 
+          // Contador de páginas vazias consecutivas
           if (productsFromPage.length === 0) {
-            console.log(`   ⚠️  Página vazia, encerrando.\n`);
-            break;
+            emptyPagesCount = (emptyPagesCount || 0) + 1;
+            console.log(`   ⚠️  Página vazia (${emptyPagesCount}/3).\n`);
+            
+            // Só para se tiver 3 páginas vazias seguidas
+            if (emptyPagesCount >= 3) {
+              console.log(`   ⚠️  3 páginas vazias consecutivas, encerrando.\n`);
+              break;
+            }
+          } else {
+            emptyPagesCount = 0; // Reseta contador se encontrou produtos
           }
 
           if (allProducts.length >= this.limit) break;
@@ -349,7 +334,6 @@ class MercadoLivreScraper {
       console.log(`📄 Páginas percorridas: ${pageNum - 1}`);
       console.log(`💾 Produtos no banco antes: ${this.existingProductsMap.size}`);
       
-      // ✅ Mostra filtro de preço aplicado
       if (this.maxPrice) {
         console.log(`💰 Filtro de preço: Máximo R$ ${this.maxPrice}`);
       }

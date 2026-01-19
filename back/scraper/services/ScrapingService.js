@@ -9,7 +9,6 @@ class ScrapingService {
   }
 
   initializeMarketplaces() {
-    // ✅ Mercado Livre
     try {
       this.marketplaces.set('mercadolivre', {
         name: 'Mercado Livre',
@@ -21,7 +20,6 @@ class ScrapingService {
       console.error('⚠️ Mercado Livre não disponível:', error.message);
     }
 
-    // ✅ Magazine Luiza
     try {
       this.marketplaces.set('magalu', {
         name: 'Magazine Luiza',
@@ -34,16 +32,12 @@ class ScrapingService {
     }
   }
 
-  /**
-   * Coleta produtos de um marketplace específico com suporte a filtros
-   */
   async collectFromMarketplace(marketplaceName, options = {}) {
-    // ✅ CORRIGIDO: Mudado de 'category' para 'categoria'
     const { 
       minDiscount = 30, 
       limit = 50, 
       mode = 'auto', 
-      categoria = null,  // ✅ NOME CORRETO
+      categoria = null,
       maxPrice = null 
     } = options;
 
@@ -59,15 +53,11 @@ class ScrapingService {
 
     console.log('🟡 Usando Web Scraper (Playwright)...');
     
-    // Configura o scraper com os limites e filtros
     marketplace.scraper.minDiscount = minDiscount;
     marketplace.scraper.limit = limit;
-    
-    // ✅ CORRIGIDO: Passa 'categoria' ao invés de 'category'
     marketplace.scraper.categoria = categoria;
     marketplace.scraper.maxPrice = maxPrice;
     
-    // ✅ Recalcula a categoriaInfo quando a categoria mudar
     if (categoria && marketplace.code === 'ML') {
       const { getCategoria } = require('../../config/categorias-ml');
       marketplace.scraper.categoriaInfo = getCategoria(categoria);
@@ -75,18 +65,26 @@ class ScrapingService {
     
     products = await marketplace.scraper.scrapeCategory();
 
-    // Gera links de afiliado
     if (products.length > 0) {
       console.log(`🔗 Gerando ${products.length} links de afiliado...`);
       
       products.forEach(product => {
-        // ✅ Links de afiliado específicos por marketplace
         if (marketplace.code === 'ML') {
-          const separator = product.link_original.includes('?') ? '&' : '?';
-          product.link_afiliado = `${product.link_original}${separator}matt_tool=77997172&utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
+          const baseUrl = product.link_original.split('?')[0].split('#')[0];
+          
+          const params = [
+            `matt_word=${process.env.ML_AFFILIATE_WORD || 'baga20231223204119'}`,
+            `matt_tool=${process.env.ML_AFFILIATE_ID || '77997172'}`,
+            'utm_source=webcash',
+            'utm_medium=affiliate',
+            'utm_campaign=deals'
+          ];
+          
+          product.link_afiliado = `${baseUrl}?${params.join('&')}`;
+          
         } else if (marketplace.code === 'MAGALU') {
           const separator = product.link_original.includes('?') ? '&' : '?';
-          product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate&utm_campaign=deals`;
+          product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
         } else {
           product.link_afiliado = product.link_original;
         }
