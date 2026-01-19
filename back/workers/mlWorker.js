@@ -1,110 +1,293 @@
 require('dotenv').config();
-const connectDB = require('../database/mongodb'); 
-const ScrapingService = require('../scraper/services/ScrapingService'); 
+
+const connectDB = require('../database/mongodb');
+const ScrapingService = require('../scraper/services/ScrapingService');
 const readline = require('readline');
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+/**
+ * ═══════════════════════════════════════════════════════════════
+ * WORKER MERCADO LIVRE - VERSÃO UNIFICADA
+ * ═══════════════════════════════════════════════════════════════
+ * 
+ * ✅ Sistema de links afiliados
+ * ✅ Sistema de tentativas (até 5x)
+ * ✅ Seleção interativa de categorias
+ * ✅ Filtro de preço máximo
+ * ✅ Detecção de produtos novos vs atualizados
+ * ✅ Relatórios detalhados
+ * 
+ * MODOS DE USO:
+ * 1. Interativo: node workers/worker-ml.js
+ * 2. Via argumentos: node workers/worker-ml.js --categorias=informatica,games --preco=100
+ */
+
+const rl = readline.createInterface({ 
+  input: process.stdin, 
+  output: process.stdout 
+});
+
 const question = (query) => new Promise((resolve) => rl.question(query, resolve));
 
-(async () => {
-  try {
-    console.log('\n╔════════════════════════════════════════════════════╗');
-    console.log('║         🚀 SELEÇÃO DE CATEGORIAS ML 🚀             ║');
-    console.log('╚════════════════════════════════════════════════════╝');
-    console.log('1. Celulares           2. Beleza         3. Eletrodomésticos');
-    console.log('4. Casa e Decoração    5. Calçados       6. Informática');
-    console.log('7. Games               8. Eletrônicos    9. Joias e Relógios');
-    console.log('10. Esportes           11. Ferramentas   12. Ofertas do Dia');
-    console.log('A. TODAS AS CATEGORIAS ACIMA');
-    
-    const inputCat = await question('\nDigite os números separados por vírgula (ex: 1,2,6) ou A: ');
-    
-    console.log('\n--- FILTRO DE PREÇO ---');
-    console.log('1. Menos de R$ 100 | 2. Menos de R$ 50 | 0. Sem limite');
-    const priceChoice = await question('Escolha: ');
-    let selectedMaxPrice = priceChoice === '1' ? '100' : (priceChoice === '2' ? '50' : null);
+// Mapa de categorias (deve corresponder a categorias-ml.js)
+const CATEGORY_MAP = {
+  '1': { key: 'celulares', name: 'Celulares' },
+  '2': { key: 'beleza', name: 'Beleza' },
+  '3': { key: 'eletrodomesticos', name: 'Eletrodomésticos' },
+  '4': { key: 'casa_decoracao', name: 'Casa e Decoração' },
+  '5': { key: 'calcados_roupas', name: 'Calçados e Roupas' },
+  '6': { key: 'informatica', name: 'Informática' },
+  '7': { key: 'games', name: 'Games' },
+  '8': { key: 'eletronicos', name: 'Eletrônicos' },
+  '9': { key: 'joias_relogios', name: 'Joias e Relógios' },
+  '10': { key: 'esportes', name: 'Esportes' },
+  '11': { key: 'ferramentas', name: 'Ferramentas' },
+  '12': { key: 'ofertas_dia', name: 'Ofertas do Dia' },
+  '13': { key: 'ofertas_relampago', name: 'Ofertas Relâmpago' }
+};
 
-    await connectDB();
-    const TARGET_TOTAL = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
-    const scrapingService = new ScrapingService();
-
-    // ✅ MAPA CORRETO com as chaves usadas em categorias-ml.js
-    const categoryMap = {
-      '1': 'celulares',
-      '2': 'beleza',
-      '3': 'eletrodomesticos',
-      '4': 'casa_decoracao',
-      '5': 'calcados_roupas',
-      '6': 'informatica',
-      '7': 'games',
-      '8': 'eletronicos',
-      '9': 'joias_relogios',
-      '10': 'esportes',
-      '11': 'ferramentas',
-      '12': 'ofertas_dia'
-    };
-
-    let selectedCats = [];
-    if (inputCat.toUpperCase() === 'A') {
-      selectedCats = Object.values(categoryMap);
-    } else {
-      selectedCats = inputCat.split(',').map(i => categoryMap[i.trim()]).filter(Boolean);
-    }
-
-    if (selectedCats.length === 0) {
-        console.log('❌ Nenhuma categoria válida selecionada.');
-        rl.close();
-        process.exit(1);
-    }
-
-    const limitPerCat = Math.max(1, Math.floor(TARGET_TOTAL / selectedCats.length));
-    console.log(`\n🎯 Objetivo Total: ${TARGET_TOTAL} | Buscando ~${limitPerCat} por categoria.`);
-    if (selectedMaxPrice) {
-      console.log(`💰 Filtro de Preço: Máximo R$ ${selectedMaxPrice}`);
-    }
-
-    let totalSaved = 0;
-
-    for (const cat of selectedCats) {
-      console.log(`\n${'═'.repeat(70)}`);
-      console.log(`📂 PROCESSANDO: ${cat.toUpperCase()}`);
-      console.log(`${'═'.repeat(70)}`);
-      
-      // ✅ CORREÇÃO: Passa 'categoria' ao invés de 'category'
-      const products = await scrapingService.collectFromMarketplace('mercadolivre', {
-        minDiscount: Number(process.env.MIN_DISCOUNT || 30),
-        limit: limitPerCat,
-        categoria: cat,  // ✅ NOME CORRETO
-        maxPrice: selectedMaxPrice
-      });
-
-      if (products.length > 0) {
-        const result = await scrapingService.saveProducts(products, 'ML');
-        totalSaved += result.totalSaved;
-        console.log(`✅ Resultado de ${cat}: ${result.totalSaved} novos salvos.`);
+/**
+ * Processa argumentos da linha de comando
+ */
+function parseArguments(args) {
+  const result = { categorias: null, maxPrice: null };
+  
+  for (const arg of args) {
+    if (arg.startsWith('--categorias=')) {
+      const valor = arg.split('=')[1];
+      if (valor.toLowerCase() === 'todas') {
+        result.categorias = Object.values(CATEGORY_MAP).map(c => c.key);
       } else {
-        console.log(`⚠️ Nenhum produto encontrado para ${cat}.`);
+        result.categorias = valor.split(',').map(c => c.trim());
       }
+    } else if (arg.startsWith('--preco=')) {
+      result.maxPrice = arg.split('=')[1];
     }
+  }
+  
+  return result;
+}
 
-    console.log(`\n${'═'.repeat(70)}`);
-    console.log('🏁 TODAS AS CATEGORIAS PROCESSADAS!');
-    console.log(`${'═'.repeat(70)}`);
-    console.log(`✨ Total de produtos NOVOS salvos: ${totalSaved}/${TARGET_TOTAL}`);
-    console.log(`📁 Categorias processadas: ${selectedCats.length}`);
+/**
+ * Seleção interativa
+ */
+async function selecionarInterativo() {
+  console.log('\n╔════════════════════════════════════════════════════╗');
+  console.log('║         🚀 WORKER MERCADO LIVRE 🚀                 ║');
+  console.log('╚════════════════════════════════════════════════════╝\n');
+  
+  console.log('📂 CATEGORIAS DISPONÍVEIS:\n');
+  Object.entries(CATEGORY_MAP).forEach(([num, cat]) => {
+    console.log(`  ${num.padStart(2, ' ')}. ${cat.name}`);
+  });
+  console.log('  A.  TODAS AS CATEGORIAS\n');
+  
+  const inputCat = await question('Digite os números separados por vírgula (ex: 1,6,7) ou A: ');
+  
+  let selectedCats = [];
+  if (inputCat.toUpperCase() === 'A') {
+    selectedCats = Object.values(CATEGORY_MAP).map(c => c.key);
+  } else {
+    selectedCats = inputCat
+      .split(',')
+      .map(i => CATEGORY_MAP[i.trim()]?.key)
+      .filter(Boolean);
+  }
+  
+  if (selectedCats.length === 0) {
+    console.log('⚠️  Nenhuma categoria válida. Usando TODAS.\n');
+    selectedCats = Object.values(CATEGORY_MAP).map(c => c.key);
+  }
+  
+  console.log('\n💰 FILTRO DE PREÇO:');
+  console.log('  1. Menos de R$ 50');
+  console.log('  2. Menos de R$ 100');
+  console.log('  3. Menos de R$ 200');
+  console.log('  0. Sem limite\n');
+  
+  const priceChoice = await question('Escolha: ');
+  let maxPrice = null;
+  
+  switch(priceChoice) {
+    case '1': maxPrice = '50'; break;
+    case '2': maxPrice = '100'; break;
+    case '3': maxPrice = '200'; break;
+    default: maxPrice = null;
+  }
+  
+  return { categorias: selectedCats, maxPrice };
+}
+
+/**
+ * Worker Principal
+ */
+(async () => {
+  const startTime = Date.now();
+  
+  try {
+    await connectDB();
     
-    if (totalSaved >= TARGET_TOTAL) {
-      console.log(`\n✅ META ATINGIDA! ${totalSaved} produtos salvos com sucesso!`);
+    const MIN_DISCOUNT = Number(process.env.MIN_DISCOUNT || 30);
+    const TARGET_PRODUCTS = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
+    const MAX_ATTEMPTS = 5;
+    
+    // ═══════════════════════════════════════════════════════════
+    // SELEÇÃO DE CATEGORIAS E FILTROS
+    // ═══════════════════════════════════════════════════════════
+    
+    let config;
+    const argsConfig = parseArguments(process.argv);
+    
+    if (argsConfig.categorias) {
+      // Via argumentos
+      config = argsConfig;
+      console.log('\n📋 Configuração via argumentos da linha de comando\n');
     } else {
-      console.log(`\n⚠️ Meta parcialmente atingida. ${totalSaved} de ${TARGET_TOTAL} produtos salvos.`);
+      // Via interface interativa
+      config = await selecionarInterativo();
+      rl.close();
     }
+    
+    const { categorias: selectedCats, maxPrice } = config;
+    
+    // ═══════════════════════════════════════════════════════════
+    // EXIBIÇÃO DA CONFIGURAÇÃO
+    // ═══════════════════════════════════════════════════════════
+    
+    console.log('\n╔════════════════════════════════════════════════════╗');
+    console.log('║              ⚙️  CONFIGURAÇÕES                      ║');
+    console.log('╚════════════════════════════════════════════════════╝');
+    console.log(`  🎯 Meta total: ${TARGET_PRODUCTS} produtos`);
+    console.log(`  💯 Desconto mínimo: ${MIN_DISCOUNT}%`);
+    console.log(`  📁 Categorias: ${selectedCats.length}`);
+    if (maxPrice) {
+      console.log(`  💰 Preço máximo: R$ ${maxPrice}`);
+    }
+    console.log('');
+    
+    const limitPerCat = Math.max(1, Math.floor(TARGET_PRODUCTS / selectedCats.length));
+    console.log(`📊 Distribuição: ~${limitPerCat} produtos por categoria\n`);
+    
+    // ═══════════════════════════════════════════════════════════
+    // PROCESSAMENTO POR CATEGORIA
+    // ═══════════════════════════════════════════════════════════
+    
+    const scrapingService = new ScrapingService();
+    let totalSaved = 0;
+    let totalCollected = 0;
+    const resultados = {};
+    
+    for (const [index, categoria] of selectedCats.entries()) {
+      console.log(`\n${'═'.repeat(70)}`);
+      console.log(`📁 CATEGORIA ${index + 1}/${selectedCats.length}: ${categoria.toUpperCase()}`);
+      console.log(`🎯 Meta: ${limitPerCat} produtos`);
+      console.log(`${'═'.repeat(70)}\n`);
+      
+      let savedInCategory = 0;
+      let attempt = 0;
+      
+      while (savedInCategory < limitPerCat && attempt < MAX_ATTEMPTS) {
+        attempt++;
+        
+        console.log(`🔄 TENTATIVA ${attempt}/${MAX_ATTEMPTS} | Salvos: ${savedInCategory}/${limitPerCat}\n`);
+        
+        const remaining = limitPerCat - savedInCategory;
+        
+        try {
+          // Coleta produtos
+          const products = await scrapingService.collectFromMarketplace('mercadolivre', {
+            minDiscount: MIN_DISCOUNT,
+            limit: remaining,
+            categoria: categoria,
+            maxPrice: maxPrice
+          });
+          
+          if (!products || products.length === 0) {
+            console.log('⚠️  Nenhum produto encontrado.\n');
+            break;
+          }
+          
+          totalCollected += products.length;
+          
+          // Salva produtos
+          const result = await scrapingService.saveProducts(products, 'ML');
+          const savedThisRound = result.inserted + result.betterOffers;
+          
+          savedInCategory += savedThisRound;
+          totalSaved += savedThisRound;
+          
+          console.log(`\n📊 Progresso: ${savedInCategory}/${limitPerCat} (${totalSaved}/${TARGET_PRODUCTS} total)\n`);
+          
+          // Verifica se deve continuar
+          if (savedInCategory >= limitPerCat) {
+            console.log(`✅ Meta da categoria atingida!\n`);
+            break;
+          }
+          
+          if (savedThisRound === 0) {
+            console.log(`⚠️  Nenhum produto novo. Avançando...\n`);
+            break;
+          }
+          
+          // Aguarda antes da próxima tentativa
+          if (savedInCategory < limitPerCat && attempt < MAX_ATTEMPTS) {
+            console.log(`⏳ Aguardando 3 segundos...\n`);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+          
+        } catch (error) {
+          console.error(`❌ Erro na categoria ${categoria}:`, error.message);
+          break;
+        }
+      }
+      
+      // Salva resultado
+      resultados[categoria] = {
+        meta: limitPerCat,
+        salvos: savedInCategory,
+        tentativas: attempt,
+        percentual: Math.round((savedInCategory / limitPerCat) * 100)
+      };
+    }
+    
+    // ═══════════════════════════════════════════════════════════
+    // RELATÓRIO FINAL
+    // ═══════════════════════════════════════════════════════════
+    
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    
+    console.log(`\n${'═'.repeat(70)}`);
+    console.log(`🏁 PROCESSO FINALIZADO`);
+    console.log(`${'═'.repeat(70)}`);
+    console.log(`✨ Total de produtos NOVOS: ${totalSaved}/${TARGET_PRODUCTS}`);
+    console.log(`📦 Total coletados: ${totalCollected}`);
+    console.log(`📁 Categorias processadas: ${selectedCats.length}`);
+    console.log(`⏱️  Tempo total: ${duration}s`);
+    
+    console.log(`\n📊 RESULTADOS POR CATEGORIA:\n`);
+    
+    for (const [categoria, res] of Object.entries(resultados)) {
+      const status = res.salvos >= res.meta ? '✅' : '⚠️';
+      console.log(`   ${status} ${categoria.padEnd(20)} ${res.salvos}/${res.meta} (${res.percentual}%) - ${res.tentativas} tentativas`);
+    }
+    
+    if (totalSaved >= TARGET_PRODUCTS) {
+      console.log(`\n✅ META ATINGIDA! ${totalSaved} produtos salvos!\n`);
+    } else {
+      console.log(`\n⚠️  Meta parcial: ${totalSaved}/${TARGET_PRODUCTS} produtos`);
+      console.log(`\n💡 DICAS:`);
+      console.log(`   • Reduza MIN_DISCOUNT (atual: ${MIN_DISCOUNT}%)`);
+      console.log(`   • Escolha categorias com mais ofertas`);
+      console.log(`   • Remova o filtro de preço\n`);
+    }
+    
     console.log(`${'═'.repeat(70)}\n`);
     
-    rl.close();
     process.exit(0);
+    
   } catch (error) {
-    console.error('❌ Erro Crítico:', error);
-    rl.close();
+    console.error('\n❌ ERRO CRÍTICO:', error.message);
+    console.error(error.stack);
+    if (rl) rl.close();
     process.exit(1);
   }
 })();
