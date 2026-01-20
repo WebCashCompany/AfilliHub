@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
-const Product = require('../../database/models/Products');
+const { getProductConnection } = require('../../database/mongodb');
+const { getProductModel } = require('../../database/models/Products');
 
 class MagaluScraper {
   constructor(minDiscount = 30) {
@@ -11,15 +12,15 @@ class MagaluScraper {
     this.affiliateId = process.env.MAGALU_AFFILIATE_ID || 'magazinepromoforia';
   }
 
-  /**
-   * Carrega produtos existentes do MongoDB
-   */
   async loadExistingProducts() {
     console.log('🔍 Carregando produtos existentes do banco...');
     
     try {
+      const conn = getProductConnection();
+      const Product = getProductModel('magalu', conn);
+      
       const products = await Product.find({ 
-        marketplace: { $in: ['MAGALU', 'magalu', 'Magazine Luiza', 'Magalu'] }
+        isActive: true 
       }).select('link_original nome desconto preco_para preco_de isActive marketplace').lean();
       
       console.log(`   📊 Produtos do Magalu encontrados: ${products.length}`);
@@ -36,11 +37,9 @@ class MagaluScraper {
       console.log(`   ├─ Ativos: ${products.filter(p => p.isActive).length}`);
       console.log(`   └─ Inativos: ${products.filter(p => !p.isActive).length}`);
       
-      // Cria Map para busca O(1) por link_original
       let added = 0;
       products.forEach(p => {
         if (p.link_original) {
-          // Garante que desconto e preço sejam números
           p.desconto = String(p.desconto || '0').replace(/\D/g, '');
           p.preco_para = String(p.preco_para || '0').replace(/\D/g, '');
           this.existingProductsMap.set(p.link_original, p);
@@ -51,12 +50,10 @@ class MagaluScraper {
       console.log(`   ✅ ${added} produtos carregados no cache\n`);
     } catch (error) {
       console.error('⚠️  Erro ao carregar produtos do banco:', error.message);
+      console.error('Stack:', error.stack);
     }
   }
 
-  /**
-   * Normaliza o nome do produto para evitar duplicatas
-   */
   normalizeProductName(name) {
     return name
       .toLowerCase()
@@ -67,9 +64,6 @@ class MagaluScraper {
       .trim();
   }
 
-  /**
-   * Compara se a nova oferta é melhor que a existente
-   */
   isBetterOffer(newProduct, existingProduct) {
     const newDiscount = parseInt(newProduct.desconto) || 0;
     const existingDiscount = parseInt(existingProduct.desconto) || 0;
@@ -77,20 +71,15 @@ class MagaluScraper {
     const newPrice = parseInt(newProduct.preco_para) || 0;
     const existingPrice = parseInt(existingProduct.preco_para) || 0;
 
-    // É melhor se: desconto maior OU (desconto igual + preço menor)
     if (newDiscount > existingDiscount) return true;
     if (newDiscount === existingDiscount && newPrice < existingPrice) return true;
     
     return false;
   }
 
-  /**
-   * Verifica duplicatas E ofertas melhores
-   */
   async processProduct(product, collectedProducts) {
     const normalizedName = this.normalizeProductName(product.nome);
     
-    // 1️⃣ Verifica produtos já coletados NESTA execução
     const duplicateInMemory = collectedProducts.some(p => {
       const existingNormalized = this.normalizeProductName(p.nome);
       return p.link_original === product.link_original ||
@@ -102,17 +91,14 @@ class MagaluScraper {
       return { action: 'skip', reason: 'duplicate_in_memory' };
     }
 
-    // 2️⃣ Verifica se existe no BANCO
     const existingInDb = this.existingProductsMap.get(product.link_original);
     
     if (!existingInDb) {
-      // 2️⃣A - Busca por nome similar (segunda verificação)
       for (const [link, existingProd] of this.existingProductsMap.entries()) {
         const existingNormalized = this.normalizeProductName(existingProd.nome);
         if (existingNormalized.split(' ').slice(0, 5).join(' ') === 
             normalizedName.split(' ').slice(0, 5).join(' ')) {
           
-          // Produto similar encontrado, verifica se é melhor oferta
           if (this.isBetterOffer(product, existingProd)) {
             return { 
               action: 'update', 
@@ -125,11 +111,9 @@ class MagaluScraper {
         }
       }
       
-      // Produto realmente novo!
       return { action: 'add', reason: 'new_product' };
     }
 
-    // 3️⃣ Produto existe, verifica se nova oferta é melhor
     if (this.isBetterOffer(product, existingInDb)) {
       return { 
         action: 'update', 
@@ -138,24 +122,56 @@ class MagaluScraper {
       };
     }
 
-    // Oferta pior ou igual, ignora
     return { action: 'skip', reason: 'worse_or_equal_offer' };
   }
 
   async scrapeCategory() {
     await this.loadExistingProducts();
 
+    // ═══════════════════════════════════════════════════════════
+    // 🔥 CONFIGURAÇÃO ANTI-DETECÇÃO PARA HEADLESS MODE
+    // ═══════════════════════════════════════════════════════════
     const browser = await chromium.launch({ 
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled', // Remove "navigator.webdriver"
+        '--disable-dev-shm-usage',
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process'
+      ]
     });
     
     const context = await browser.newContext({
       viewport: { width: 1920, height: 1080 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      locale: 'pt-BR',
+      timezoneId: 'America/Sao_Paulo',
+      // Headers extras para parecer mais humano
+      extraHTTPHeaders: {
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0'
+      }
     });
     
     const page = await context.newPage();
+    
+    // Remove "navigator.webdriver" flag
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined
+      });
+    });
+    
     let allProducts = [];
     let pageNum = 1;
     const maxPages = 50;
@@ -174,118 +190,203 @@ class MagaluScraper {
         console.log(`📄 Pág ${pageNum.toString().padStart(2, '0')}/${maxPages} ${progressBar} [${allProducts.length}/${this.limit}] (${this.duplicatesIgnored} ignorados | ${this.betterOffersUpdated} melhorados)`);
         
         try {
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+          // Navega com waitUntil mais flexível
+          await page.goto(url, { 
+            waitUntil: 'domcontentloaded', 
+            timeout: 60000 
+          });
+          
+          // Aguarda mais tempo para o conteúdo carregar
+          await page.waitForTimeout(4000);
+
+          // Scroll MUITO mais devagar e natural (simula humano)
+          await page.evaluate(async () => {
+            const scrollDelay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            
+            for (let i = 0; i < 10; i++) {
+              const scrollAmount = 400 + Math.random() * 200; // Scroll variável
+              window.scrollBy(0, scrollAmount);
+              await scrollDelay(500 + Math.random() * 300); // Delay variável
+            }
+            
+            window.scrollTo(0, 0);
+            await scrollDelay(1000);
+          });
+          
+          // Aguarda mais um pouco após scroll
           await page.waitForTimeout(2000);
 
-          // Scroll para carregar lazy loading
-          await page.evaluate(async () => {
-            for (let i = 0; i < 5; i++) {
-              window.scrollBy(0, 800);
-              await new Promise(r => setTimeout(r, 400));
-            }
-            window.scrollTo(0, 0);
-          });
-
-          await page.waitForTimeout(1500);
+          // Tenta esperar por elementos de produto aparecerem
+          try {
+            await page.waitForSelector('a[href*="/produto/"], [data-testid*="product"]', { 
+              timeout: 10000 
+            });
+          } catch (e) {
+            console.log(`   ⚠️  Timeout aguardando produtos, mas continuando...`);
+          }
 
           const productsFromPage = await page.evaluate(({ minDisc, affiliateId }) => {
-            // Seletor correto para os itens da lista
-            const items = document.querySelectorAll('#__next > div > main > section:nth-child(5) > div.sc-tSoMJ.hlhcCF > div > ul > li');
             const results = [];
+            
+            // Tenta múltiplos seletores
+            let items = [];
+            
+            items = document.querySelectorAll('[data-testid*="product-card"], [data-testid="product-card-container"]');
+            
+            if (items.length === 0) {
+              items = document.querySelectorAll('a[href*="/produto/"]');
+            }
+            
+            if (items.length === 0) {
+              items = document.querySelectorAll('.sc-dGHKFe, [class*="ProductCard"], [class*="product-card"]');
+            }
+            
+            // Fallback: pega TODOS os links e filtra os de produto
+            if (items.length === 0) {
+              const allLinks = document.querySelectorAll('a[href]');
+              items = Array.from(allLinks).filter(link => 
+                link.href && link.href.includes('magazinevoce') && link.href.includes('/produto/')
+              );
+            }
 
-            items.forEach(item => {
+            console.log(`🔍 Encontrados ${items.length} itens na página`);
+
+            items.forEach((item, index) => {
               try {
-                // Link principal (é um <a> que envolve todo o card)
-                const linkEl = item.querySelector('a[data-testid="product-card-container"]');
+                let card = item;
+                if (item.tagName === 'A') {
+                  card = item.closest('li') || item.closest('div[class*="card"]') || item.parentElement || item;
+                }
                 
-                if (!linkEl) return;
+                const cardText = card.innerText || item.innerText || '';
                 
-                // Título do produto
-                const titleEl = item.querySelector('[data-testid*="title"]');
+                let linkEl = card.querySelector('a[href*="/produto/"]') || (item.tagName === 'A' ? item : null);
+                if (!linkEl) {
+                  linkEl = card.querySelector('a[href]');
+                }
+                
+                if (!linkEl || !linkEl.href || !linkEl.href.includes('magazinevoce')) {
+                  return;
+                }
+                
+                // Título
+                let titleEl = card.querySelector('[data-testid*="title"]') || 
+                             card.querySelector('h2') || 
+                             card.querySelector('h3') ||
+                             card.querySelector('[class*="title"]') ||
+                             card.querySelector('[class*="Title"]');
+                
+                let productTitle = titleEl ? titleEl.innerText.trim() : '';
+                
+                if (!productTitle && linkEl.title) {
+                  productTitle = linkEl.title;
+                }
+                
+                if (!productTitle && linkEl.getAttribute('aria-label')) {
+                  productTitle = linkEl.getAttribute('aria-label');
+                }
                 
                 // Preço atual
-                const currentPriceEl = item.querySelector('[data-testid="price-value"]');
+                let currentPriceEl = card.querySelector('[data-testid="price-value"]') ||
+                                    card.querySelector('[class*="price-value"]') ||
+                                    card.querySelector('[class*="PriceValue"]');
                 
-                // Imagem
-                const imgEl = item.querySelector('img');
+                let currentPrice = '0';
+                if (currentPriceEl) {
+                  currentPrice = currentPriceEl.innerText.replace(/[^\d]/g, '');
+                } else {
+                  const priceMatch = cardText.match(/R\$\s*(\d+[.,]\d+)/);
+                  if (priceMatch) {
+                    currentPrice = priceMatch[1].replace(/[^\d]/g, '');
+                  }
+                }
                 
-                // Extrai desconto do texto completo do card
-                const cardText = item.innerText;
+                // Desconto
                 const discountMatches = cardText.match(/(\d+)%/g);
                 let discountVal = 0;
                 
                 if (discountMatches) {
-                  // Pega o maior desconto encontrado
                   const allDiscounts = discountMatches.map(m => parseInt(m));
                   discountVal = Math.max(...allDiscounts);
                 }
                 
-                // Verifica se atende o desconto mínimo
-                if (discountVal >= minDisc && titleEl && currentPriceEl) {
-                  const currentPrice = currentPriceEl.innerText.replace(/[^\d]/g, '');
-                  
-                  // Calcula preço antigo baseado no desconto
-                  let oldPrice = '0';
-                  if (currentPrice && discountVal > 0) {
-                    const currentVal = parseInt(currentPrice);
-                    oldPrice = Math.round(currentVal / (1 - discountVal / 100)).toString();
-                  }
-                  
-                  // Monta URL completa
-                  let fullUrl = linkEl.href;
-                  
-                  // Verifica se já tem o afiliado na URL
-                  if (!fullUrl.includes(affiliateId)) {
-                    // Adiciona afiliado no path
-                    const url = new URL(fullUrl);
-                    const pathParts = url.pathname.split('/').filter(p => p);
-                    
-                    if (pathParts.length > 0 && pathParts[0] !== affiliateId) {
-                      url.pathname = `/${affiliateId}${url.pathname}`;
-                      fullUrl = url.toString();
-                    }
-                  }
-                  
-                  const cleanLink = fullUrl.split('?')[0];
-                  
-                  // Valida link
-                  if (!cleanLink || cleanLink.length < 20 || !cleanLink.startsWith('http')) {
-                    return;
-                  }
-                  
-                  results.push({
-                    nome: titleEl.innerText.trim(),
-                    imagem: imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || '') : '',
-                    link_original: cleanLink,
-                    preco: `R$ ${currentPrice}`,
-                    preco_anterior: `R$ ${oldPrice}`,
-                    preco_de: oldPrice,
-                    preco_para: currentPrice,
-                    desconto: `${discountVal}%`,
-                    marketplace: 'MAGALU',
-                    isActive: true
-                  });
+                // Imagem
+                let imgEl = card.querySelector('img');
+                let imageUrl = '';
+                if (imgEl) {
+                  imageUrl = imgEl.src || imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || '';
                 }
+                
+                // Validações
+                if (!productTitle || productTitle.length < 3) {
+                  return;
+                }
+                
+                if (discountVal < minDisc) {
+                  return;
+                }
+                
+                if (!currentPrice || currentPrice === '0') {
+                  return;
+                }
+                
+                // Calcula preço antigo
+                let oldPrice = '0';
+                if (currentPrice && discountVal > 0) {
+                  const currentVal = parseInt(currentPrice);
+                  oldPrice = Math.round(currentVal / (1 - discountVal / 100)).toString();
+                }
+                
+                // URL
+                let fullUrl = linkEl.href;
+                
+                if (!fullUrl.includes(affiliateId)) {
+                  const url = new URL(fullUrl);
+                  const pathParts = url.pathname.split('/').filter(p => p);
+                  
+                  if (pathParts.length > 0 && pathParts[0] !== affiliateId) {
+                    url.pathname = `/${affiliateId}${url.pathname}`;
+                    fullUrl = url.toString();
+                  }
+                }
+                
+                const cleanLink = fullUrl.split('?')[0].split('#')[0];
+                
+                if (!cleanLink || cleanLink.length < 30 || !cleanLink.startsWith('http')) {
+                  return;
+                }
+                
+                results.push({
+                  nome: productTitle,
+                  imagem: imageUrl,
+                  link_original: cleanLink,
+                  preco: `R$ ${currentPrice}`,
+                  preco_anterior: `R$ ${oldPrice}`,
+                  preco_de: oldPrice,
+                  preco_para: currentPrice,
+                  desconto: `${discountVal}%`,
+                  marketplace: 'MAGALU',
+                  isActive: true
+                });
+                
               } catch (e) {
-                console.error('Erro ao processar item:', e.message);
+                // Silencioso
               }
             });
             
             return results;
           }, { minDisc: this.minDiscount, affiliateId: this.affiliateId });
 
-          // Processa cada produto com lógica inteligente
+          console.log(`   ✅ Extraídos: ${productsFromPage.length} produtos da página ${pageNum}`);
+
           for (const product of productsFromPage) {
-            // Valida novamente no Node.js
             if (!product.link_original || product.link_original.length < 20) {
-              console.log(`   ⚠️ Produto sem link válido ignorado: ${product.nome.substring(0, 30)}...`);
               continue;
             }
 
             const result = await this.processProduct(product, allProducts);
             
             if (result.action === 'add' || result.action === 'update') {
-              // Marca produto para UPDATE se for oferta melhor
               if (result.action === 'update') {
                 product._shouldUpdate = true;
                 product._oldLink = result.oldLink;
@@ -311,7 +412,9 @@ class MagaluScraper {
           if (allProducts.length >= this.limit) break;
 
           pageNum++;
-          await page.waitForTimeout(1500 + Math.random() * 1000);
+          
+          // Delay variável entre páginas (mais humano)
+          await page.waitForTimeout(2500 + Math.random() * 2000);
 
         } catch (pageError) {
           console.error(`   ❌ Erro na página ${pageNum}:`, pageError.message);
@@ -345,6 +448,7 @@ class MagaluScraper {
 
     } catch (error) {
       console.error('❌ Erro crítico:', error.message);
+      console.error(error.stack);
       await browser.close();
       return allProducts.slice(0, this.limit);
     }

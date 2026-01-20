@@ -1,5 +1,5 @@
 require('dotenv').config();
-const connectDB = require('../database/mongodb'); 
+const { connectDB } = require('../database/mongodb'); // ← CORREÇÃO AQUI: usa destructuring { }
 const ScrapingService = require('../scraper/services/ScrapingService'); 
 
 (async () => {
