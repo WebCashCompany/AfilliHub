@@ -3,8 +3,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./database/mongodb');
-
-// ✅ CAMINHO CORRETO
 const ScrapingService = require('./scraper/services/ScrapingService');
 
 const app = express();
@@ -13,10 +11,8 @@ const app = express();
 // MIDDLEWARES
 // ═══════════════════════════════════════════════════════════
 
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
-  credentials: true
-}));
+// ✅ CORS - ACEITA TODAS AS ORIGENS (desenvolvimento)
+app.use(cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -55,13 +51,16 @@ app.post('/api/scraping/start', async (req, res) => {
 
       console.log(`\n🔄 Processando ${mpName}...`);
 
+      // Usar filtros individuais do marketplace
+      const mpFilters = mpConfig.filters || {};
+
       const products = await scrapingService.collectFromMarketplace(mpName, {
-        minDiscount,
-        maxPrice,
+        minDiscount: mpFilters.minDiscount || minDiscount || 20,
+        maxPrice: mpFilters.maxPrice || maxPrice || 20000,
         limit: mpConfig.quantity,
-        categoria: filters?.categoria || null,
-        palavraChave: filters?.palavraChave || null,
-        frete_gratis: filters?.frete_gratis || false
+        categoria: mpFilters.categoria || null,
+        palavraChave: mpFilters.palavraChave || null,
+        frete_gratis: mpFilters.frete_gratis || false
       });
 
       // Determinar código do marketplace
@@ -119,7 +118,8 @@ app.post('/api/scraping/start', async (req, res) => {
       console.log(`║  ✅ Servidor rodando na porta ${PORT}              ║`);
       console.log('╚════════════════════════════════════════════════════╝');
       console.log(`\n📡 API disponível em: http://localhost:${PORT}`);
-      console.log(`🏥 Health check: http://localhost:${PORT}/api/health\n`);
+      console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`🌐 CORS: Habilitado para todas as origens\n`);
     });
 
   } catch (error) {
