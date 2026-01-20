@@ -1,12 +1,4 @@
-// src/api/services/products.service.ts
-
-/**
- * ═══════════════════════════════════════════════════════════
- * PRODUCTS SERVICE
- * ═══════════════════════════════════════════════════════════
- * 
- * Serviço para operações CRUD de produtos.
- */
+// src/api/services/products.service.ts - ATUALIZADO
 
 import { apiClient } from '../client';
 import { API_ENDPOINTS } from '../endpoints';
@@ -70,7 +62,7 @@ class ProductsService {
   }
 
   /**
-   * Deleta produto
+   * Deleta produto único
    */
   async delete(id: string): Promise<ApiResponse<void>> {
     return apiClient.delete(API_ENDPOINTS.PRODUCTS.DELETE(id));
@@ -80,7 +72,28 @@ class ProductsService {
    * Deleta múltiplos produtos
    */
   async bulkDelete(ids: string[]): Promise<ApiResponse<{ deleted: number }>> {
-    return apiClient.post<{ deleted: number }>(API_ENDPOINTS.PRODUCTS.BULK_DELETE, { ids });
+    return apiClient.post<{ deleted: number }>('/api/products/bulk-delete', { ids });
+  }
+
+  /**
+   * Deleta todos os produtos
+   */
+  async deleteAll(): Promise<ApiResponse<{ deleted: number; byMarketplace: Record<string, number> }>> {
+    return apiClient.delete<{ deleted: number; byMarketplace: Record<string, number> }>('/api/products/cleanup/all');
+  }
+
+  /**
+   * Deleta produtos de um marketplace específico
+   */
+  async deleteByMarketplace(marketplace: 'ML' | 'shopee' | 'amazon' | 'magalu'): Promise<ApiResponse<{ deleted: number }>> {
+    return apiClient.delete<{ deleted: number }>(`/api/products/marketplace/${marketplace}`);
+  }
+
+  /**
+   * Deleta produtos antigos
+   */
+  async deleteOld(days: number): Promise<ApiResponse<{ deleted: number; byMarketplace: Record<string, number> }>> {
+    return apiClient.post<{ deleted: number; byMarketplace: Record<string, number> }>('/api/products/cleanup/old', { days });
   }
 }
 

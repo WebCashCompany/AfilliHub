@@ -10,9 +10,7 @@ const app = express();
 // MIDDLEWARES
 // ═══════════════════════════════════════════════════════════
 
-// ✅ CORS - ACEITA TODAS AS ORIGENS (desenvolvimento)
 app.use(cors());
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -22,14 +20,22 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: 'API Online',
     timestamp: new Date().toISOString()
   });
 });
 
-// ✅ IMPORTAR E USAR ROTAS DE SCRAPING COM SSE
+// ──────────────────────────────────────────────────────────
+// 🔥 ROTAS DE PRODUTOS (AGORA EXISTEM)
+// ──────────────────────────────────────────────────────────
+const productRoutes = require('./routes/products.routes');
+app.use('/api/products', productRoutes);
+
+// ──────────────────────────────────────────────────────────
+// SCRAPING (SSE)
+// ──────────────────────────────────────────────────────────
 const scrapingRoutes = require('./routes/scraping.routes');
 app.use('/api/scraping', scrapingRoutes);
 
@@ -43,20 +49,19 @@ app.use('/api/scraping', scrapingRoutes);
     console.log('║     🚀 AFFILIATE HUB PRO - API SERVER 🚀         ║');
     console.log('╚════════════════════════════════════════════════════╝\n');
 
-    // Conectar MongoDB
     console.log('🔌 Conectando ao MongoDB...');
     await connectDB();
     console.log('✅ MongoDB conectado!\n');
 
-    // Iniciar servidor
     const PORT = process.env.PORT || 3001;
-    
+
     app.listen(PORT, () => {
       console.log('╔════════════════════════════════════════════════════╗');
       console.log(`║  ✅ Servidor rodando na porta ${PORT}              ║`);
       console.log('╚════════════════════════════════════════════════════╝');
       console.log(`\n📡 API disponível em: http://localhost:${PORT}`);
       console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
+      console.log(`📦 Produtos: http://localhost:${PORT}/api/products`);
       console.log(`🚀 Scraping SSE: http://localhost:${PORT}/api/scraping/start`);
       console.log(`🌐 CORS: Habilitado para todas as origens\n`);
     });

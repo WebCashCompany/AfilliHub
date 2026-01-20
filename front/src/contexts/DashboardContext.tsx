@@ -1,31 +1,39 @@
-// src/contexts/DashboardContext.tsx - VERSÃO COM SSE (Server-Sent Events)
+// src/contexts/DashboardContext.tsx
 
-/**
- * ═══════════════════════════════════════════════════════════
- * DASHBOARD CONTEXT - COM PROGRESSO EM TEMPO REAL
- * ═══════════════════════════════════════════════════════════
- * 
- * ✅ SSE para updates em tempo real
- * ✅ Sincronização suave do progresso
- * ✅ Fallback para polling se SSE falhar
- */
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+  useRef
+} from 'react';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import {
   Product,
   DailyMetrics,
   CategoryMetrics,
   MarketplaceMetrics,
-  generateProducts,
   generateDailyMetrics,
   generateCategoryMetrics,
   generateMarketplaceMetrics,
   Marketplace
 } from '@/lib/mockData';
+
 import { scrapingService } from '@/api/services/scraping.service';
-import { productsService } from '@/api/services/products.service';
 import type { ScrapingRequestPayload } from '@/types/api.types';
 import { useToast } from '@/hooks/use-toast';
+
+/* ===============================
+   CONFIG
+================================ */
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+
+/* ===============================
+   TYPES
+================================ */
 
 interface DashboardContextType {
   products: Product[];
@@ -34,17 +42,10 @@ interface DashboardContextType {
   marketplaceMetrics: MarketplaceMetrics[];
   trashedProducts: Product[];
   isLoading: boolean;
-  
-  // Actions
-  addProduct: (product: Omit<Product, 'id'>) => void;
-  deleteProducts: (ids: string[]) => void;
-  protectProducts: (ids: string[]) => void;
-  unprotectProducts: (ids: string[]) => void;
-  restoreProducts: (ids: string[]) => void;
-  permanentlyDeleteProducts: (ids: string[]) => void;
-  runCleanup: (daysWithoutClicks: number, removeOutOfStock: boolean) => number;
-  
-  // Scraping - COM PROGRESSO EM TEMPO REAL
+
+  deleteProducts: (ids: string[]) => Promise<void>;
+  runCleanup: () => Promise<number>;
+  refreshProducts: () => Promise<void>;
   runScraping: (config: ScrapingConfig) => Promise<number>;
   scrapingStatus: ScrapingStatus;
 }
@@ -58,11 +59,7 @@ export interface ScrapingConfig {
   };
   minDiscount: number;
   maxPrice: number;
-  filters?: {
-    categoria?: string;
-    palavraChave?: string;
-    frete_gratis?: boolean;
-  };
+  filters?: any;
 }
 
 export interface ScrapingStatus {
@@ -73,16 +70,28 @@ export interface ScrapingStatus {
   totalItems: number;
 }
 
-const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
+/* ===============================
+   CONTEXT
+================================ */
+
+const DashboardContext = createContext<DashboardContextType | undefined>(
+  undefined
+);
+
+/* ===============================
+   PROVIDER
+================================ */
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
-  const [trashedProducts, setTrashedProducts] = useState<Product[]>([]);
+  const [trashedProducts] = useState<Product[]>([]);
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetrics[]>([]);
   const [categoryMetrics, setCategoryMetrics] = useState<CategoryMetrics[]>([]);
-  const [marketplaceMetrics, setMarketplaceMetrics] = useState<MarketplaceMetrics[]>([]);
+  const [marketplaceMetrics, setMarketplaceMetrics] =
+    useState<MarketplaceMetrics[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>({
+
+  const [scrapingStatus] = useState<ScrapingStatus>({
     isRunning: false,
     progress: 0,
     currentMarketplace: null,
@@ -92,276 +101,162 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const { toast } = useToast();
   const eventSourceRef = useRef<EventSource | null>(null);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    // Initialize data
-    const initialProducts = generateProducts(500);
-    setProducts(initialProducts);
-    setDailyMetrics(generateDailyMetrics(30));
-    setCategoryMetrics(generateCategoryMetrics(initialProducts));
-    setMarketplaceMetrics(generateMarketplaceMetrics(initialProducts));
-    setIsLoading(false);
+  /* ===============================
+     HELPERS
+  ================================ */
 
-    // Cleanup on unmount
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, []);
-
-  // ═══════════════════════════════════════════════════════════
-  // ✅ ESCUTAR PROGRESSO EM TEMPO REAL VIA SSE
-  // ═══════════════════════════════════════════════════════════
-  
-  const startProgressListener = (sessionId: string) => {
-    const apiUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
-    const eventSource = new EventSource(`${apiUrl}/api/scraping/progress/${sessionId}`);
-    
-    eventSourceRef.current = eventSource;
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        // Atualiza status com animação suave
-        setScrapingStatus(prev => ({
-          ...prev,
-          progress: data.progress || prev.progress,
-          currentMarketplace: data.currentMarketplace || prev.currentMarketplace,
-          itemsCollected: data.itemsCollected || prev.itemsCollected,
-          totalItems: data.totalItems || prev.totalItems,
-        }));
-
-        // Se completou, fecha conexão
-        if (data.progress >= 100 || data.status === 'completed') {
-          eventSource.close();
-          eventSourceRef.current = null;
-        }
-      } catch (error) {
-        console.error('❌ Erro ao parsear evento SSE:', error);
-      }
+  function normalizeMarketplace(mp: string): Marketplace {
+    const map: Record<string, Marketplace> = {
+      ML: 'mercadolivre',
+      mercadolivre: 'mercadolivre',
+      shopee: 'shopee',
+      amazon: 'amazon',
+      magalu: 'magalu'
     };
 
-    eventSource.onerror = (error) => {
-      console.warn('⚠️ SSE error, iniciando fallback polling...', error);
-      eventSource.close();
-      eventSourceRef.current = null;
-      
-      // Fallback: polling a cada 1 segundo
-      startPollingFallback(sessionId);
-    };
-  };
+    return map[mp] || 'mercadolivre';
+  }
 
-  // ═══════════════════════════════════════════════════════════
-  // 📡 FALLBACK: POLLING CASO SSE FALHE
-  // ═══════════════════════════════════════════════════════════
-  
-  const startPollingFallback = (sessionId: string) => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-    }
+  /* ===============================
+     LOAD PRODUCTS (CORRIGIDO)
+  ================================ */
 
-    pollingIntervalRef.current = setInterval(async () => {
-      try {
-        const response = await scrapingService.getStatus();
-        
-        if (response.success && response.data) {
-          setScrapingStatus(prev => ({
-            ...prev,
-            progress: response.data.progress || prev.progress,
-            currentMarketplace: response.data.currentMarketplace || prev.currentMarketplace,
-            itemsCollected: response.data.itemsCollected || prev.itemsCollected,
-            totalItems: response.data.totalItems || prev.totalItems,
-          }));
+  const refreshProducts = async () => {
+    setIsLoading(true);
 
-          // Para polling quando completo
-          if (response.data.progress >= 100 || response.data.status === 'completed') {
-            if (pollingIntervalRef.current) {
-              clearInterval(pollingIntervalRef.current);
-              pollingIntervalRef.current = null;
-            }
-          }
-        }
-      } catch (error) {
-        console.error('❌ Erro no polling:', error);
-      }
-    }, 1000); // Poll a cada 1 segundo
-  };
-
-  // ═══════════════════════════════════════════════════════════
-  // 🚀 INICIAR SCRAPING
-  // ═══════════════════════════════════════════════════════════
-
-  const runScraping = async (config: ScrapingConfig): Promise<number> => {
-    const enabledMarketplaces = (Object.entries(config.marketplaces) as [Marketplace, { enabled: boolean; quantity: number }][])
-      .filter(([_, cfg]) => cfg.enabled);
-    
-    const totalItems = enabledMarketplaces.reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
-    
-    // Inicia com 0% imediatamente
-    setScrapingStatus({
-      isRunning: true,
-      progress: 0,
-      currentMarketplace: enabledMarketplaces[0]?.[0] || null,
-      itemsCollected: 0,
-      totalItems
-    });
+    const url = `${API_BASE_URL}/api/products`;
+    console.log('📡 Buscando produtos em:', url);
 
     try {
-      const payload: ScrapingRequestPayload = {
-        marketplaces: config.marketplaces,
-        minDiscount: config.minDiscount,
-        maxPrice: config.maxPrice,
-        filters: config.filters,
-      };
+      const res = await fetch(url);
 
-      const response = await scrapingService.start(payload);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      if (response.success && response.data) {
-        const sessionId = response.data.sessionId || 'default';
+      const json = await res.json();
+      console.log('📦 Resposta API:', json);
 
-        // ✅ CONECTAR NO SSE PARA RECEBER UPDATES EM TEMPO REAL
-        startProgressListener(sessionId);
+      const items = Array.isArray(json?.items)
+        ? json.items
+        : Array.isArray(json?.data?.items)
+        ? json.data.items
+        : [];
 
-        // Aguarda conclusão (o progresso será atualizado via SSE)
-        const collected = response.data.total || 0;
+      const formatted: Product[] = items.map((p: any) => ({
+        id: p._id || p.id,
+        name: p.nome || p.title || 'Produto',
+        image: p.imagem || p.thumbnail || '',
+        category: p.categoria || 'Geral',
+        marketplace: normalizeMarketplace(p.marketplace),
+        price: Number(p.preco_para || p.price) || 0,
+        discount: Number(p.desconto || p.discount) || 0,
+        clicks: 0,
+        conversions: 0,
+        revenue: 0,
+        stock: 100,
+        status: 'active',
+        addedAt: new Date(p.createdAt || Date.now())
+      }));
 
-        return collected;
-      }
+      setProducts(formatted);
+      setDailyMetrics(generateDailyMetrics(30));
+      setCategoryMetrics(generateCategoryMetrics(formatted));
+      setMarketplaceMetrics(generateMarketplaceMetrics(formatted));
 
-      throw new Error('Erro no scraping');
-
-    } catch (error: any) {
-      console.error('❌ Erro no scraping:', error);
-      
+      console.log(`✅ ${formatted.length} produtos carregados`);
+    } catch (err) {
+      console.error('❌ Erro ao carregar produtos:', err);
       toast({
-        title: "❌ Erro no scraping",
-        description: error.message || 'Erro ao coletar produtos',
-        variant: "destructive",
+        title: 'Erro ao carregar produtos',
+        description: 'Falha ao buscar /api/products',
+        variant: 'destructive'
       });
-
-      // Reset status
-      setScrapingStatus({
-        isRunning: false,
-        progress: 0,
-        currentMarketplace: null,
-        itemsCollected: 0,
-        totalItems: 0,
-      });
-
-      // Limpa listeners
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-
-      return 0;
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // OUTRAS FUNÇÕES (sem alteração)
-  // ═══════════════════════════════════════════════════════════
+  useEffect(() => {
+    refreshProducts();
+    return () => eventSourceRef.current?.close();
+  }, []);
 
-  const addProduct = (product: Omit<Product, 'id'>) => {
-    const newProduct: Product = {
-      ...product,
-      id: `prod_${Math.random().toString(36).substring(2, 11)}`
-    };
-    setProducts(prev => [newProduct, ...prev]);
-  };
+  /* ===============================
+     DELETE
+  ================================ */
 
-  const deleteProducts = (ids: string[]) => {
-    const toDelete = products.filter(p => ids.includes(p.id) && p.status !== 'protected');
-    setProducts(prev => prev.filter(p => !ids.includes(p.id) || p.status === 'protected'));
-    setTrashedProducts(prev => [...toDelete.map(p => ({ ...p, status: 'inactive' as const })), ...prev]);
-  };
-
-  const protectProducts = (ids: string[]) => {
-    setProducts(prev => prev.map(p => 
-      ids.includes(p.id) ? { ...p, status: 'protected' as const } : p
-    ));
-  };
-
-  const unprotectProducts = (ids: string[]) => {
-    setProducts(prev => prev.map(p => 
-      ids.includes(p.id) && p.status === 'protected' ? { ...p, status: 'active' as const } : p
-    ));
-  };
-
-  const restoreProducts = (ids: string[]) => {
-    const toRestore = trashedProducts.filter(p => ids.includes(p.id));
-    setTrashedProducts(prev => prev.filter(p => !ids.includes(p.id)));
-    setProducts(prev => [...toRestore.map(p => ({ ...p, status: 'active' as const })), ...prev]);
-  };
-
-  const permanentlyDeleteProducts = (ids: string[]) => {
-    setTrashedProducts(prev => prev.filter(p => !ids.includes(p.id)));
-  };
-
-  const runCleanup = (daysWithoutClicks: number, removeOutOfStock: boolean): number => {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysWithoutClicks);
-    
-    let removedCount = 0;
-    const toRemove: string[] = [];
-
-    products.forEach(product => {
-      if (product.status === 'protected') return;
-      
-      const shouldRemove = 
-        (product.clicks === 0 && product.addedAt < cutoffDate) ||
-        (removeOutOfStock && product.stock === 0);
-      
-      if (shouldRemove) {
-        toRemove.push(product.id);
-        removedCount++;
-      }
+  const deleteProducts = async (ids: string[]) => {
+    await fetch(`${API_BASE_URL}/api/products/bulk-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
     });
 
-    if (toRemove.length > 0) {
-      deleteProducts(toRemove);
+    await refreshProducts();
+  };
+
+  /* ===============================
+     CLEANUP
+  ================================ */
+
+  const runCleanup = async (): Promise<number> => {
+    await fetch(`${API_BASE_URL}/api/products/cleanup/all`, {
+      method: 'DELETE'
+    });
+
+    await refreshProducts();
+    return 0;
+  };
+
+  /* ===============================
+     SCRAPING
+  ================================ */
+
+  const runScraping = async (config: ScrapingConfig): Promise<number> => {
+    const payload: ScrapingRequestPayload = {
+      marketplaces: config.marketplaces,
+      minDiscount: config.minDiscount,
+      maxPrice: config.maxPrice,
+      filters: config.filters
+    };
+
+    const res = await scrapingService.start(payload);
+
+    if (res.success) {
+      await refreshProducts();
+      return res.data?.total || 0;
     }
 
-    return removedCount;
+    return 0;
   };
 
   return (
-    <DashboardContext.Provider value={{
-      products,
-      dailyMetrics,
-      categoryMetrics,
-      marketplaceMetrics,
-      trashedProducts,
-      isLoading,
-      addProduct,
-      deleteProducts,
-      protectProducts,
-      unprotectProducts,
-      restoreProducts,
-      permanentlyDeleteProducts,
-      runCleanup,
-      runScraping,
-      scrapingStatus
-    }}>
+    <DashboardContext.Provider
+      value={{
+        products,
+        dailyMetrics,
+        categoryMetrics,
+        marketplaceMetrics,
+        trashedProducts,
+        isLoading,
+        deleteProducts,
+        runCleanup,
+        refreshProducts,
+        runScraping,
+        scrapingStatus
+      }}
+    >
       {children}
     </DashboardContext.Provider>
   );
 }
 
+/* ===============================
+   HOOK
+================================ */
+
 export function useDashboard() {
-  const context = useContext(DashboardContext);
-  if (context === undefined) {
-    throw new Error('useDashboard must be used within a DashboardProvider');
-  }
-  return context;
+  const ctx = useContext(DashboardContext);
+  if (!ctx) throw new Error('useDashboard fora do Provider');
+  return ctx;
 }
