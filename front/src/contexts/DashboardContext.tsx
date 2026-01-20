@@ -1,12 +1,16 @@
-// src/contexts/DashboardContext.tsx - VERSÃO CONECTADA AO BACKEND
+// src/contexts/DashboardContext.tsx - VERSÃO COM SSE (Server-Sent Events)
 
 /**
  * ═══════════════════════════════════════════════════════════
- * DASHBOARD CONTEXT - INTEGRADO COM BACKEND
+ * DASHBOARD CONTEXT - COM PROGRESSO EM TEMPO REAL
  * ═══════════════════════════════════════════════════════════
+ * 
+ * ✅ SSE para updates em tempo real
+ * ✅ Sincronização suave do progresso
+ * ✅ Fallback para polling se SSE falhar
  */
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
 import {
   Product,
   DailyMetrics,
@@ -40,17 +44,17 @@ interface DashboardContextType {
   permanentlyDeleteProducts: (ids: string[]) => void;
   runCleanup: (daysWithoutClicks: number, removeOutOfStock: boolean) => number;
   
-  // Scraping - CONECTADO AO BACKEND
+  // Scraping - COM PROGRESSO EM TEMPO REAL
   runScraping: (config: ScrapingConfig) => Promise<number>;
   scrapingStatus: ScrapingStatus;
 }
 
 export interface ScrapingConfig {
   marketplaces: {
-    mercadolivre: { enabled: boolean; quantity: number };
-    amazon: { enabled: boolean; quantity: number };
-    magalu: { enabled: boolean; quantity: number };
-    shopee: { enabled: boolean; quantity: number };
+    mercadolivre: { enabled: boolean; quantity: number; filters?: any };
+    amazon: { enabled: boolean; quantity: number; filters?: any };
+    magalu: { enabled: boolean; quantity: number; filters?: any };
+    shopee: { enabled: boolean; quantity: number; filters?: any };
   };
   minDiscount: number;
   maxPrice: number;
@@ -87,16 +91,186 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   });
 
   const { toast } = useToast();
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Initialize data - AQUI PODE CARREGAR DO BACKEND
+    // Initialize data
     const initialProducts = generateProducts(500);
     setProducts(initialProducts);
     setDailyMetrics(generateDailyMetrics(30));
     setCategoryMetrics(generateCategoryMetrics(initialProducts));
     setMarketplaceMetrics(generateMarketplaceMetrics(initialProducts));
     setIsLoading(false);
+
+    // Cleanup on unmount
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, []);
+
+  // ═══════════════════════════════════════════════════════════
+  // ✅ ESCUTAR PROGRESSO EM TEMPO REAL VIA SSE
+  // ═══════════════════════════════════════════════════════════
+  
+  const startProgressListener = (sessionId: string) => {
+    const apiUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+    const eventSource = new EventSource(`${apiUrl}/api/scraping/progress/${sessionId}`);
+    
+    eventSourceRef.current = eventSource;
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Atualiza status com animação suave
+        setScrapingStatus(prev => ({
+          ...prev,
+          progress: data.progress || prev.progress,
+          currentMarketplace: data.currentMarketplace || prev.currentMarketplace,
+          itemsCollected: data.itemsCollected || prev.itemsCollected,
+          totalItems: data.totalItems || prev.totalItems,
+        }));
+
+        // Se completou, fecha conexão
+        if (data.progress >= 100 || data.status === 'completed') {
+          eventSource.close();
+          eventSourceRef.current = null;
+        }
+      } catch (error) {
+        console.error('❌ Erro ao parsear evento SSE:', error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.warn('⚠️ SSE error, iniciando fallback polling...', error);
+      eventSource.close();
+      eventSourceRef.current = null;
+      
+      // Fallback: polling a cada 1 segundo
+      startPollingFallback(sessionId);
+    };
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // 📡 FALLBACK: POLLING CASO SSE FALHE
+  // ═══════════════════════════════════════════════════════════
+  
+  const startPollingFallback = (sessionId: string) => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await scrapingService.getStatus();
+        
+        if (response.success && response.data) {
+          setScrapingStatus(prev => ({
+            ...prev,
+            progress: response.data.progress || prev.progress,
+            currentMarketplace: response.data.currentMarketplace || prev.currentMarketplace,
+            itemsCollected: response.data.itemsCollected || prev.itemsCollected,
+            totalItems: response.data.totalItems || prev.totalItems,
+          }));
+
+          // Para polling quando completo
+          if (response.data.progress >= 100 || response.data.status === 'completed') {
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Erro no polling:', error);
+      }
+    }, 1000); // Poll a cada 1 segundo
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // 🚀 INICIAR SCRAPING
+  // ═══════════════════════════════════════════════════════════
+
+  const runScraping = async (config: ScrapingConfig): Promise<number> => {
+    const enabledMarketplaces = (Object.entries(config.marketplaces) as [Marketplace, { enabled: boolean; quantity: number }][])
+      .filter(([_, cfg]) => cfg.enabled);
+    
+    const totalItems = enabledMarketplaces.reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
+    
+    // Inicia com 0% imediatamente
+    setScrapingStatus({
+      isRunning: true,
+      progress: 0,
+      currentMarketplace: enabledMarketplaces[0]?.[0] || null,
+      itemsCollected: 0,
+      totalItems
+    });
+
+    try {
+      const payload: ScrapingRequestPayload = {
+        marketplaces: config.marketplaces,
+        minDiscount: config.minDiscount,
+        maxPrice: config.maxPrice,
+        filters: config.filters,
+      };
+
+      const response = await scrapingService.start(payload);
+
+      if (response.success && response.data) {
+        const sessionId = response.data.sessionId || 'default';
+
+        // ✅ CONECTAR NO SSE PARA RECEBER UPDATES EM TEMPO REAL
+        startProgressListener(sessionId);
+
+        // Aguarda conclusão (o progresso será atualizado via SSE)
+        const collected = response.data.total || 0;
+
+        return collected;
+      }
+
+      throw new Error('Erro no scraping');
+
+    } catch (error: any) {
+      console.error('❌ Erro no scraping:', error);
+      
+      toast({
+        title: "❌ Erro no scraping",
+        description: error.message || 'Erro ao coletar produtos',
+        variant: "destructive",
+      });
+
+      // Reset status
+      setScrapingStatus({
+        isRunning: false,
+        progress: 0,
+        currentMarketplace: null,
+        itemsCollected: 0,
+        totalItems: 0,
+      });
+
+      // Limpa listeners
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+
+      return 0;
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // OUTRAS FUNÇÕES (sem alteração)
+  // ═══════════════════════════════════════════════════════════
 
   const addProduct = (product: Omit<Product, 'id'>) => {
     const newProduct: Product = {
@@ -159,91 +333,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
 
     return removedCount;
-  };
-
-  // ═══════════════════════════════════════════════════════════
-  // ✅ SCRAPING CONECTADO AO BACKEND
-  // ═══════════════════════════════════════════════════════════
-
-  const runScraping = async (config: ScrapingConfig): Promise<number> => {
-    const enabledMarketplaces = (Object.entries(config.marketplaces) as [Marketplace, { enabled: boolean; quantity: number }][])
-      .filter(([_, cfg]) => cfg.enabled);
-    
-    const totalItems = enabledMarketplaces.reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
-    
-    setScrapingStatus({
-      isRunning: true,
-      progress: 0,
-      currentMarketplace: enabledMarketplaces[0]?.[0] || null,
-      itemsCollected: 0,
-      totalItems
-    });
-
-    try {
-      // ✅ CHAMAR O BACKEND
-      const payload: ScrapingRequestPayload = {
-        marketplaces: config.marketplaces,
-        minDiscount: config.minDiscount,
-        maxPrice: config.maxPrice,
-        filters: config.filters,
-      };
-
-      const response = await scrapingService.start(payload);
-
-      if (response.success && response.data) {
-        const collected = response.data.total;
-
-        // Simula progresso visual enquanto o backend processa
-        let progress = 0;
-        const interval = setInterval(() => {
-          progress += 10;
-          if (progress <= 90) {
-            setScrapingStatus(prev => ({ ...prev, progress }));
-          }
-        }, 300);
-
-        // Aguarda um pouco para dar tempo do backend processar
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        clearInterval(interval);
-
-        // Finaliza
-        setScrapingStatus({
-          isRunning: false,
-          progress: 100,
-          currentMarketplace: null,
-          itemsCollected: collected,
-          totalItems: collected,
-        });
-
-        // ✅ ATUALIZAR PRODUTOS NO FRONTEND (OPCIONAL)
-        // Você pode buscar os produtos novamente do backend
-        // await fetchProducts();
-
-        return collected;
-      }
-
-      throw new Error('Erro no scraping');
-
-    } catch (error: any) {
-      console.error('❌ Erro no scraping:', error);
-      
-      toast({
-        title: "❌ Erro no scraping",
-        description: error.message || 'Erro ao coletar produtos',
-        variant: "destructive",
-      });
-
-      setScrapingStatus({
-        isRunning: false,
-        progress: 0,
-        currentMarketplace: null,
-        itemsCollected: 0,
-        totalItems: 0,
-      });
-
-      return 0;
-    }
   };
 
   return (

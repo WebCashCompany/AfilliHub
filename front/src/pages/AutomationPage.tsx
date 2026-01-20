@@ -62,6 +62,30 @@ export function AutomationPage() {
   const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
   const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
 
+  // ═══════════════════════════════════════════════════════════
+  // ✅ EFEITO PARA NOTIFICAÇÃO DE CONCLUSÃO
+  // ═══════════════════════════════════════════════════════════
+  
+  useEffect(() => {
+    // Detecta quando scraping completa
+    if (!scrapingStatus.isRunning && scrapingStatus.progress === 100 && scrapingStatus.itemsCollected > 0) {
+      // Notificação de sucesso
+      toast({
+        title: "✅ Automação concluída!",
+        description: `${formatNumber(scrapingStatus.itemsCollected)} novos produtos foram adicionados.`,
+        className: "bg-green-600 text-white border-none shadow-lg",
+      });
+
+      // Notificação do navegador (se permitido)
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Automação Concluída", {
+          body: `${scrapingStatus.itemsCollected} produtos foram coletados com sucesso.`,
+          icon: "/favicon.ico"
+        });
+      }
+    }
+  }, [scrapingStatus.isRunning, scrapingStatus.progress, scrapingStatus.itemsCollected]);
+
   const handleMarketplaceToggle = (mp: Marketplace) => {
     setConfig(prev => ({
       ...prev,
@@ -76,7 +100,6 @@ export function AutomationPage() {
   };
 
   const handleQuantityChange = (mp: Marketplace, quantity: number) => {
-    // Garante que o número seja válido e esteja dentro do range
     const val = isNaN(quantity) ? 0 : quantity;
     setConfig(prev => ({
       ...prev,
@@ -114,7 +137,7 @@ export function AutomationPage() {
     toast({
       title: "✅ Filtros salvos",
       description: `Configurações do ${getMarketplaceName(currentMarketplace)} atualizadas.`,
-      className: "bg-green-600 text-white border-none", // Notificação verde
+      className: "bg-green-600 text-white border-none",
     });
   };
 
@@ -138,40 +161,18 @@ export function AutomationPage() {
 
     toast({
       title: "🚀 Automação Iniciada",
-      description: "A coleta de produtos foi iniciada. Acompanhe o progresso.",
+      description: "A coleta de produtos foi iniciada. Acompanhe o progresso em tempo real.",
       className: "bg-zinc-900 text-white border-primary",
     });
 
-    const scrapingConfig: any = {
-      marketplaces: {},
+    const scrapingConfig: ScrapingConfig = {
+      marketplaces: config.marketplaces as any,
       minDiscount: 20,
       maxPrice: 20000,
     };
 
-    for (const [mp, mpConfig] of Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][]) {
-      scrapingConfig.marketplaces[mp] = {
-        enabled: mpConfig.enabled,
-        quantity: mpConfig.quantity,
-        filters: mpConfig.filters || {}
-      };
-    }
-
-    const collected = await runScraping(scrapingConfig);
-
-    // Notificação verde de conclusão
-    toast({
-      title: "✅ Automação concluída!",
-      description: `${formatNumber(collected)} novos produtos foram adicionados.`,
-      className: "bg-green-600 text-white border-none shadow-lg",
-    });
-
-    // Enviar notificação de sistema se permitido
-    if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("Automação Concluída", {
-            body: `${collected} produtos foram coletados com sucesso.`,
-            icon: "/favicon.ico"
-        });
-    }
+    // ✅ INICIA O SCRAPING (progresso será atualizado via SSE)
+    await runScraping(scrapingConfig);
   };
 
   const totalToCollect = Object.entries(config.marketplaces)
@@ -247,7 +248,7 @@ export function AutomationPage() {
                     </div>
                   </div>
 
-                  {/* Quantidade com Slider e Input Manual */}
+                  {/* Quantidade */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor={`qty-${mp}`} className="text-sm">
@@ -331,7 +332,7 @@ export function AutomationPage() {
           </CardContent>
         </Card>
 
-        {/* Status Panel Sincronizado */}
+        {/* Status Panel - SINCRONIZADO */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -344,13 +345,27 @@ export function AutomationPage() {
               <>
                 <div className="text-center py-4">
                   <div className="relative inline-flex items-center justify-center w-28 h-28 mb-4">
-                    {/* SVG Progress Profissional para loading contínuo */}
+                    {/* SVG Progress Circle */}
                     <svg className="absolute inset-0 w-full h-full -rotate-90">
-                      <circle cx="56" cy="56" r="50" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-muted/20" />
-                      <circle cx="56" cy="56" r="50" stroke="currentColor" strokeWidth="6" fill="transparent" 
+                      <circle 
+                        cx="56" 
+                        cy="56" 
+                        r="50" 
+                        stroke="currentColor" 
+                        strokeWidth="6" 
+                        fill="transparent" 
+                        className="text-muted/20" 
+                      />
+                      <circle 
+                        cx="56" 
+                        cy="56" 
+                        r="50" 
+                        stroke="currentColor" 
+                        strokeWidth="6" 
+                        fill="transparent" 
                         strokeDasharray="314.159"
                         strokeDashoffset={314.159 - (314.159 * scrapingStatus.progress) / 100}
-                        className="text-primary transition-all duration-500 ease-linear"
+                        className="text-primary transition-all duration-300 ease-out"
                         strokeLinecap="round"
                       />
                     </svg>
@@ -363,7 +378,7 @@ export function AutomationPage() {
                     </div>
                   )}
                 </div>
-                <Progress value={scrapingStatus.progress} className="h-2 transition-all duration-500" />
+                <Progress value={scrapingStatus.progress} className="h-2 transition-all duration-300" />
                 <div className="text-center text-xs text-muted-foreground font-medium">
                   {scrapingStatus.itemsCollected} de {scrapingStatus.totalItems} itens processados
                 </div>
@@ -413,7 +428,7 @@ export function AutomationPage() {
         </Card>
       </div>
 
-      {/* Modal de Filtros por Marketplace */}
+      {/* Modal de Filtros */}
       <Dialog open={configModalOpen} onOpenChange={setConfigModalOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -439,16 +454,13 @@ export function AutomationPage() {
                     className="w-16 h-8 text-center text-xs"
                   />
                 </div>
-                <div className="flex items-center gap-3">
-                  <Slider
-                    min={0}
-                    max={90}
-                    step={1}
-                    value={[tempFilters.minDiscount || 20]}
-                    onValueChange={([v]) => setTempFilters(prev => ({ ...prev, minDiscount: v }))}
-                    className="flex-1"
-                  />
-                </div>
+                <Slider
+                  min={0}
+                  max={90}
+                  step={1}
+                  value={[tempFilters.minDiscount || 20]}
+                  onValueChange={([v]) => setTempFilters(prev => ({ ...prev, minDiscount: v }))}
+                />
               </div>
 
               <div className="space-y-3">
@@ -461,20 +473,17 @@ export function AutomationPage() {
                     className="w-24 h-8 text-center text-xs"
                   />
                 </div>
-                <div className="flex items-center gap-3">
-                  <Slider
-                    min={50}
-                    max={20000}
-                    step={10}
-                    value={[tempFilters.maxPrice || 20000]}
-                    onValueChange={([v]) => setTempFilters(prev => ({ ...prev, maxPrice: v }))}
-                    className="flex-1"
-                  />
-                </div>
+                <Slider
+                  min={50}
+                  max={20000}
+                  step={10}
+                  value={[tempFilters.maxPrice || 20000]}
+                  onValueChange={([v]) => setTempFilters(prev => ({ ...prev, maxPrice: v }))}
+                />
               </div>
             </div>
 
-            {/* Filtros Específicos (apenas para ML) */}
+            {/* Filtros Específicos ML */}
             {currentMarketplace === 'mercadolivre' && (
               <>
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t">
