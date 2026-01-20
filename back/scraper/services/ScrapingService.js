@@ -2,6 +2,7 @@ const { getProductConnection } = require('../../database/mongodb');
 const { getProductModel } = require('../../database/models/Products');
 const MercadoLivreScraper = require('../scrapers/MercadoLivreScraper');
 const MagaluScraper = require('../scrapers/MagaluScraper');
+const ShopeeScraper = require('../scrapers/ShopeeScraper');
 
 class ScrapingService {
   constructor() {
@@ -30,6 +31,17 @@ class ScrapingService {
       });
     } catch (error) {
       console.error('⚠️ Magazine Luiza não disponível:', error.message);
+    }
+
+    try {
+      this.marketplaces.set('shopee', {
+        name: 'Shopee Brasil',
+        code: 'shopee',
+        scraper: new ShopeeScraper(),
+        enabled: true
+      });
+    } catch (error) {
+      console.error('⚠️ Shopee não disponível:', error.message);
     }
   }
 
@@ -91,6 +103,19 @@ class ScrapingService {
           const separator = product.link_original.includes('?') ? '&' : '?';
           product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
           gerados++;
+          
+        } else if (marketplace.code === 'shopee') {
+          const separator = product.link_original.includes('?') ? '&' : '?';
+          const affiliateId = process.env.SHOPEE_AFFILIATE_ID || '18182230010';
+          
+          product.link_afiliado = `${product.link_original}${separator}af_siteid=${affiliateId}&pid=affiliates&af_click_lookback=7d`;
+          gerados++;
+          
+          if (index < 3) {
+            console.log(`   [${index + 1}] ${product.nome.substring(0, 30)}...`);
+            console.log(`       🔗 ${product.link_afiliado.substring(0, 90)}...`);
+          }
+          
         } else {
           product.link_afiliado = product.link_original;
         }
@@ -98,6 +123,8 @@ class ScrapingService {
 
       if (marketplace.code === 'ML') {
         console.log(`✅ Links ML gerados: ${gerados} | ID Afiliado: ${process.env.ML_AFFILIATE_ID || '77997172'}`);
+      } else if (marketplace.code === 'shopee') {
+        console.log(`✅ Links Shopee gerados: ${gerados} | ID Afiliado: ${process.env.SHOPEE_AFFILIATE_ID || '18182230010'}`);
       } else {
         console.log(`✅ Links gerados: ${gerados}`);
       }
