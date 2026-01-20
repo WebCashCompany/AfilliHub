@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDashboard, ScrapingConfig } from '@/contexts/DashboardContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -76,13 +76,15 @@ export function AutomationPage() {
   };
 
   const handleQuantityChange = (mp: Marketplace, quantity: number) => {
+    // Garante que o número seja válido e esteja dentro do range
+    const val = isNaN(quantity) ? 0 : quantity;
     setConfig(prev => ({
       ...prev,
       marketplaces: {
         ...prev.marketplaces,
         [mp]: {
           ...prev.marketplaces[mp],
-          quantity
+          quantity: val
         }
       }
     }));
@@ -112,6 +114,7 @@ export function AutomationPage() {
     toast({
       title: "✅ Filtros salvos",
       description: `Configurações do ${getMarketplaceName(currentMarketplace)} atualizadas.`,
+      className: "bg-green-600 text-white border-none", // Notificação verde
     });
   };
 
@@ -134,18 +137,17 @@ export function AutomationPage() {
     }
 
     toast({
-      title: "Scraping iniciado",
-      description: "A coleta de produtos foi iniciada. Aguarde...",
+      title: "🚀 Automação Iniciada",
+      description: "A coleta de produtos foi iniciada. Acompanhe o progresso.",
+      className: "bg-zinc-900 text-white border-primary",
     });
 
-    // Montar config para enviar ao backend
     const scrapingConfig: any = {
       marketplaces: {},
-      minDiscount: 20, // valor padrão global (não usado se tiver filtro individual)
+      minDiscount: 20,
       maxPrice: 20000,
     };
 
-    // Para cada marketplace, usar seus filtros individuais
     for (const [mp, mpConfig] of Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][]) {
       scrapingConfig.marketplaces[mp] = {
         enabled: mpConfig.enabled,
@@ -156,10 +158,20 @@ export function AutomationPage() {
 
     const collected = await runScraping(scrapingConfig);
 
+    // Notificação verde de conclusão
     toast({
-      title: "Scraping concluído!",
+      title: "✅ Automação concluída!",
       description: `${formatNumber(collected)} novos produtos foram adicionados.`,
+      className: "bg-green-600 text-white border-none shadow-lg",
     });
+
+    // Enviar notificação de sistema se permitido
+    if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Automação Concluída", {
+            body: `${collected} produtos foram coletados com sucesso.`,
+            icon: "/favicon.ico"
+        });
+    }
   };
 
   const totalToCollect = Object.entries(config.marketplaces)
@@ -211,7 +223,6 @@ export function AutomationPage() {
                       : 'border-border bg-card hover:border-muted-foreground/30'
                   }`}
                 >
-                  {/* Header do Card */}
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <Checkbox
@@ -236,7 +247,7 @@ export function AutomationPage() {
                     </div>
                   </div>
 
-                  {/* Quantidade */}
+                  {/* Quantidade com Slider e Input Manual */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor={`qty-${mp}`} className="text-sm">
@@ -248,7 +259,7 @@ export function AutomationPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <Slider
-                        id={`qty-${mp}`}
+                        id={`qty-slider-${mp}`}
                         min={1}
                         max={300}
                         step={1}
@@ -260,11 +271,11 @@ export function AutomationPage() {
                       <Input
                         type="number"
                         min={1}
-                        max={300}
+                        max={1000}
                         value={mpConfig.quantity}
-                        onChange={(e) => handleQuantityChange(mp, Number(e.target.value))}
+                        onChange={(e) => handleQuantityChange(mp, parseInt(e.target.value))}
                         disabled={!mpConfig.enabled}
-                        className="w-20"
+                        className="w-20 h-8 text-center"
                       />
                     </div>
                   </div>
@@ -320,7 +331,7 @@ export function AutomationPage() {
           </CardContent>
         </Card>
 
-        {/* Status Panel */}
+        {/* Status Panel Sincronizado */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -332,26 +343,29 @@ export function AutomationPage() {
             {scrapingStatus.isRunning ? (
               <>
                 <div className="text-center py-4">
-                  <div className="relative inline-flex items-center justify-center w-24 h-24 mb-4">
-                    <div className="absolute inset-0 border-4 border-primary/20 rounded-full" />
-                    <div 
-                      className="absolute inset-0 border-4 border-primary rounded-full animate-spin"
-                      style={{ 
-                        clipPath: `polygon(50% 50%, 50% 0, ${50 + 50 * Math.sin(scrapingStatus.progress * Math.PI / 50)}% ${50 - 50 * Math.cos(scrapingStatus.progress * Math.PI / 50)}%, 50% 50%)`
-                      }}
-                    />
-                    <span className="text-xl font-bold">{Math.round(scrapingStatus.progress)}%</span>
+                  <div className="relative inline-flex items-center justify-center w-28 h-28 mb-4">
+                    {/* SVG Progress Profissional para loading contínuo */}
+                    <svg className="absolute inset-0 w-full h-full -rotate-90">
+                      <circle cx="56" cy="56" r="50" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-muted/20" />
+                      <circle cx="56" cy="56" r="50" stroke="currentColor" strokeWidth="6" fill="transparent" 
+                        strokeDasharray="314.159"
+                        strokeDashoffset={314.159 - (314.159 * scrapingStatus.progress) / 100}
+                        className="text-primary transition-all duration-500 ease-linear"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="text-2xl font-black">{Math.round(scrapingStatus.progress)}%</span>
                   </div>
-                  <p className="font-medium">Coletando produtos...</p>
+                  <p className="font-bold text-sm animate-pulse">Coletando produtos agora...</p>
                   {scrapingStatus.currentMarketplace && (
-                    <div className="mt-2">
+                    <div className="mt-2 flex justify-center">
                       <MarketplaceBadge marketplace={scrapingStatus.currentMarketplace} />
                     </div>
                   )}
                 </div>
-                <Progress value={scrapingStatus.progress} className="h-2" />
-                <div className="text-center text-sm text-muted-foreground">
-                  {scrapingStatus.itemsCollected} de {scrapingStatus.totalItems} itens
+                <Progress value={scrapingStatus.progress} className="h-2 transition-all duration-500" />
+                <div className="text-center text-xs text-muted-foreground font-medium">
+                  {scrapingStatus.itemsCollected} de {scrapingStatus.totalItems} itens processados
                 </div>
               </>
             ) : (
@@ -359,38 +373,38 @@ export function AutomationPage() {
                 <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
                   <Zap className="w-8 h-8 text-muted-foreground" />
                 </div>
-                <p className="text-muted-foreground">
-                  Configure e inicie o scraping para ver o progresso
+                <p className="text-muted-foreground text-sm">
+                  Configure e inicie o scraping para ver o progresso em tempo real
                 </p>
               </div>
             )}
 
             {/* Recent Activity */}
             <div className="pt-4 border-t">
-              <h4 className="font-medium mb-3">Atividade Recente</h4>
+              <h4 className="font-medium mb-3 text-sm">Atividade Recente</h4>
               <div className="space-y-3">
                 <div className="flex items-start gap-3 text-sm">
-                  <CheckCircle className="w-4 h-4 text-status-active mt-0.5" />
+                  <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
                   <div>
                     <p className="font-medium">Scraping concluído</p>
-                    <p className="text-muted-foreground">150 produtos - ML</p>
-                    <p className="text-xs text-muted-foreground">Há 2 horas</p>
+                    <p className="text-muted-foreground text-xs">150 produtos - ML</p>
+                    <p className="text-[10px] text-muted-foreground">Há 2 horas</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 text-sm">
-                  <CheckCircle className="w-4 h-4 text-status-active mt-0.5" />
+                  <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
                   <div>
                     <p className="font-medium">Scraping concluído</p>
-                    <p className="text-muted-foreground">80 produtos - Amazon</p>
-                    <p className="text-xs text-muted-foreground">Há 4 horas</p>
+                    <p className="text-muted-foreground text-xs">80 produtos - Amazon</p>
+                    <p className="text-[10px] text-muted-foreground">Há 4 horas</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 text-sm">
-                  <AlertCircle className="w-4 h-4 text-status-risk mt-0.5" />
+                  <AlertCircle className="w-4 h-4 text-orange-500 mt-0.5" />
                   <div>
                     <p className="font-medium">Limite de requisições</p>
-                    <p className="text-muted-foreground">Shopee - aguardando 5min</p>
-                    <p className="text-xs text-muted-foreground">Ontem</p>
+                    <p className="text-muted-foreground text-xs">Shopee - aguardando 5min</p>
+                    <p className="text-[10px] text-muted-foreground">Ontem</p>
                   </div>
                 </div>
               </div>
@@ -408,42 +422,54 @@ export function AutomationPage() {
               Filtros - {currentMarketplace && getMarketplaceName(currentMarketplace)}
             </DialogTitle>
             <DialogDescription>
-              Configure filtros específicos para este marketplace
+              Configure filtros específicos para este marketplace. Use os sliders ou digite o valor.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6 py-4">
             {/* Filtros de Preço e Desconto */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Desconto mínimo (%)</Label>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Desconto mínimo (%)</Label>
+                  <Input 
+                    type="number"
+                    value={tempFilters.minDiscount || 0}
+                    onChange={(e) => setTempFilters(prev => ({ ...prev, minDiscount: parseInt(e.target.value) }))}
+                    className="w-16 h-8 text-center text-xs"
+                  />
+                </div>
                 <div className="flex items-center gap-3">
                   <Slider
                     min={0}
                     max={90}
-                    step={5}
+                    step={1}
                     value={[tempFilters.minDiscount || 20]}
                     onValueChange={([v]) => setTempFilters(prev => ({ ...prev, minDiscount: v }))}
                     className="flex-1"
                   />
-                  <span className="text-sm font-medium w-12 text-right">{tempFilters.minDiscount || 20}%</span>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Preço máximo (R$)</Label>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Preço máximo (R$)</Label>
+                  <Input 
+                    type="number"
+                    value={tempFilters.maxPrice || 0}
+                    onChange={(e) => setTempFilters(prev => ({ ...prev, maxPrice: parseInt(e.target.value) }))}
+                    className="w-24 h-8 text-center text-xs"
+                  />
+                </div>
                 <div className="flex items-center gap-3">
                   <Slider
                     min={50}
                     max={20000}
-                    step={100}
+                    step={10}
                     value={[tempFilters.maxPrice || 20000]}
                     onValueChange={([v]) => setTempFilters(prev => ({ ...prev, maxPrice: v }))}
                     className="flex-1"
                   />
-                  <span className="text-sm font-medium w-24 text-right">
-                    R$ {(tempFilters.maxPrice || 20000).toLocaleString('pt-BR')}
-                  </span>
                 </div>
               </div>
             </div>
