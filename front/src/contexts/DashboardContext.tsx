@@ -1,3 +1,11 @@
+// src/contexts/DashboardContext.tsx - VERSÃO CONECTADA AO BACKEND
+
+/**
+ * ═══════════════════════════════════════════════════════════
+ * DASHBOARD CONTEXT - INTEGRADO COM BACKEND
+ * ═══════════════════════════════════════════════════════════
+ */
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import {
   Product,
@@ -10,6 +18,10 @@ import {
   generateMarketplaceMetrics,
   Marketplace
 } from '@/lib/mockData';
+import { scrapingService } from '@/api/services/scraping.service';
+import { productsService } from '@/api/services/products.service';
+import type { ScrapingRequestPayload } from '@/types/api.types';
+import { useToast } from '@/hooks/use-toast';
 
 interface DashboardContextType {
   products: Product[];
@@ -28,7 +40,7 @@ interface DashboardContextType {
   permanentlyDeleteProducts: (ids: string[]) => void;
   runCleanup: (daysWithoutClicks: number, removeOutOfStock: boolean) => number;
   
-  // Scraping simulation
+  // Scraping - CONECTADO AO BACKEND
   runScraping: (config: ScrapingConfig) => Promise<number>;
   scrapingStatus: ScrapingStatus;
 }
@@ -42,6 +54,11 @@ export interface ScrapingConfig {
   };
   minDiscount: number;
   maxPrice: number;
+  filters?: {
+    categoria?: string;
+    palavraChave?: string;
+    frete_gratis?: boolean;
+  };
 }
 
 export interface ScrapingStatus {
@@ -69,8 +86,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     totalItems: 0
   });
 
+  const { toast } = useToast();
+
   useEffect(() => {
-    // Initialize data
+    // Initialize data - AQUI PODE CARREGAR DO BACKEND
     const initialProducts = generateProducts(500);
     setProducts(initialProducts);
     setDailyMetrics(generateDailyMetrics(30));
@@ -142,6 +161,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return removedCount;
   };
 
+  // ═══════════════════════════════════════════════════════════
+  // ✅ SCRAPING CONECTADO AO BACKEND
+  // ═══════════════════════════════════════════════════════════
+
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
     const enabledMarketplaces = (Object.entries(config.marketplaces) as [Marketplace, { enabled: boolean; quantity: number }][])
       .filter(([_, cfg]) => cfg.enabled);
@@ -151,49 +174,76 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setScrapingStatus({
       isRunning: true,
       progress: 0,
-      currentMarketplace: null,
+      currentMarketplace: enabledMarketplaces[0]?.[0] || null,
       itemsCollected: 0,
       totalItems
     });
 
-    let collected = 0;
+    try {
+      // ✅ CHAMAR O BACKEND
+      const payload: ScrapingRequestPayload = {
+        marketplaces: config.marketplaces,
+        minDiscount: config.minDiscount,
+        maxPrice: config.maxPrice,
+        filters: config.filters,
+      };
 
-    for (const [marketplace, mpConfig] of enabledMarketplaces) {
-      setScrapingStatus(prev => ({ ...prev, currentMarketplace: marketplace }));
-      
-      // Simulate scraping delay
-      for (let i = 0; i < mpConfig.quantity; i++) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-        collected++;
-        setScrapingStatus(prev => ({
-          ...prev,
+      const response = await scrapingService.start(payload);
+
+      if (response.success && response.data) {
+        const collected = response.data.total;
+
+        // Simula progresso visual enquanto o backend processa
+        let progress = 0;
+        const interval = setInterval(() => {
+          progress += 10;
+          if (progress <= 90) {
+            setScrapingStatus(prev => ({ ...prev, progress }));
+          }
+        }, 300);
+
+        // Aguarda um pouco para dar tempo do backend processar
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        clearInterval(interval);
+
+        // Finaliza
+        setScrapingStatus({
+          isRunning: false,
+          progress: 100,
+          currentMarketplace: null,
           itemsCollected: collected,
-          progress: (collected / totalItems) * 100
-        }));
+          totalItems: collected,
+        });
+
+        // ✅ ATUALIZAR PRODUTOS NO FRONTEND (OPCIONAL)
+        // Você pode buscar os produtos novamente do backend
+        // await fetchProducts();
+
+        return collected;
       }
+
+      throw new Error('Erro no scraping');
+
+    } catch (error: any) {
+      console.error('❌ Erro no scraping:', error);
+      
+      toast({
+        title: "❌ Erro no scraping",
+        description: error.message || 'Erro ao coletar produtos',
+        variant: "destructive",
+      });
+
+      setScrapingStatus({
+        isRunning: false,
+        progress: 0,
+        currentMarketplace: null,
+        itemsCollected: 0,
+        totalItems: 0,
+      });
+
+      return 0;
     }
-
-    // Add new products
-    const newProducts = generateProducts(totalItems).map(p => ({
-      ...p,
-      addedAt: new Date(),
-      clicks: 0,
-      conversions: 0,
-      revenue: 0,
-      ctr: 0
-    }));
-
-    setProducts(prev => [...newProducts, ...prev]);
-
-    setScrapingStatus({
-      isRunning: false,
-      progress: 100,
-      currentMarketplace: null,
-      itemsCollected: totalItems,
-      totalItems
-    });
-
-    return totalItems;
   };
 
   return (

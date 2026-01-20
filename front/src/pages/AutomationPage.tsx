@@ -8,24 +8,59 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
-import { Zap, Play, Settings2, Loader2, CheckCircle, Package, AlertCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Zap, Play, Settings2, Loader2, CheckCircle, Package, AlertCircle, Filter, Search, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
+
+interface MarketplaceFilters {
+  categoria?: string;
+  palavraChave?: string;
+  frete_gratis?: boolean;
+  minDiscount?: number;
+  maxPrice?: number;
+}
+
+interface MarketplaceConfig {
+  enabled: boolean;
+  quantity: number;
+  filters?: MarketplaceFilters;
+}
 
 export function AutomationPage() {
   const { runScraping, scrapingStatus, products } = useDashboard();
   const { toast } = useToast();
 
-  const [config, setConfig] = useState<ScrapingConfig>({
+  const [config, setConfig] = useState<{
+    marketplaces: Record<Marketplace, MarketplaceConfig>;
+  }>({
     marketplaces: {
-      mercadolivre: { enabled: true, quantity: 50 },
-      amazon: { enabled: true, quantity: 50 },
-      magalu: { enabled: false, quantity: 30 },
-      shopee: { enabled: true, quantity: 40 },
+      mercadolivre: { 
+        enabled: true, 
+        quantity: 50,
+        filters: { minDiscount: 20, maxPrice: 20000 }
+      },
+      amazon: { 
+        enabled: true, 
+        quantity: 50,
+        filters: { minDiscount: 20, maxPrice: 20000 }
+      },
+      magalu: { 
+        enabled: false, 
+        quantity: 30,
+        filters: { minDiscount: 20, maxPrice: 20000 }
+      },
+      shopee: { 
+        enabled: true, 
+        quantity: 40,
+        filters: { minDiscount: 20, maxPrice: 20000 }
+      },
     },
-    minDiscount: 20,
-    maxPrice: 500,
   });
+
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
+  const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
 
   const handleMarketplaceToggle = (mp: Marketplace) => {
     setConfig(prev => ({
@@ -53,6 +88,40 @@ export function AutomationPage() {
     }));
   };
 
+  const openFiltersModal = (mp: Marketplace) => {
+    setCurrentMarketplace(mp);
+    setTempFilters(config.marketplaces[mp].filters || {});
+    setConfigModalOpen(true);
+  };
+
+  const saveFilters = () => {
+    if (!currentMarketplace) return;
+    
+    setConfig(prev => ({
+      ...prev,
+      marketplaces: {
+        ...prev.marketplaces,
+        [currentMarketplace]: {
+          ...prev.marketplaces[currentMarketplace],
+          filters: tempFilters
+        }
+      }
+    }));
+    
+    setConfigModalOpen(false);
+    toast({
+      title: "✅ Filtros salvos",
+      description: `Configurações do ${getMarketplaceName(currentMarketplace)} atualizadas.`,
+    });
+  };
+
+  const clearFilters = () => {
+    setTempFilters({
+      minDiscount: 20,
+      maxPrice: 20000
+    });
+  };
+
   const handleStartScraping = async () => {
     const enabledCount = Object.values(config.marketplaces).filter(m => m.enabled).length;
     if (enabledCount === 0) {
@@ -69,7 +138,23 @@ export function AutomationPage() {
       description: "A coleta de produtos foi iniciada. Aguarde...",
     });
 
-    const collected = await runScraping(config);
+    // Montar config para enviar ao backend
+    const scrapingConfig: any = {
+      marketplaces: {},
+      minDiscount: 20, // valor padrão global (não usado se tiver filtro individual)
+      maxPrice: 20000,
+    };
+
+    // Para cada marketplace, usar seus filtros individuais
+    for (const [mp, mpConfig] of Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][]) {
+      scrapingConfig.marketplaces[mp] = {
+        enabled: mpConfig.enabled,
+        quantity: mpConfig.quantity,
+        filters: mpConfig.filters || {}
+      };
+    }
+
+    const collected = await runScraping(scrapingConfig);
 
     toast({
       title: "Scraping concluído!",
@@ -80,6 +165,11 @@ export function AutomationPage() {
   const totalToCollect = Object.entries(config.marketplaces)
     .filter(([_, cfg]) => cfg.enabled)
     .reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
+
+  const hasActiveFilters = (filters?: MarketplaceFilters) => {
+    if (!filters) return false;
+    return !!(filters.categoria || filters.palavraChave || filters.frete_gratis);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -106,13 +196,13 @@ export function AutomationPage() {
               Configuração de Scraping
             </CardTitle>
             <CardDescription>
-              Selecione os marketplaces e configure a quantidade de itens para coleta
+              Selecione os marketplaces e configure filtros individuais
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Marketplaces */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {(Object.entries(config.marketplaces) as [Marketplace, { enabled: boolean; quantity: number }][]).map(([mp, mpConfig]) => (
+              {(Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][]).map(([mp, mpConfig]) => (
                 <div 
                   key={mp}
                   className={`p-4 rounded-xl border-2 transition-all ${
@@ -121,6 +211,7 @@ export function AutomationPage() {
                       : 'border-border bg-card hover:border-muted-foreground/30'
                   }`}
                 >
+                  {/* Header do Card */}
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <Checkbox
@@ -130,10 +221,22 @@ export function AutomationPage() {
                       />
                       <MarketplaceBadge marketplace={mp} />
                     </div>
-                    {mpConfig.enabled && (
-                      <CheckCircle className="w-5 h-5 text-status-active" />
-                    )}
+                    <div className="flex items-center gap-2">
+                      {hasActiveFilters(mpConfig.filters) && (
+                        <div className="w-2 h-2 bg-primary rounded-full" title="Filtros ativos" />
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => openFiltersModal(mp)}
+                      >
+                        <Settings2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
+
+                  {/* Quantidade */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor={`qty-${mp}`} className="text-sm">
@@ -165,40 +268,28 @@ export function AutomationPage() {
                       />
                     </div>
                   </div>
+
+                  {/* Resumo de Filtros */}
+                  {mpConfig.filters && (
+                    <div className="mt-3 pt-3 border-t space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Desconto:</span>
+                        <span className="font-medium">{mpConfig.filters.minDiscount || 0}%+</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Preço máx:</span>
+                        <span className="font-medium">R$ {(mpConfig.filters.maxPrice || 20000).toLocaleString('pt-BR')}</span>
+                      </div>
+                      {hasActiveFilters(mpConfig.filters) && (
+                        <div className="text-xs text-primary font-medium flex items-center gap-1">
+                          <Filter className="w-3 h-3" />
+                          Filtros personalizados ativos
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
-            </div>
-
-            {/* Filters */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t">
-              <div className="space-y-2">
-                <Label>Desconto mínimo (%)</Label>
-                <div className="flex items-center gap-3">
-                  <Slider
-                    min={0}
-                    max={90}
-                    step={5}
-                    value={[config.minDiscount]}
-                    onValueChange={([v]) => setConfig(prev => ({ ...prev, minDiscount: v }))}
-                    className="flex-1"
-                  />
-                  <span className="text-sm font-medium w-12 text-right">{config.minDiscount}%</span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Preço máximo (R$)</Label>
-                <div className="flex items-center gap-3">
-                  <Slider
-                    min={50}
-                    max={5000}
-                    step={50}
-                    value={[config.maxPrice]}
-                    onValueChange={([v]) => setConfig(prev => ({ ...prev, maxPrice: v }))}
-                    className="flex-1"
-                  />
-                  <span className="text-sm font-medium w-20 text-right">R$ {config.maxPrice}</span>
-                </div>
-              </div>
             </div>
 
             {/* Summary */}
@@ -307,6 +398,124 @@ export function AutomationPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Modal de Filtros por Marketplace */}
+      <Dialog open={configModalOpen} onOpenChange={setConfigModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Filter className="w-5 h-5 text-primary" />
+              Filtros - {currentMarketplace && getMarketplaceName(currentMarketplace)}
+            </DialogTitle>
+            <DialogDescription>
+              Configure filtros específicos para este marketplace
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Filtros de Preço e Desconto */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Desconto mínimo (%)</Label>
+                <div className="flex items-center gap-3">
+                  <Slider
+                    min={0}
+                    max={90}
+                    step={5}
+                    value={[tempFilters.minDiscount || 20]}
+                    onValueChange={([v]) => setTempFilters(prev => ({ ...prev, minDiscount: v }))}
+                    className="flex-1"
+                  />
+                  <span className="text-sm font-medium w-12 text-right">{tempFilters.minDiscount || 20}%</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Preço máximo (R$)</Label>
+                <div className="flex items-center gap-3">
+                  <Slider
+                    min={50}
+                    max={20000}
+                    step={100}
+                    value={[tempFilters.maxPrice || 20000]}
+                    onValueChange={([v]) => setTempFilters(prev => ({ ...prev, maxPrice: v }))}
+                    className="flex-1"
+                  />
+                  <span className="text-sm font-medium w-24 text-right">
+                    R$ {(tempFilters.maxPrice || 20000).toLocaleString('pt-BR')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Filtros Específicos (apenas para ML) */}
+            {currentMarketplace === 'mercadolivre' && (
+              <>
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                  <div className="space-y-2">
+                    <Label htmlFor="modal-categoria">Categoria</Label>
+                    <select
+                      id="modal-categoria"
+                      value={tempFilters.categoria || ''}
+                      onChange={(e) => setTempFilters(prev => ({ ...prev, categoria: e.target.value }))}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">Todas as categorias</option>
+                      <option value="celulares">📱 Celulares</option>
+                      <option value="beleza">💄 Beleza</option>
+                      <option value="eletrodomesticos">🏠 Eletrodomésticos</option>
+                      <option value="casa_decoracao">🛋️ Casa e Decoração</option>
+                      <option value="calcados_roupas">👟 Calçados e Roupas</option>
+                      <option value="informatica">💻 Informática</option>
+                      <option value="games">🎮 Games</option>
+                      <option value="eletronicos">📺 Eletrônicos</option>
+                      <option value="joias_relogios">⌚ Joias e Relógios</option>
+                      <option value="esportes">⚽ Esportes</option>
+                      <option value="ferramentas">🔧 Ferramentas</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="modal-palavra">Palavra-chave</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="modal-palavra"
+                        placeholder="Ex: smartphone..."
+                        value={tempFilters.palavraChave || ''}
+                        onChange={(e) => setTempFilters(prev => ({ ...prev, palavraChave: e.target.value }))}
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="modal-frete"
+                    checked={tempFilters.frete_gratis || false}
+                    onCheckedChange={(checked) => setTempFilters(prev => ({ ...prev, frete_gratis: checked as boolean }))}
+                  />
+                  <Label htmlFor="modal-frete" className="cursor-pointer">
+                    🚚 Apenas produtos com frete grátis
+                  </Label>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex gap-3 pt-4 border-t">
+            <Button variant="outline" onClick={clearFilters} className="gap-2">
+              <X className="w-4 h-4" />
+              Limpar
+            </Button>
+            <Button onClick={saveFilters} className="flex-1 gap-2">
+              <CheckCircle className="w-4 h-4" />
+              Salvar Filtros
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
