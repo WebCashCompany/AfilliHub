@@ -3,7 +3,7 @@ node_modules/
 jspm_packages/
 
 # Variáveis de ambiente (IMPORTANTE: Nunca suba o .env para o GitHub)
-.env
+*env
 .env.test
 .env.production
 .env.local
