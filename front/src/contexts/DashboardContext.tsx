@@ -142,91 +142,22 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         ? json.data.items
         : [];
 
-      // 🔍 DEBUG: Ver produto RAW do Magalu
-      const magaluProduct = items.find((p: any) => p.marketplace === 'magalu' || p.marketplace === 'Magalu');
-      if (magaluProduct) {
-        console.log('🔍 PRODUTO RAW DO MAGALU:', magaluProduct);
-        console.log('   📊 preco_de (RAW):', magaluProduct.preco_de, '| type:', typeof magaluProduct.preco_de);
-        console.log('   📊 preco_para (RAW):', magaluProduct.preco_para, '| type:', typeof magaluProduct.preco_para);
-        console.log('   📊 desconto:', magaluProduct.desconto);
-      }
-
-      const formatted: Product[] = items.map((p: any) => {
-        // Função helper para converter preço → number
-        const parsePrice = (priceValue: any): number => {
-          // Se for Infinity, retorna 0
-          if (priceValue === Infinity || priceValue === 'Infinity') {
-            console.log('⚠️ Preço Infinity detectado, retornando 0');
-            return 0;
-          }
-          
-          if (!priceValue) return 0;
-          
-          // Converte para string para processar
-          const valueStr = priceValue.toString().trim();
-          
-          // Se é só números (sem R$, sem vírgula, sem ponto) = Magalu em centavos
-          if (/^\d+$/.test(valueStr)) {
-            const numValue = parseInt(valueStr);
-            // Se >= 100 e não é múltiplo de 100, divide (2999 → 29.99)
-            if (numValue >= 100 && numValue % 100 !== 0) {
-              const result = numValue / 100;
-              console.log(`🔄 Magalu: ${numValue} → R$ ${result.toFixed(2)}`);
-              return result;
-            }
-            return numValue;
-          }
-          
-          // Se tem R$ ou vírgula = formato normal
-          const cleaned = valueStr
-            .replace('R$', '')
-            .replace(/\s/g, '')
-            .trim();
-          
-          // Se tem vírgula E ponto: R$ 1.234,56 → 1234.56
-          if (cleaned.includes('.') && cleaned.includes(',')) {
-            return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
-          }
-          
-          // Se tem só vírgula: R$ 1234,56 → 1234.56
-          if (cleaned.includes(',')) {
-            return parseFloat(cleaned.replace(',', '.'));
-          }
-          
-          // Se tem só ponto ou já está limpo
-          return parseFloat(cleaned) || 0;
-        };
-
-        const result = {
-          id: p._id || p.id,
-          name: p.nome || p.title || 'Produto',
-          image: p.imagem || p.thumbnail || '',
-          category: p.categoria || 'Geral',
-          marketplace: normalizeMarketplace(p.marketplace),
-          price: parsePrice(p.preco_para || p.price),
-          oldPrice: parsePrice(p.preco_de || p.oldPrice),
-          discount: parseInt((p.desconto || '0').toString().replace('%', '').trim()) || 0,
-          clicks: 0,
-          conversions: 0,
-          revenue: 0,
-          stock: 100,
-          status: 'active',
-          addedAt: new Date(p.createdAt || Date.now())
-        };
-
-        // Log do primeiro produto Magalu após conversão
-        if (p.marketplace === 'magalu' && !window.__magaluLogged) {
-          console.log('✅ PRODUTO MAGALU CONVERTIDO:', {
-            nome: result.name,
-            price: result.price,
-            oldPrice: result.oldPrice,
-            discount: result.discount
-          });
-          (window as any).__magaluLogged = true;
-        }
-
-        return result;
-      });
+      const formatted: Product[] = items.map((p: any) => ({
+        id: p._id || p.id,
+        name: p.nome || p.title || 'Produto',
+        image: p.imagem || p.thumbnail || '',
+        category: p.categoria || 'Geral',
+        marketplace: normalizeMarketplace(p.marketplace),
+        price: parseFloat(p.preco_para?.replace('R$', '').replace('.', '').replace(',', '.').trim() || p.price || '0'),
+        oldPrice: parseFloat(p.preco_de?.replace('R$', '').replace('.', '').replace(',', '.').trim() || p.oldPrice || '0'),
+        discount: parseInt(p.desconto?.replace('%', '').trim() || p.discount || '0'),
+        clicks: 0,
+        conversions: 0,
+        revenue: 0,
+        stock: 100,
+        status: 'active',
+        addedAt: new Date(p.createdAt || Date.now())
+      }));
 
       setProducts(formatted);
       setDailyMetrics(generateDailyMetrics(30));
@@ -316,12 +247,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         filters: config.filters
       };
 
-      // ✅ PASSO 3: Inicia simulação de progresso que dura ~40 segundos
+      // ✅ PASSO 3: Inicia simulação de progresso MAIS LENTA
       console.log('⏳ Iniciando simulação de progresso');
       let currentProgress = 5;
       let currentMpIndex = 0;
       
-      // Progresso lento: 90% em 35 segundos = ~2.5% a cada segundo
       const progressInterval = setInterval(() => {
         setScrapingStatus(prev => {
           if (!prev.isRunning) {
@@ -329,8 +259,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             return prev;
           }
 
-          // Avança 2-3% a cada 2 segundos (vai dar ~35-40s para chegar em 90%)
-          const increment = Math.random() * 1 + 2; // Entre 2% e 3%
+          // Avança DEVAGAR (1% a 3% por vez)
+          const increment = Math.random() * 2 + 1; // Entre 1% e 3%
           currentProgress = Math.min(90, currentProgress + increment);
 
           // Simula mudança de marketplace
@@ -348,7 +278,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             itemsCollected: Math.floor((currentProgress / 100) * prev.totalItems)
           };
         });
-      }, 2000); // A cada 2 segundos
+      }, 2000); // A cada 2 segundos ao invés de 800ms
 
       // ✅ PASSO 4: Executa scraping real
       console.log('🔄 Chamando API de scraping...');
