@@ -188,7 +188,12 @@ export function AutomationPage() {
   // 🆕 TELA DE LOADING DURANTE SCRAPING
   // ═══════════════════════════════════════════════════════════
   
+  // Debug: Log do status
+  console.log('🔍 Scraping Status:', scrapingStatus);
+  
   if (scrapingStatus.isRunning) {
+    console.log('✅ Mostrando tela de loading');
+    
     return (
       <div className="h-screen flex items-center justify-center bg-background">
         <Card className="w-[600px]">

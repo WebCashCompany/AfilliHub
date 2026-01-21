@@ -213,19 +213,30 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   ================================ */
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
+    console.log('🚀 runScraping iniciado');
+    
     // Calcula total esperado
     const totalItems = Object.values(config.marketplaces)
       .filter(mp => mp.enabled)
       .reduce((sum, mp) => sum + mp.quantity, 0);
 
-    // Inicia status
+    // Marketplaces habilitados
+    const enabledMarketplaces = Object.entries(config.marketplaces)
+      .filter(([_, mp]) => mp.enabled)
+      .map(([key]) => key as Marketplace);
+
+    // ✅ PASSO 1: Define isRunning como TRUE IMEDIATAMENTE
+    console.log('📊 Setando isRunning = true');
     setScrapingStatus({
       isRunning: true,
-      progress: 0,
-      currentMarketplace: null,
+      progress: 5,
+      currentMarketplace: enabledMarketplaces[0] || null,
       itemsCollected: 0,
       totalItems
     });
+
+    // ✅ PASSO 2: Aguarda React re-renderizar
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     try {
       const payload: ScrapingRequestPayload = {
@@ -235,26 +246,64 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         filters: config.filters
       };
 
-      // Simula progresso (você pode integrar com SSE real se tiver)
+      // ✅ PASSO 3: Inicia simulação de progresso MAIS LENTA
+      console.log('⏳ Iniciando simulação de progresso');
+      let currentProgress = 5;
+      let currentMpIndex = 0;
+      
       const progressInterval = setInterval(() => {
         setScrapingStatus(prev => {
-          if (prev.progress >= 95) {
+          if (!prev.isRunning) {
             clearInterval(progressInterval);
             return prev;
           }
+
+          // Avança DEVAGAR (1% a 3% por vez)
+          const increment = Math.random() * 2 + 1; // Entre 1% e 3%
+          currentProgress = Math.min(90, currentProgress + increment);
+
+          // Simula mudança de marketplace
+          const progressPerMarketplace = 90 / enabledMarketplaces.length;
+          const expectedMpIndex = Math.floor(currentProgress / progressPerMarketplace);
+          
+          if (expectedMpIndex !== currentMpIndex && expectedMpIndex < enabledMarketplaces.length) {
+            currentMpIndex = expectedMpIndex;
+          }
+
           return {
             ...prev,
-            progress: Math.min(95, prev.progress + Math.random() * 10)
+            progress: currentProgress,
+            currentMarketplace: enabledMarketplaces[currentMpIndex] || prev.currentMarketplace,
+            itemsCollected: Math.floor((currentProgress / 100) * prev.totalItems)
           };
         });
-      }, 1000);
+      }, 2000); // A cada 2 segundos ao invés de 800ms
 
+      // ✅ PASSO 4: Executa scraping real
+      console.log('🔄 Chamando API de scraping...');
       const res = await scrapingService.start(payload);
+      console.log('✅ Scraping concluído:', res);
 
+      // Para a simulação
       clearInterval(progressInterval);
 
       if (res.success) {
-        // Finaliza
+        // Finaliza com 100% mas MANTÉM a tela
+        setScrapingStatus({
+          isRunning: true, // MANTÉM TRUE
+          progress: 100,
+          currentMarketplace: null,
+          itemsCollected: res.data?.total || 0,
+          totalItems
+        });
+
+        // Aguarda 2s mostrando 100%
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Atualiza produtos
+        await refreshProducts();
+
+        // Agora sim fecha a tela
         setScrapingStatus({
           isRunning: false,
           progress: 100,
@@ -263,9 +312,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           totalItems
         });
 
-        await refreshProducts();
-
-        // Reset após 2s
+        // Reset após 3s
         setTimeout(() => {
           setScrapingStatus({
             isRunning: false,
@@ -274,13 +321,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             itemsCollected: 0,
             totalItems: 0
           });
-        }, 2000);
+        }, 3000);
 
         return res.data?.total || 0;
       }
 
       throw new Error('Scraping falhou');
     } catch (error) {
+      console.error('❌ Erro no scraping:', error);
+      
       setScrapingStatus({
         isRunning: false,
         progress: 0,
@@ -288,6 +337,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         itemsCollected: 0,
         totalItems: 0
       });
+      
       throw error;
     }
   };
