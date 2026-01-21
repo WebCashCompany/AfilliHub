@@ -62,21 +62,14 @@ export function AutomationPage() {
   const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
   const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
 
-  // ═══════════════════════════════════════════════════════════
-  // ✅ EFEITO PARA NOTIFICAÇÃO DE CONCLUSÃO
-  // ═══════════════════════════════════════════════════════════
-  
   useEffect(() => {
-    // Detecta quando scraping completa
     if (!scrapingStatus.isRunning && scrapingStatus.progress === 100 && scrapingStatus.itemsCollected > 0) {
-      // Notificação de sucesso
       toast({
         title: "✅ Automação concluída!",
         description: `${formatNumber(scrapingStatus.itemsCollected)} novos produtos foram adicionados.`,
         className: "bg-green-600 text-white border-none shadow-lg",
       });
 
-      // Notificação do navegador (se permitido)
       if ("Notification" in window && Notification.permission === "granted") {
         new Notification("Automação Concluída", {
           body: `${scrapingStatus.itemsCollected} produtos foram coletados com sucesso.`,
@@ -171,7 +164,6 @@ export function AutomationPage() {
       maxPrice: 20000,
     };
 
-    // ✅ INICIA O SCRAPING (progresso será atualizado via SSE)
     await runScraping(scrapingConfig);
   };
 
@@ -183,116 +175,6 @@ export function AutomationPage() {
     if (!filters) return false;
     return !!(filters.categoria || filters.palavraChave || filters.frete_gratis);
   };
-
-  // ═══════════════════════════════════════════════════════════
-  // 🆕 TELA DE LOADING DURANTE SCRAPING
-  // ═══════════════════════════════════════════════════════════
-  
-  // Debug: Log do status
-  console.log('🔍 Scraping Status:', scrapingStatus);
-  
-  if (scrapingStatus.isRunning) {
-    console.log('✅ Mostrando tela de loading');
-    
-    return (
-      <div className="h-screen flex items-center justify-center bg-background">
-        <Card className="w-[600px]">
-          <CardContent className="pt-8 pb-8">
-            <div className="space-y-8">
-              {/* Ícone animado com círculo de progresso */}
-              <div className="flex justify-center">
-                <div className="relative inline-flex items-center justify-center w-32 h-32">
-                  {/* Círculo de progresso SVG */}
-                  <svg className="absolute inset-0 w-full h-full -rotate-90">
-                    <circle 
-                      cx="64" 
-                      cy="64" 
-                      r="56" 
-                      stroke="currentColor" 
-                      strokeWidth="8" 
-                      fill="transparent" 
-                      className="text-muted/20" 
-                    />
-                    <circle 
-                      cx="64" 
-                      cy="64" 
-                      r="56" 
-                      stroke="currentColor" 
-                      strokeWidth="8" 
-                      fill="transparent" 
-                      strokeDasharray="351.858"
-                      strokeDashoffset={351.858 - (351.858 * scrapingStatus.progress) / 100}
-                      className="text-primary transition-all duration-500 ease-out"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <div className="flex flex-col items-center">
-                    <Loader2 className="w-12 h-12 animate-spin text-primary mb-1" />
-                    <span className="text-xl font-bold">{Math.round(scrapingStatus.progress)}%</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Título e descrição */}
-              <div className="text-center space-y-3">
-                <h2 className="text-3xl font-bold">Automação em execução</h2>
-                <p className="text-muted-foreground text-lg">
-                  Coletando produtos dos marketplaces selecionados...
-                </p>
-                {scrapingStatus.currentMarketplace && (
-                  <div className="flex justify-center pt-2">
-                    <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-lg">
-                      <span className="text-sm text-muted-foreground">Marketplace atual:</span>
-                      <MarketplaceBadge marketplace={scrapingStatus.currentMarketplace} />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Barra de progresso */}
-              <div className="space-y-3 px-4">
-                <Progress value={scrapingStatus.progress} className="h-3" />
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>Progresso</span>
-                  <span className="font-semibold">{scrapingStatus.progress.toFixed(1)}%</span>
-                </div>
-              </div>
-
-              {/* Estatísticas */}
-              <div className="grid grid-cols-2 gap-4 px-4">
-                <div className="text-center p-6 bg-secondary rounded-xl">
-                  <p className="text-3xl font-bold text-primary mb-1">
-                    {formatNumber(scrapingStatus.itemsCollected)}
-                  </p>
-                  <p className="text-sm text-muted-foreground font-medium">Produtos coletados</p>
-                </div>
-                <div className="text-center p-6 bg-secondary rounded-xl">
-                  <p className="text-3xl font-bold text-primary mb-1">
-                    {formatNumber(scrapingStatus.totalItems)}
-                  </p>
-                  <p className="text-sm text-muted-foreground font-medium">Total esperado</p>
-                </div>
-              </div>
-
-              {/* Mensagem de aguarde */}
-              <div className="text-center px-4">
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-600 rounded-lg">
-                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
-                  <p className="text-sm font-medium">
-                    Aguarde enquanto processamos os dados...
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // TELA NORMAL (seu código original)
-  // ═══════════════════════════════════════════════════════════
 
   return (
     <div className="p-6 space-y-6">
@@ -358,7 +240,6 @@ export function AutomationPage() {
                     </div>
                   </div>
 
-                  {/* Quantidade */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor={`qty-${mp}`} className="text-sm">
@@ -391,7 +272,6 @@ export function AutomationPage() {
                     </div>
                   </div>
 
-                  {/* Resumo de Filtros */}
                   {mpConfig.filters && (
                     <div className="mt-3 pt-3 border-t space-y-1">
                       <div className="flex items-center justify-between text-xs">
@@ -442,7 +322,7 @@ export function AutomationPage() {
           </CardContent>
         </Card>
 
-        {/* Status Panel */}
+        {/* Status Panel - AGORA COM LOADING DENTRO */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -452,88 +332,118 @@ export function AutomationPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             {scrapingStatus.isRunning ? (
+              // ✅ TELA DE LOADING DENTRO DO CARD
               <>
                 <div className="text-center py-4">
-                  <div className="relative inline-flex items-center justify-center w-28 h-28 mb-4">
-                    {/* SVG Progress Circle */}
+                  <div className="relative inline-flex items-center justify-center w-32 h-32 mb-4">
                     <svg className="absolute inset-0 w-full h-full -rotate-90">
                       <circle 
-                        cx="56" 
-                        cy="56" 
-                        r="50" 
+                        cx="64" 
+                        cy="64" 
+                        r="56" 
                         stroke="currentColor" 
-                        strokeWidth="6" 
+                        strokeWidth="8" 
                         fill="transparent" 
                         className="text-muted/20" 
                       />
                       <circle 
-                        cx="56" 
-                        cy="56" 
-                        r="50" 
+                        cx="64" 
+                        cy="64" 
+                        r="56" 
                         stroke="currentColor" 
-                        strokeWidth="6" 
+                        strokeWidth="8" 
                         fill="transparent" 
-                        strokeDasharray="314.159"
-                        strokeDashoffset={314.159 - (314.159 * scrapingStatus.progress) / 100}
-                        className="text-primary transition-all duration-300 ease-out"
+                        strokeDasharray="351.858"
+                        strokeDashoffset={351.858 - (351.858 * scrapingStatus.progress) / 100}
+                        className="text-primary transition-all duration-500 ease-out"
                         strokeLinecap="round"
                       />
                     </svg>
-                    <span className="text-2xl font-black">{Math.round(scrapingStatus.progress)}%</span>
+                    <div className="flex flex-col items-center">
+                      <Loader2 className="w-10 h-10 animate-spin text-primary mb-1" />
+                      <span className="text-xl font-bold">{Math.round(scrapingStatus.progress)}%</span>
+                    </div>
                   </div>
-                  <p className="font-bold text-sm animate-pulse">Coletando produtos agora...</p>
+                  
+                  <p className="font-bold text-sm mb-3 animate-pulse">Coletando produtos...</p>
+                  
                   {scrapingStatus.currentMarketplace && (
-                    <div className="mt-2 flex justify-center">
-                      <MarketplaceBadge marketplace={scrapingStatus.currentMarketplace} />
+                    <div className="flex justify-center mb-4">
+                      <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 rounded-lg">
+                        <span className="text-xs text-muted-foreground">Marketplace:</span>
+                        <MarketplaceBadge marketplace={scrapingStatus.currentMarketplace} />
+                      </div>
                     </div>
                   )}
                 </div>
-                <Progress value={scrapingStatus.progress} className="h-2 transition-all duration-300" />
-                <div className="text-center text-xs text-muted-foreground font-medium">
-                  {scrapingStatus.itemsCollected} de {scrapingStatus.totalItems} itens processados
+
+                <Progress value={scrapingStatus.progress} className="h-3" />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="text-center p-3 bg-secondary rounded-lg">
+                    <p className="text-2xl font-bold text-primary">
+                      {formatNumber(scrapingStatus.itemsCollected)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Coletados</p>
+                  </div>
+                  <div className="text-center p-3 bg-secondary rounded-lg">
+                    <p className="text-2xl font-bold text-primary">
+                      {formatNumber(scrapingStatus.totalItems)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Esperados</p>
+                  </div>
+                </div>
+
+                <div className="text-center">
+                  <div className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/10 text-blue-600 rounded-lg">
+                    <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
+                    <p className="text-xs font-medium">Processando dados...</p>
+                  </div>
                 </div>
               </>
             ) : (
-              <div className="text-center py-8">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
-                  <Zap className="w-8 h-8 text-muted-foreground" />
+              // Estado normal (não rodando)
+              <>
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+                    <Zap className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                  <p className="text-muted-foreground text-sm">
+                    Configure e inicie o scraping para ver o progresso em tempo real
+                  </p>
                 </div>
-                <p className="text-muted-foreground text-sm">
-                  Configure e inicie o scraping para ver o progresso em tempo real
-                </p>
-              </div>
-            )}
 
-            {/* Recent Activity */}
-            <div className="pt-4 border-t">
-              <h4 className="font-medium mb-3 text-sm">Atividade Recente</h4>
-              <div className="space-y-3">
-                <div className="flex items-start gap-3 text-sm">
-                  <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Scraping concluído</p>
-                    <p className="text-muted-foreground text-xs">150 produtos - ML</p>
-                    <p className="text-[10px] text-muted-foreground">Há 2 horas</p>
+                <div className="pt-4 border-t">
+                  <h4 className="font-medium mb-3 text-sm">Atividade Recente</h4>
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3 text-sm">
+                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                      <div>
+                        <p className="font-medium">Scraping concluído</p>
+                        <p className="text-muted-foreground text-xs">150 produtos - ML</p>
+                        <p className="text-[10px] text-muted-foreground">Há 2 horas</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3 text-sm">
+                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                      <div>
+                        <p className="font-medium">Scraping concluído</p>
+                        <p className="text-muted-foreground text-xs">80 produtos - Amazon</p>
+                        <p className="text-[10px] text-muted-foreground">Há 4 horas</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3 text-sm">
+                      <AlertCircle className="w-4 h-4 text-orange-500 mt-0.5" />
+                      <div>
+                        <p className="font-medium">Limite de requisições</p>
+                        <p className="text-muted-foreground text-xs">Shopee - aguardando 5min</p>
+                        <p className="text-[10px] text-muted-foreground">Ontem</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-start gap-3 text-sm">
-                  <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Scraping concluído</p>
-                    <p className="text-muted-foreground text-xs">80 produtos - Amazon</p>
-                    <p className="text-[10px] text-muted-foreground">Há 4 horas</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3 text-sm">
-                  <AlertCircle className="w-4 h-4 text-orange-500 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Limite de requisições</p>
-                    <p className="text-muted-foreground text-xs">Shopee - aguardando 5min</p>
-                    <p className="text-[10px] text-muted-foreground">Ontem</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -552,7 +462,6 @@ export function AutomationPage() {
           </DialogHeader>
 
           <div className="space-y-6 py-4">
-            {/* Filtros de Preço e Desconto */}
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -593,7 +502,6 @@ export function AutomationPage() {
               </div>
             </div>
 
-            {/* Filtros Específicos ML */}
             {currentMarketplace === 'mercadolivre' && (
               <>
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t">

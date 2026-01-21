@@ -301,13 +301,6 @@ export function ProductsPage() {
                       product.images?.[0] ||
                       '/no-image.png';
 
-                    const oldPrice = product.oldPrice || product.price;
-                    const price = product.price;
-                    const discount =
-                      oldPrice > price
-                        ? Math.round(((oldPrice - price) / oldPrice) * 100)
-                        : 0;
-
                     return (
                       <TableRow key={product.id}>
                         <TableCell>
@@ -345,20 +338,20 @@ export function ProductsPage() {
                         </TableCell>
 
                         <TableCell className="text-right">
-                          {oldPrice > price && (
+                          {product.oldPrice && product.oldPrice > product.price && (
                             <p className="text-sm line-through text-muted-foreground">
-                              {formatCurrency(oldPrice)}
+                              {formatCurrency(product.oldPrice)}
                             </p>
                           )}
                           <p className="font-bold text-green-600">
-                            {formatCurrency(price)}
+                            {formatCurrency(product.price)}
                           </p>
                         </TableCell>
 
                         <TableCell className="text-right">
-                          {discount > 0 && (
+                          {product.discount > 0 && (
                             <span className="text-green-600 font-semibold">
-                              -{discount}%
+                              -{product.discount}%
                             </span>
                           )}
                         </TableCell>
