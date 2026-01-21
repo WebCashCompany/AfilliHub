@@ -184,6 +184,111 @@ export function AutomationPage() {
     return !!(filters.categoria || filters.palavraChave || filters.frete_gratis);
   };
 
+  // ═══════════════════════════════════════════════════════════
+  // 🆕 TELA DE LOADING DURANTE SCRAPING
+  // ═══════════════════════════════════════════════════════════
+  
+  if (scrapingStatus.isRunning) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <Card className="w-[600px]">
+          <CardContent className="pt-8 pb-8">
+            <div className="space-y-8">
+              {/* Ícone animado com círculo de progresso */}
+              <div className="flex justify-center">
+                <div className="relative inline-flex items-center justify-center w-32 h-32">
+                  {/* Círculo de progresso SVG */}
+                  <svg className="absolute inset-0 w-full h-full -rotate-90">
+                    <circle 
+                      cx="64" 
+                      cy="64" 
+                      r="56" 
+                      stroke="currentColor" 
+                      strokeWidth="8" 
+                      fill="transparent" 
+                      className="text-muted/20" 
+                    />
+                    <circle 
+                      cx="64" 
+                      cy="64" 
+                      r="56" 
+                      stroke="currentColor" 
+                      strokeWidth="8" 
+                      fill="transparent" 
+                      strokeDasharray="351.858"
+                      strokeDashoffset={351.858 - (351.858 * scrapingStatus.progress) / 100}
+                      className="text-primary transition-all duration-500 ease-out"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="flex flex-col items-center">
+                    <Loader2 className="w-12 h-12 animate-spin text-primary mb-1" />
+                    <span className="text-xl font-bold">{Math.round(scrapingStatus.progress)}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Título e descrição */}
+              <div className="text-center space-y-3">
+                <h2 className="text-3xl font-bold">Automação em execução</h2>
+                <p className="text-muted-foreground text-lg">
+                  Coletando produtos dos marketplaces selecionados...
+                </p>
+                {scrapingStatus.currentMarketplace && (
+                  <div className="flex justify-center pt-2">
+                    <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-lg">
+                      <span className="text-sm text-muted-foreground">Marketplace atual:</span>
+                      <MarketplaceBadge marketplace={scrapingStatus.currentMarketplace} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Barra de progresso */}
+              <div className="space-y-3 px-4">
+                <Progress value={scrapingStatus.progress} className="h-3" />
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Progresso</span>
+                  <span className="font-semibold">{scrapingStatus.progress.toFixed(1)}%</span>
+                </div>
+              </div>
+
+              {/* Estatísticas */}
+              <div className="grid grid-cols-2 gap-4 px-4">
+                <div className="text-center p-6 bg-secondary rounded-xl">
+                  <p className="text-3xl font-bold text-primary mb-1">
+                    {formatNumber(scrapingStatus.itemsCollected)}
+                  </p>
+                  <p className="text-sm text-muted-foreground font-medium">Produtos coletados</p>
+                </div>
+                <div className="text-center p-6 bg-secondary rounded-xl">
+                  <p className="text-3xl font-bold text-primary mb-1">
+                    {formatNumber(scrapingStatus.totalItems)}
+                  </p>
+                  <p className="text-sm text-muted-foreground font-medium">Total esperado</p>
+                </div>
+              </div>
+
+              {/* Mensagem de aguarde */}
+              <div className="text-center px-4">
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-600 rounded-lg">
+                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
+                  <p className="text-sm font-medium">
+                    Aguarde enquanto processamos os dados...
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // TELA NORMAL (seu código original)
+  // ═══════════════════════════════════════════════════════════
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -332,7 +437,7 @@ export function AutomationPage() {
           </CardContent>
         </Card>
 
-        {/* Status Panel - SINCRONIZADO */}
+        {/* Status Panel */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-// src/contexts/DashboardContext.tsx
+// src/contexts/DashboardContext.tsx - ATUALIZADO
 
 import React, {
   createContext,
@@ -91,7 +91,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     useState<MarketplaceMetrics[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const [scrapingStatus] = useState<ScrapingStatus>({
+  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>({
     isRunning: false,
     progress: 0,
     currentMarketplace: null,
@@ -119,7 +119,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }
 
   /* ===============================
-     LOAD PRODUCTS (CORRIGIDO)
+     LOAD PRODUCTS
   ================================ */
 
   const refreshProducts = async () => {
@@ -209,25 +209,87 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   /* ===============================
-     SCRAPING
+     SCRAPING COM STATUS
   ================================ */
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
-    const payload: ScrapingRequestPayload = {
-      marketplaces: config.marketplaces,
-      minDiscount: config.minDiscount,
-      maxPrice: config.maxPrice,
-      filters: config.filters
-    };
+    // Calcula total esperado
+    const totalItems = Object.values(config.marketplaces)
+      .filter(mp => mp.enabled)
+      .reduce((sum, mp) => sum + mp.quantity, 0);
 
-    const res = await scrapingService.start(payload);
+    // Inicia status
+    setScrapingStatus({
+      isRunning: true,
+      progress: 0,
+      currentMarketplace: null,
+      itemsCollected: 0,
+      totalItems
+    });
 
-    if (res.success) {
-      await refreshProducts();
-      return res.data?.total || 0;
+    try {
+      const payload: ScrapingRequestPayload = {
+        marketplaces: config.marketplaces,
+        minDiscount: config.minDiscount,
+        maxPrice: config.maxPrice,
+        filters: config.filters
+      };
+
+      // Simula progresso (você pode integrar com SSE real se tiver)
+      const progressInterval = setInterval(() => {
+        setScrapingStatus(prev => {
+          if (prev.progress >= 95) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return {
+            ...prev,
+            progress: Math.min(95, prev.progress + Math.random() * 10)
+          };
+        });
+      }, 1000);
+
+      const res = await scrapingService.start(payload);
+
+      clearInterval(progressInterval);
+
+      if (res.success) {
+        // Finaliza
+        setScrapingStatus({
+          isRunning: false,
+          progress: 100,
+          currentMarketplace: null,
+          itemsCollected: res.data?.total || 0,
+          totalItems
+        });
+
+        await refreshProducts();
+
+        // Reset após 2s
+        setTimeout(() => {
+          setScrapingStatus({
+            isRunning: false,
+            progress: 0,
+            currentMarketplace: null,
+            itemsCollected: 0,
+            totalItems: 0
+          });
+        }, 2000);
+
+        return res.data?.total || 0;
+      }
+
+      throw new Error('Scraping falhou');
+    } catch (error) {
+      setScrapingStatus({
+        isRunning: false,
+        progress: 0,
+        currentMarketplace: null,
+        itemsCollected: 0,
+        totalItems: 0
+      });
+      throw error;
     }
-
-    return 0;
   };
 
   return (
