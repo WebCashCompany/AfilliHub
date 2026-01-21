@@ -33,7 +33,7 @@ const ProductSchema = new mongoose.Schema({
   tempo_restante: { type: String, default: 'N/A' },
   marketplace: {
     type: String,
-    enum: ['ML', 'Amazon', 'Magalu', 'Shopee'],
+    enum: ['ML', 'Amazon', 'Magalu', 'Shopee', 'MAGALU'], // ← ADICIONEI 'MAGALU' AQUI
     required: true,
     index: true
   },
