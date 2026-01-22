@@ -1,4 +1,4 @@
-// src/pages/ProductsPage.tsx - ATUALIZADO COM ABAS E LIMPEZA
+// src/pages/ProductsPage.tsx - CORRIGIDO COMPLETAMENTE
 
 import { useState, useMemo } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -42,14 +42,76 @@ import {
   Filter,
   Eraser,
   AlertTriangle,
-  MoreVertical,
   Ticket
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { formatCurrency, formatNumber, Marketplace, ProductStatus } from '@/lib/mockData';
+import { formatNumber, Marketplace, ProductStatus } from '@/lib/mockData';
 import { productsService } from '@/api/services/products.service';
 
 type CleanupType = 'all' | 'marketplace' | 'old' | 'selected';
+
+// ═══════════════════════════════════════════════════════════
+// 🔧 FUNÇÕES AUXILIARES DE CONVERSÃO
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Converte valores em centavos para formato de moeda brasileira
+ * @param value - Valor em centavos (ex: 6678) ou string (ex: "6678")
+ * @returns String formatada (ex: "R$ 66,78")
+ */
+function formatCurrencyFromCents(value: number | string | undefined | null): string {
+  if (!value) return 'R$ 0,00';
+  
+  let cents = 0;
+  
+  if (typeof value === 'string') {
+    // Remove tudo exceto números
+    const cleaned = value.replace(/\D/g, '');
+    cents = parseInt(cleaned) || 0;
+  } else {
+    cents = value;
+  }
+  
+  // Converte centavos para reais
+  const reais = cents / 100;
+  
+  return reais.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+/**
+ * Extrai valor numérico de qualquer formato de preço
+ * @param price - Preço em qualquer formato
+ * @returns Valor em centavos
+ */
+function parsePriceToCents(price: any): number {
+  if (!price) return 0;
+  
+  // Se já é número, retorna direto
+  if (typeof price === 'number') {
+    // Se for muito pequeno (< 1000), assume que está em reais
+    return price < 1000 ? price * 100 : price;
+  }
+  
+  // Se é string, remove tudo exceto números
+  const cleaned = String(price).replace(/\D/g, '');
+  return parseInt(cleaned) || 0;
+}
+
+/**
+ * Calcula o desconto percentual entre dois valores
+ * @param oldPrice - Preço antigo em centavos
+ * @param newPrice - Preço novo em centavos
+ * @returns Desconto em percentual (0-100)
+ */
+function calculateDiscount(oldPrice: number, newPrice: number): number {
+  if (!oldPrice || !newPrice || oldPrice <= newPrice) return 0;
+  return Math.round(((oldPrice - newPrice) / oldPrice) * 100);
+}
 
 export function ProductsPage() {
   const { products, deleteProducts, refreshProducts, isLoading } = useDashboard();
@@ -280,7 +342,7 @@ export function ProductsPage() {
                   <TableRow>
                     <TableHead className="w-12">
                       <Checkbox
-                        checked={selectedIds.length === paginatedProducts.length}
+                        checked={selectedIds.length === paginatedProducts.length && paginatedProducts.length > 0}
                         onCheckedChange={handleSelectAll}
                       />
                     </TableHead>
@@ -295,10 +357,43 @@ export function ProductsPage() {
 
                 <TableBody>
                   {paginatedProducts.map(product => {
+                    // ═══════════════════════════════════════════════════════════
+                    // 🔥 CONVERSÃO DE PREÇOS - PRIORIZA CAMPOS DO SCRAPER
+                    // ═══════════════════════════════════════════════════════════
+                    
+                    const rawProduct = product as any;
+                    
+                    // PRIORIDADE 1: Campos do scraper (preco_para, preco_de)
+                    let currentPriceCents = 0;
+                    let oldPriceCents = 0;
+                    
+                    if (rawProduct.preco_para) {
+                      currentPriceCents = parsePriceToCents(rawProduct.preco_para);
+                    } else if (rawProduct.price) {
+                      currentPriceCents = parsePriceToCents(rawProduct.price);
+                    }
+                    
+                    if (rawProduct.preco_de) {
+                      oldPriceCents = parsePriceToCents(rawProduct.preco_de);
+                    } else if (rawProduct.oldPrice) {
+                      oldPriceCents = parsePriceToCents(rawProduct.oldPrice);
+                    } else if (rawProduct.preco_anterior) {
+                      oldPriceCents = parsePriceToCents(rawProduct.preco_anterior);
+                    }
+                    
+                    // Calcula desconto real
+                    const discountPercent = calculateDiscount(oldPriceCents, currentPriceCents);
+                    
+                    // Formata preços
+                    const formattedCurrentPrice = formatCurrencyFromCents(currentPriceCents);
+                    const formattedOldPrice = formatCurrencyFromCents(oldPriceCents);
+                    
+                    // Imagem
                     const imageSrc =
-                      product.image ||
-                      product.thumbnail ||
-                      product.images?.[0] ||
+                      rawProduct.imagem ||
+                      rawProduct.image ||
+                      rawProduct.thumbnail ||
+                      rawProduct.images?.[0] ||
                       '/no-image.png';
 
                     return (
@@ -313,6 +408,7 @@ export function ProductsPage() {
                         <TableCell>
                           <img
                             src={imageSrc}
+                            alt={product.name}
                             className="w-12 h-12 object-cover rounded"
                             onError={(e) => {
                               (e.target as HTMLImageElement).src = '/no-image.png';
@@ -322,10 +418,10 @@ export function ProductsPage() {
 
                         <TableCell>
                           <p className="font-medium truncate max-w-xs">
-                            {product.name}
+                            {rawProduct.nome || product.name}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {product.category}
+                            {rawProduct.categoria || product.category}
                           </p>
                         </TableCell>
 
@@ -338,20 +434,24 @@ export function ProductsPage() {
                         </TableCell>
 
                         <TableCell className="text-right">
-                          {product.oldPrice && product.oldPrice > product.price && (
+                          {oldPriceCents > 0 && oldPriceCents > currentPriceCents && (
                             <p className="text-sm line-through text-muted-foreground">
-                              {formatCurrency(product.oldPrice)}
+                              {formattedOldPrice}
                             </p>
                           )}
                           <p className="font-bold text-green-600">
-                            {formatCurrency(product.price)}
+                            {formattedCurrentPrice}
                           </p>
                         </TableCell>
 
                         <TableCell className="text-right">
-                          {product.discount > 0 && (
+                          {discountPercent > 0 ? (
                             <span className="text-green-600 font-semibold">
-                              -{product.discount}%
+                              -{discountPercent}%
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">
+                              -
                             </span>
                           )}
                         </TableCell>
@@ -362,9 +462,9 @@ export function ProductsPage() {
               </Table>
 
               {/* PAGINAÇÃO */}
-              <div className="flex justify-between p-4">
-                <span>
-                  Página {page} de {totalPages}
+              <div className="flex justify-between items-center p-4 border-t">
+                <span className="text-sm text-muted-foreground">
+                  Página {page} de {totalPages || 1}
                 </span>
 
                 <div className="flex gap-2">
@@ -372,6 +472,7 @@ export function ProductsPage() {
                     size="sm"
                     variant="outline"
                     onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
@@ -380,6 +481,7 @@ export function ProductsPage() {
                     size="sm"
                     variant="outline"
                     onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Button>

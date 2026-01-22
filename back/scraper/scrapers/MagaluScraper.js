@@ -128,15 +128,12 @@ class MagaluScraper {
   async scrapeCategory() {
     await this.loadExistingProducts();
 
-    // ═══════════════════════════════════════════════════════════
-    // 🔥 CONFIGURAÇÃO ANTI-DETECÇÃO PARA HEADLESS MODE
-    // ═══════════════════════════════════════════════════════════
     const browser = await chromium.launch({ 
       headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled', // Remove "navigator.webdriver"
+        '--disable-blink-features=AutomationControlled',
         '--disable-dev-shm-usage',
         '--disable-web-security',
         '--disable-features=IsolateOrigins,site-per-process'
@@ -148,7 +145,6 @@ class MagaluScraper {
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       locale: 'pt-BR',
       timezoneId: 'America/Sao_Paulo',
-      // Headers extras para parecer mais humano
       extraHTTPHeaders: {
         'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -165,7 +161,6 @@ class MagaluScraper {
     
     const page = await context.newPage();
     
-    // Remove "navigator.webdriver" flag
     await page.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', {
         get: () => undefined
@@ -190,33 +185,28 @@ class MagaluScraper {
         console.log(`📄 Pág ${pageNum.toString().padStart(2, '0')}/${maxPages} ${progressBar} [${allProducts.length}/${this.limit}] (${this.duplicatesIgnored} ignorados | ${this.betterOffersUpdated} melhorados)`);
         
         try {
-          // Navega com waitUntil mais flexível
           await page.goto(url, { 
             waitUntil: 'domcontentloaded', 
             timeout: 60000 
           });
           
-          // Aguarda mais tempo para o conteúdo carregar
           await page.waitForTimeout(4000);
 
-          // Scroll MUITO mais devagar e natural (simula humano)
           await page.evaluate(async () => {
             const scrollDelay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
             
             for (let i = 0; i < 10; i++) {
-              const scrollAmount = 400 + Math.random() * 200; // Scroll variável
+              const scrollAmount = 400 + Math.random() * 200;
               window.scrollBy(0, scrollAmount);
-              await scrollDelay(500 + Math.random() * 300); // Delay variável
+              await scrollDelay(500 + Math.random() * 300);
             }
             
             window.scrollTo(0, 0);
             await scrollDelay(1000);
           });
           
-          // Aguarda mais um pouco após scroll
           await page.waitForTimeout(2000);
 
-          // Tenta esperar por elementos de produto aparecerem
           try {
             await page.waitForSelector('a[href*="/produto/"], [data-testid*="product"]', { 
               timeout: 10000 
@@ -228,7 +218,65 @@ class MagaluScraper {
           const productsFromPage = await page.evaluate(({ minDisc, affiliateId }) => {
             const results = [];
             
-            // Tenta múltiplos seletores
+            // 🔧 FUNÇÃO AUXILIAR: Extrair preço em centavos corretamente
+            function extractPriceInCents(text) {
+              if (!text) return 0;
+              
+              // Remove tudo exceto números, vírgula e ponto
+              const cleaned = text.replace(/[^\d.,]/g, '');
+              
+              // Casos possíveis:
+              // "5.338,00" → 533800
+              // "5338,00" → 533800
+              // "5.338" → 533800
+              // "5338" → 533800
+              
+              let priceStr = cleaned;
+              
+              // Se tem vírgula, assume que é separador decimal
+              if (priceStr.includes(',')) {
+                // "5.338,00" → remove pontos, troca vírgula por nada
+                priceStr = priceStr.replace(/\./g, '').replace(',', '');
+              } else if (priceStr.includes('.')) {
+                // Se só tem ponto, pode ser milhar ou decimal
+                const parts = priceStr.split('.');
+                if (parts.length === 2 && parts[1].length === 2) {
+                  // "5338.00" → é decimal → remove ponto
+                  priceStr = priceStr.replace('.', '');
+                } else {
+                  // "5.338" → é milhar → remove ponto e adiciona 00
+                  priceStr = priceStr.replace(/\./g, '') + '00';
+                }
+              } else {
+                // Só números, assume que já está em centavos ou precisa adicionar 00
+                if (priceStr.length <= 3) {
+                  // Valores pequenos (ex: "100") → adiciona 00
+                  priceStr = priceStr + '00';
+                }
+              }
+              
+              return parseInt(priceStr) || 0;
+            }
+            
+            // 🔧 FUNÇÃO AUXILIAR: Formatar preço para exibição
+            function formatPrice(cents) {
+              if (!cents || cents === 0) return 'R$ 0,00';
+              const reais = Math.floor(cents / 100);
+              const centavos = cents % 100;
+              return `R$ ${reais.toLocaleString('pt-BR')},${centavos.toString().padStart(2, '0')}`;
+            }
+            
+            // 🔧 FUNÇÃO AUXILIAR: Calcular preço antigo a partir do desconto
+            function calculateOldPrice(currentPriceCents, discountPercent) {
+              if (!currentPriceCents || !discountPercent || discountPercent >= 100) {
+                return currentPriceCents;
+              }
+              
+              // Fórmula: preço_antigo = preço_atual / (1 - desconto/100)
+              const oldPrice = Math.round(currentPriceCents / (1 - discountPercent / 100));
+              return oldPrice;
+            }
+            
             let items = [];
             
             items = document.querySelectorAll('[data-testid*="product-card"], [data-testid="product-card-container"]');
@@ -241,7 +289,6 @@ class MagaluScraper {
               items = document.querySelectorAll('.sc-dGHKFe, [class*="ProductCard"], [class*="product-card"]');
             }
             
-            // Fallback: pega TODOS os links e filtra os de produto
             if (items.length === 0) {
               const allLinks = document.querySelectorAll('a[href]');
               items = Array.from(allLinks).filter(link => 
@@ -269,7 +316,7 @@ class MagaluScraper {
                   return;
                 }
                 
-                // Título
+                // 📝 TÍTULO
                 let titleEl = card.querySelector('[data-testid*="title"]') || 
                              card.querySelector('h2') || 
                              card.querySelector('h3') ||
@@ -286,22 +333,31 @@ class MagaluScraper {
                   productTitle = linkEl.getAttribute('aria-label');
                 }
                 
-                // Preço atual
+                // 💰 PREÇO ATUAL - EXTRAÇÃO MELHORADA
+                let currentPriceCents = 0;
+                
+                // Tenta pegar do elemento específico de preço
                 let currentPriceEl = card.querySelector('[data-testid="price-value"]') ||
                                     card.querySelector('[class*="price-value"]') ||
-                                    card.querySelector('[class*="PriceValue"]');
+                                    card.querySelector('[class*="PriceValue"]') ||
+                                    card.querySelector('[data-testid*="price"]');
                 
-                let currentPrice = '0';
                 if (currentPriceEl) {
-                  currentPrice = currentPriceEl.innerText.replace(/[^\d]/g, '');
-                } else {
-                  const priceMatch = cardText.match(/R\$\s*(\d+[.,]\d+)/);
-                  if (priceMatch) {
-                    currentPrice = priceMatch[1].replace(/[^\d]/g, '');
+                  currentPriceCents = extractPriceInCents(currentPriceEl.innerText);
+                }
+                
+                // Se não encontrou, tenta regex no texto do card
+                if (currentPriceCents === 0) {
+                  // Procura por padrões como "R$ 5.338,00" ou "R$ 5338"
+                  const priceMatches = cardText.match(/R\$\s*([\d.,]+)/g);
+                  if (priceMatches && priceMatches.length > 0) {
+                    // Pega o MENOR preço (geralmente é o preço promocional)
+                    const prices = priceMatches.map(p => extractPriceInCents(p));
+                    currentPriceCents = Math.min(...prices.filter(p => p > 0));
                   }
                 }
                 
-                // Desconto
+                // 🏷️ DESCONTO
                 const discountMatches = cardText.match(/(\d+)%/g);
                 let discountVal = 0;
                 
@@ -310,14 +366,14 @@ class MagaluScraper {
                   discountVal = Math.max(...allDiscounts);
                 }
                 
-                // Imagem
+                // 🖼️ IMAGEM
                 let imgEl = card.querySelector('img');
                 let imageUrl = '';
                 if (imgEl) {
                   imageUrl = imgEl.src || imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || '';
                 }
                 
-                // Validações
+                // ✅ VALIDAÇÕES
                 if (!productTitle || productTitle.length < 3) {
                   return;
                 }
@@ -326,18 +382,14 @@ class MagaluScraper {
                   return;
                 }
                 
-                if (!currentPrice || currentPrice === '0') {
+                if (!currentPriceCents || currentPriceCents === 0) {
                   return;
                 }
                 
-                // Calcula preço antigo
-                let oldPrice = '0';
-                if (currentPrice && discountVal > 0) {
-                  const currentVal = parseInt(currentPrice);
-                  oldPrice = Math.round(currentVal / (1 - discountVal / 100)).toString();
-                }
+                // 💵 CALCULA PREÇO ANTIGO
+                const oldPriceCents = calculateOldPrice(currentPriceCents, discountVal);
                 
-                // URL
+                // 🔗 URL
                 let fullUrl = linkEl.href;
                 
                 if (!fullUrl.includes(affiliateId)) {
@@ -356,21 +408,22 @@ class MagaluScraper {
                   return;
                 }
                 
+                // 📦 CRIA OBJETO DO PRODUTO
                 results.push({
                   nome: productTitle,
                   imagem: imageUrl,
                   link_original: cleanLink,
-                  preco: `R$ ${currentPrice}`,
-                  preco_anterior: `R$ ${oldPrice}`,
-                  preco_de: oldPrice,
-                  preco_para: currentPrice,
+                  preco: formatPrice(currentPriceCents),
+                  preco_anterior: formatPrice(oldPriceCents),
+                  preco_de: oldPriceCents.toString(),
+                  preco_para: currentPriceCents.toString(),
                   desconto: `${discountVal}%`,
                   marketplace: 'MAGALU',
                   isActive: true
                 });
                 
               } catch (e) {
-                // Silencioso
+                console.error(`Erro ao processar item ${index}:`, e.message);
               }
             });
             
@@ -413,7 +466,6 @@ class MagaluScraper {
 
           pageNum++;
           
-          // Delay variável entre páginas (mais humano)
           await page.waitForTimeout(2500 + Math.random() * 2000);
 
         } catch (pageError) {
