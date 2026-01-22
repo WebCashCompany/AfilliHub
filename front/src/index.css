@@ -1,9 +1,18 @@
+/* ═══════════════════════════════════════════════════════════
+   IMPORTS DEVEM VIR PRIMEIRO!
+   ═══════════════════════════════════════════════════════════ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ═══════════════════════════════════════════════════════════
+   TAILWIND BASE, COMPONENTS E UTILITIES
+   ═══════════════════════════════════════════════════════════ */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
+/* ═══════════════════════════════════════════════════════════
+   CUSTOM BASE STYLES
+   ═══════════════════════════════════════════════════════════ */
 @layer base {
   :root {
     --background: 220 14% 96%;
@@ -132,6 +141,9 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+   CUSTOM UTILITIES
+   ═══════════════════════════════════════════════════════════ */
 @layer utilities {
   .gradient-primary {
     background: var(--gradient-primary);
@@ -202,6 +214,9 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+   KEYFRAME ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
 @keyframes float {
   0%, 100% { transform: translateY(0px); }
   50% { transform: translateY(-10px); }
@@ -227,7 +242,9 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Scrollbar Styling */
+/* ═══════════════════════════════════════════════════════════
+   SCROLLBAR STYLING
+   ═══════════════════════════════════════════════════════════ */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -241,7 +258,9 @@
   @apply bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50 transition-colors;
 }
 
-/* Custom checkbox styling for marketplace badges */
+/* ═══════════════════════════════════════════════════════════
+   CUSTOM CHECKBOX STYLING
+   ═══════════════════════════════════════════════════════════ */
 .marketplace-checkbox:checked {
   @apply accent-primary;
 }
