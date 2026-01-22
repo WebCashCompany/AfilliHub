@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// database/models/Products.js - VERSÃO CORRETA
+// database/models/Products.js - COM CATEGORIAS MAGALU
 // ═══════════════════════════════════════════════════════════
 //
 // Usa o database "produtos" com collections: ML, shopee, amazon, magalu
@@ -7,6 +7,7 @@
 // ═══════════════════════════════════════════════════════════
 
 const mongoose = require('mongoose');
+const { getCategorySlugs } = require('../../config/categorias-magalu');
 
 // ═══════════════════════════════════════════════════════════
 // SCHEMA
@@ -23,7 +24,35 @@ const ProductSchema = new mongoose.Schema({
   preco_de: { type: String, required: true },
   preco_para: { type: String, required: true },
   desconto: { type: String, required: true, index: true },
-  categoria: { type: String, default: 'Todas as Ofertas', index: true },
+  
+  // 🆕 CATEGORIA COM ENUM DINÂMICO DAS CATEGORIAS DO MAGALU
+  categoria: { 
+    type: String, 
+    default: 'Ofertas do Dia', 
+    index: true,
+    // Enum inclui as categorias do Magalu + categorias genéricas
+    enum: [
+      'Todas as Ofertas',
+      ...getCategorySlugs(), // Adiciona dinamicamente: ofertas-do-dia, internacional, casa, etc
+      'Ofertas do Dia', // Mantém compatibilidade
+      'Internacional',
+      'Casa',
+      'Ferramentas',
+      'Eletroportáteis',
+      'Brinquedos',
+      'Automotivo',
+      'Domésticos',
+      // Categorias genéricas (outros marketplaces)
+      'Eletrônicos',
+      'Moda',
+      'Beleza',
+      'Esportes',
+      'Livros',
+      'Games',
+      'Informática'
+    ]
+  },
+  
   avaliacao: { type: String, default: 'N/A' },
   numero_avaliacoes: { type: String, default: '0' },
   frete: { type: String, default: '' },
@@ -33,7 +62,7 @@ const ProductSchema = new mongoose.Schema({
   tempo_restante: { type: String, default: 'N/A' },
   marketplace: {
     type: String,
-    enum: ['ML', 'Amazon', 'Magalu', 'Shopee', 'MAGALU'], // ← ADICIONEI 'MAGALU' AQUI
+    enum: ['ML', 'Amazon', 'Magalu', 'Shopee', 'MAGALU'],
     required: true,
     index: true
   },
@@ -48,6 +77,7 @@ ProductSchema.index({ marketplace: 1, desconto: -1 });
 ProductSchema.index({ categoria: 1, ultima_verificacao: -1 });
 ProductSchema.index({ isActive: 1, marketplace: 1 });
 ProductSchema.index({ link_original: 1 }, { unique: true });
+ProductSchema.index({ marketplace: 1, categoria: 1 }); // 🆕 ÍNDICE COMPOSTO PARA FILTROS
 
 // ═══════════════════════════════════════════════════════════
 // CACHE DE MODELS
@@ -129,27 +159,29 @@ const { getProductModel } = require('./Products');
 // Obter conexão do database "produtos"
 const conn = getProductConnection();
 
-// Obter model da collection "ML"
-const ProductML = getProductModel('ML', conn);
+// Obter model da collection "magalu"
+const ProductMagalu = getProductModel('magalu', conn);
 
-// Usar o model
-const produtos = await ProductML.find({ 
+// Buscar produtos por categoria
+const produtosFerramentas = await ProductMagalu.find({ 
   isActive: true,
+  categoria: 'Ferramentas',
   desconto: { $gte: '30%' }
 }).limit(50);
 
-// Criar produto
-await ProductML.create({
-  nome: 'Produto Teste',
+// Criar produto com categoria
+await ProductMagalu.create({
+  nome: 'Furadeira Bosch',
   imagem: 'https://...',
   link_original: 'https://...',
   link_afiliado: 'https://...',
   preco: 'R$ 100',
   preco_anterior: 'R$ 150',
-  preco_de: 'R$ 150',
-  preco_para: 'R$ 100',
+  preco_de: '15000',
+  preco_para: '10000',
   desconto: '33%',
-  marketplace: 'ML',
+  categoria: 'Ferramentas', // 🆕 CATEGORIA
+  marketplace: 'MAGALU',
   isActive: true
 });
 */

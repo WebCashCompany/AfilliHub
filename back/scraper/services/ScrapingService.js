@@ -51,6 +51,7 @@ class ScrapingService {
       limit = 50, 
       mode = 'auto', 
       categoria = null,
+      categoryKey = null, // 🆕 PARA MAGALU (chave como 'OFERTAS_DIA')
       maxPrice = null 
     } = options;
 
@@ -60,8 +61,12 @@ class ScrapingService {
     if (!marketplace) throw new Error(`Marketplace "${marketplaceName}" não encontrado`);
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
-    if (categoria || maxPrice) {
-      console.log(`🎯 FILTROS ATIVOS: ${categoria ? `Categoria: ${categoria}` : ''} ${maxPrice ? `| Preço Máx: R$ ${maxPrice}` : ''}`);
+    if (categoria || maxPrice || categoryKey) {
+      const filters = [];
+      if (categoria) filters.push(`Categoria: ${categoria}`);
+      if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
+      if (maxPrice) filters.push(`Preço Máx: R$ ${maxPrice}`);
+      console.log(`🎯 FILTROS ATIVOS: ${filters.join(' | ')}`);
     }
 
     console.log('🟡 Usando Web Scraper (Playwright)...');
@@ -71,6 +76,16 @@ class ScrapingService {
     marketplace.scraper.categoria = categoria;
     marketplace.scraper.maxPrice = maxPrice;
     
+    // ═══════════════════════════════════════════════════════════
+    // 🆕 CONFIGURAÇÃO DE CATEGORIA PARA MAGALU
+    // ═══════════════════════════════════════════════════════════
+    if (marketplace.code === 'MAGALU' && categoryKey) {
+      if (typeof marketplace.scraper.setCategory === 'function') {
+        marketplace.scraper.setCategory(categoryKey);
+      }
+    }
+    
+    // Configuração para Mercado Livre (mantém compatibilidade)
     if (categoria && marketplace.code === 'ML') {
       const { getCategoria } = require('../../config/categorias-ml');
       marketplace.scraper.categoriaInfo = getCategoria(categoria);
@@ -173,7 +188,7 @@ class ScrapingService {
               }
             );
             betterOffers++;
-            console.log(`   🔥 MELHOR OFERTA: ${product.nome.substring(0, 35)}... (${product.desconto})`);
+            console.log(`   🔥 MELHOR OFERTA: ${product.nome.substring(0, 35)}... (${product.desconto}) [${product.categoria || 'N/A'}]`);
           } else {
             const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
             
@@ -183,7 +198,7 @@ class ScrapingService {
               createdAt: new Date() 
             });
             inserted++;
-            console.log(`   ✨ ${product.nome.substring(0, 40)}...`);
+            console.log(`   ✨ ${product.nome.substring(0, 40)}... [${product.categoria || 'N/A'}]`);
           }
         } else {
           const query = { link_original: product.link_original };
@@ -209,7 +224,7 @@ class ScrapingService {
               createdAt: new Date() 
             });
             inserted++;
-            console.log(`   ✨ ${product.nome.substring(0, 40)}...`);
+            console.log(`   ✨ ${product.nome.substring(0, 40)}... [${product.categoria || 'N/A'}]`);
           }
         }
       } catch (err) {
