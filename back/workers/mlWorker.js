@@ -6,7 +6,7 @@
  * Worker profissional para coleta de ofertas do Mercado Livre
  * Sistema de retry automático e distribuição inteligente de produtos
  * 
- * @version 2.0.0
+ * @version 2.1.0 - CORRIGIDO: Cache persiste entre tentativas
  * @author Dashboard Promoforia
  * @license Proprietary
  * 
@@ -325,7 +325,10 @@ function displayFinalReport(resultados, totalSaved, totalCollected, selectedCats
     // Exibe configuração
     const limitPerCat = displayConfiguration(selectedCats, maxPrice);
     
-    // Inicializa serviço de scraping
+    // ════════════════════════════════════════════════════════════
+    // CRÍTICO: Criar instância UMA VEZ antes do loop
+    // Isso mantém o cache do scraper entre as tentativas
+    // ════════════════════════════════════════════════════════════
     const scrapingService = new ScrapingService();
     
     // Estatísticas globais
@@ -335,6 +338,13 @@ function displayFinalReport(resultados, totalSaved, totalCollected, selectedCats
     
     // Processa cada categoria
     for (const [index, categoria] of selectedCats.entries()) {
+      // ════════════════════════════════════════════════════════
+      // Limpar cache ao mudar de categoria
+      // ════════════════════════════════════════════════════════
+      if (index > 0) {
+        scrapingService.clearScraperCache('ML');
+      }
+      
       const resultado = await processCategory(
         scrapingService,
         categoria,

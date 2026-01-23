@@ -6,7 +6,7 @@
  * Serviço unificado para coleta de produtos de múltiplos marketplaces
  * Sistema de cache, validação e salvamento otimizado
  * 
- * @version 2.0.0
+ * @version 2.1.0 - CORRIGIDO: Reutiliza instância do scraper
  * @author Dashboard Promoforia
  * @license Proprietary
  */
@@ -48,7 +48,7 @@ class ScrapingService {
       const mlConfig = {
         name: 'Mercado Livre',
         code: 'ML',
-        scraper: new MercadoLivreScraper(),
+        scraper: new MercadoLivreScraper(), // ← Instância única reutilizada
         enabled: true
       };
       
@@ -62,7 +62,7 @@ class ScrapingService {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // MAGAZINE LUIZA
+    // MAGAZINE LUIZA (NÃO MODIFICADO)
     // ═══════════════════════════════════════════════════════════
     if (MagaluScraper) {
       try {
@@ -82,7 +82,7 @@ class ScrapingService {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // SHOPEE
+    // SHOPEE (NÃO MODIFICADO)
     // ═══════════════════════════════════════════════════════════
     if (ShopeeScraper) {
       try {
@@ -99,6 +99,20 @@ class ScrapingService {
       } catch (error) {
         console.error('⚠️  Shopee não disponível:', error.message);
       }
+    }
+  }
+
+  /**
+   * Limpa o cache do scraper de um marketplace específico
+   * Útil ao trocar de categoria
+   */
+  clearScraperCache(marketplaceName) {
+    const marketplace = this.marketplaces.get(marketplaceName) || 
+                        this.marketplaces.get(marketplaceName.toLowerCase()) ||
+                        this.marketplaces.get(marketplaceName.toUpperCase());
+    
+    if (marketplace && marketplace.scraper && typeof marketplace.scraper.clearCache === 'function') {
+      marketplace.scraper.clearCache();
     }
   }
 
@@ -141,31 +155,33 @@ class ScrapingService {
     console.log('🟡 Iniciando Web Scraper (Playwright)...\n');
     
     // ═══════════════════════════════════════════════════════════
-    // CONFIGURAÇÃO DO SCRAPER
+    // CONFIGURAÇÃO DO SCRAPER (REUTILIZA INSTÂNCIA)
     // ═══════════════════════════════════════════════════════════
-    marketplace.scraper.minDiscount = minDiscount;
-    marketplace.scraper.limit = limit;
-    marketplace.scraper.maxPrice = maxPrice;
+    const scraper = marketplace.scraper; // ← Reutiliza a mesma instância
+    
+    scraper.minDiscount = minDiscount;
+    scraper.limit = limit;
+    scraper.maxPrice = maxPrice;
     
     // Configuração específica por marketplace
     if (marketplace.code === 'ML' && categoria) {
       const categoriaInfo = getCategoria(categoria);
       if (categoriaInfo) {
-        marketplace.scraper.categoriaKey = categoria;
-        marketplace.scraper.categoriaInfo = categoriaInfo;
+        scraper.categoriaKey = categoria;
+        scraper.categoriaInfo = categoriaInfo;
       } else {
         console.warn(`⚠️  Categoria "${categoria}" não encontrada, usando padrão`);
       }
     }
     
     if (marketplace.code === 'MAGALU' && categoryKey) {
-      if (typeof marketplace.scraper.setCategory === 'function') {
-        marketplace.scraper.setCategory(categoryKey);
+      if (typeof scraper.setCategory === 'function') {
+        scraper.setCategory(categoryKey);
       }
     }
     
-    // Executa scraping
-    const products = await marketplace.scraper.scrapeCategory();
+    // Executa scraping (cache persiste entre chamadas)
+    const products = await scraper.scrapeCategory();
     
     console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
