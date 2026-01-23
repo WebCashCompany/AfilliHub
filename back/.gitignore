@@ -1,34 +1,191 @@
-# Dependências
-node_modules/
-jspm_packages/
+# ═══════════════════════════════════════════════════════════════
+# 🔐 ARQUIVOS DE AUTENTICAÇÃO - NUNCA COMMITAR!
+# ═══════════════════════════════════════════════════════════════
 
-# Variáveis de ambiente (IMPORTANTE: Nunca suba o .env para o GitHub)
+# Sessão do Mercado Livre (contém cookies de autenticação)
+ml-session.json
+ml-session.backup.json
+
+# Perfil do Chrome para automação (se usar)
+chrome-perfil-ml/
+
+# ═══════════════════════════════════════════════════════════════
+# 🌍 VARIÁVEIS DE AMBIENTE
+# ═══════════════════════════════════════════════════════════════
+
+# Arquivos .env (IMPORTANTE: Nunca suba o .env para o GitHub)
+.env
 *env
 .env.test
 .env.production
 .env.local
+.env.development
+.env.staging
 
-# Logs
+# ═══════════════════════════════════════════════════════════════
+# 📦 DEPENDÊNCIAS
+# ═══════════════════════════════════════════════════════════════
+
+node_modules/
+jspm_packages/
+bower_components/
+
+# ═══════════════════════════════════════════════════════════════
+# 📝 LOGS
+# ═══════════════════════════════════════════════════════════════
+
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-logs
-*.log
+lerna-debug.log*
+pnpm-debug.log*
 
-# IDEs e Editores
-.vscode/
-.idea/
-*.swp
-*.swo
+# ═══════════════════════════════════════════════════════════════
+# 🏗️ BUILD / COMPILAÇÃO
+# ═══════════════════════════════════════════════════════════════
 
-# Sistema Operacional
-.DS_Store
-Thumbs.db
-
-# Build/Dist (caso venha a usar TypeScript ou compiladores)
 dist/
 build/
+out/
+.next/
+.nuxt/
+.cache/
 
-# Testes (caso gere relatórios de cobertura)
+# ═══════════════════════════════════════════════════════════════
+# 🧪 TESTES
+# ═══════════════════════════════════════════════════════════════
+
 coverage/
 .nyc_output/
+*.coverage
+.jest/
+
+# ═══════════════════════════════════════════════════════════════
+# 💻 IDEs e EDITORES
+# ═══════════════════════════════════════════════════════════════
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# IntelliJ IDEA / WebStorm / PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ═══════════════════════════════════════════════════════════════
+# 🖥️ SISTEMA OPERACIONAL
+# ═══════════════════════════════════════════════════════════════
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# ═══════════════════════════════════════════════════════════════
+# 🎭 PLAYWRIGHT / AUTOMAÇÃO
+# ═══════════════════════════════════════════════════════════════
+
+# Screenshots e vídeos de testes
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Estados de sessão do Playwright
+*-state.json
+auth-state.json
+
+# ═══════════════════════════════════════════════════════════════
+# 🗄️ BANCO DE DADOS
+# ═══════════════════════════════════════════════════════════════
+
+# SQLite
+*.sqlite
+*.sqlite3
+*.db
+
+# MongoDB (dumps locais)
+dump/
+*.bson
+
+# ═══════════════════════════════════════════════════════════════
+# 📊 DADOS TEMPORÁRIOS / CACHE
+# ═══════════════════════════════════════════════════════════════
+
+tmp/
+temp/
+*.tmp
+.cache/
+.parcel-cache/
+
+# ═══════════════════════════════════════════════════════════════
+# 🔒 CERTIFICADOS E CHAVES
+# ═══════════════════════════════════════════════════════════════
+
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+
+# ═══════════════════════════════════════════════════════════════
+# 📦 PACKAGE MANAGERS
+# ═══════════════════════════════════════════════════════════════
+
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.pnpm-store/
+
+# ═══════════════════════════════════════════════════════════════
+# 🎨 OUTROS
+# ═══════════════════════════════════════════════════════════════
+
+# Backups
+*.backup
+*.bak
+*.old
+
+# Compressão
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+
+# Arquivos grandes (pode descomentar se necessário)
+# *.mp4
+# *.mov
+# *.avi
+# *.pdf
+# *.psd

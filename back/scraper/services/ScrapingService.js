@@ -3,6 +3,7 @@ const { getProductModel } = require('../../database/models/Products');
 const MercadoLivreScraper = require('../scrapers/MercadoLivreScraper');
 const MagaluScraper = require('../scrapers/MagaluScraper');
 const ShopeeScraper = require('../scrapers/ShopeeScraper');
+const { getCategoria } = require('../../config/categorias-ml');
 
 class ScrapingService {
   constructor() {
@@ -51,7 +52,7 @@ class ScrapingService {
       limit = 50, 
       mode = 'auto', 
       categoria = null,
-      categoryKey = null, // 🆕 PARA MAGALU (chave como 'OFERTAS_DIA')
+      categoryKey = null,
       maxPrice = null 
     } = options;
 
@@ -61,40 +62,60 @@ class ScrapingService {
     if (!marketplace) throw new Error(`Marketplace "${marketplaceName}" não encontrado`);
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
+    
+    // ═══════════════════════════════════════════════════════════
+    // 🔧 EXIBIÇÃO DE FILTROS MELHORADA
+    // ═══════════════════════════════════════════════════════════
     if (categoria || maxPrice || categoryKey) {
       const filters = [];
-      if (categoria) filters.push(`Categoria: ${categoria}`);
+      
+      if (categoria) {
+        const catInfo = getCategoria(categoria);
+        if (catInfo) {
+          filters.push(`Categoria: ${catInfo.emoji} ${catInfo.nome} (${categoria})`);
+        } else {
+          filters.push(`Categoria: ${categoria}`);
+        }
+      }
+      
       if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
       if (maxPrice) filters.push(`Preço Máx: R$ ${maxPrice}`);
+      
       console.log(`🎯 FILTROS ATIVOS: ${filters.join(' | ')}`);
     }
 
     console.log('🟡 Usando Web Scraper (Playwright)...');
     
+    // ═══════════════════════════════════════════════════════════
+    // 🔧 CONFIGURAÇÃO CORRETA DO SCRAPER
+    // ═══════════════════════════════════════════════════════════
     marketplace.scraper.minDiscount = minDiscount;
     marketplace.scraper.limit = limit;
-    marketplace.scraper.categoria = categoria;
     marketplace.scraper.maxPrice = maxPrice;
     
-    // ═══════════════════════════════════════════════════════════
-    // 🆕 CONFIGURAÇÃO DE CATEGORIA PARA MAGALU
-    // ═══════════════════════════════════════════════════════════
+    // Para Mercado Livre
+    if (marketplace.code === 'ML' && categoria) {
+      marketplace.scraper.categoriaKey = categoria;
+      marketplace.scraper.categoriaInfo = getCategoria(categoria);
+      
+      if (!marketplace.scraper.categoriaInfo) {
+        console.log(`⚠️  Categoria "${categoria}" não encontrada, usando "todas"`);
+        marketplace.scraper.categoriaKey = 'todas';
+        marketplace.scraper.categoriaInfo = getCategoria('todas');
+      }
+    }
+    
+    // Para Magalu
     if (marketplace.code === 'MAGALU' && categoryKey) {
       if (typeof marketplace.scraper.setCategory === 'function') {
         marketplace.scraper.setCategory(categoryKey);
       }
     }
     
-    // Configuração para Mercado Livre (mantém compatibilidade)
-    if (categoria && marketplace.code === 'ML') {
-      const { getCategoria } = require('../../config/categorias-ml');
-      marketplace.scraper.categoriaInfo = getCategoria(categoria);
-    }
-    
     products = await marketplace.scraper.scrapeCategory();
 
     // ═══════════════════════════════════════════════════════════
-    // ✅ GERAÇÃO DE LINKS DE AFILIADO
+    // ✅ GERAÇÃO DE LINKS DE AFILIADO (SEM MODIFICAR O ORIGINAL)
     // ═══════════════════════════════════════════════════════════
     if (products.length > 0) {
       console.log(`🔗 Gerando ${products.length} links de afiliado...`);
@@ -103,15 +124,19 @@ class ScrapingService {
       
       products.forEach((product, index) => {
         if (marketplace.code === 'ML') {
-          const baseUrl = product.link_original.split('?')[0].split('#')[0];
+          // ═══════════════════════════════════════════════════════
+          // 🎯 NÃO MODIFICA O LINK ORIGINAL (já vem correto do scraper)
+          // ═══════════════════════════════════════════════════════
           const affiliateId = process.env.ML_AFFILIATE_ID || '77997172';
+          const separator = product.link_original.includes('?') ? '&' : '?';
           
-          product.link_afiliado = `${baseUrl}?matt_tool=${affiliateId}&utm_source=affiliate&utm_medium=webcash`;
+          product.link_afiliado = `${product.link_original}${separator}matt_tool=${affiliateId}&utm_source=affiliate&utm_medium=webcash`;
           gerados++;
           
           if (index < 3) {
             console.log(`   [${index + 1}] ${product.nome.substring(0, 30)}...`);
-            console.log(`       🔗 ${product.link_afiliado.substring(0, 90)}...`);
+            console.log(`       📌 Original: ${product.link_original}`);
+            console.log(`       🔗 Afiliado: ${product.link_afiliado}`);
           }
           
         } else if (marketplace.code === 'MAGALU') {
@@ -152,11 +177,8 @@ class ScrapingService {
   async saveProducts(products, marketplaceCode = 'ML') {
     console.log(`\n💾 Salvando/Atualizando no MongoDB...`);
     
-    // ═══════════════════════════════════════════════════════════
-    // OBTER CONEXÃO E MODEL CORRETOS
-    // ═══════════════════════════════════════════════════════════
-    const conn = getProductConnection(); // Database "produtos"
-    const Product = getProductModel(marketplaceCode, conn); // Collection "ML", "shopee", etc
+    const conn = getProductConnection();
+    const Product = getProductModel(marketplaceCode, conn);
     
     let inserted = 0, updated = 0, errors = 0, duplicates = 0, betterOffers = 0;
 

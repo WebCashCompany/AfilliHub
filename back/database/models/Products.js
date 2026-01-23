@@ -1,8 +1,8 @@
 // ═══════════════════════════════════════════════════════════
-// database/models/Products.js - COM CATEGORIAS MAGALU
+// database/models/Products.js - VERSÃO CORRIGIDA
 // ═══════════════════════════════════════════════════════════
 //
-// Usa o database "produtos" com collections: ML, shopee, amazon, magalu
+// ✅ ADICIONADO: 'Celulares' e outras categorias do ML
 //
 // ═══════════════════════════════════════════════════════════
 
@@ -25,16 +25,27 @@ const ProductSchema = new mongoose.Schema({
   preco_para: { type: String, required: true },
   desconto: { type: String, required: true, index: true },
   
-  // 🆕 CATEGORIA COM ENUM DINÂMICO DAS CATEGORIAS DO MAGALU
+  // 🆕 CATEGORIA - ENUM ATUALIZADO COM CATEGORIAS DO ML + MAGALU
   categoria: { 
     type: String, 
     default: 'Ofertas do Dia', 
     index: true,
-    // Enum inclui as categorias do Magalu + categorias genéricas
     enum: [
+      // ════════════════════════════════════════════════════
+      // 📱 CATEGORIAS DO MERCADO LIVRE (ADICIONADAS)
+      // ════════════════════════════════════════════════════
+      'Celulares',              // ← NOVA!
+      'Eletrodomésticos',       // ← NOVA!
+      'Casa e Decoração',       // ← NOVA!
+      'Calçados e Roupas',      // ← NOVA!
+      'Joias e Relógios',       // ← NOVA!
+      'Ofertas Relâmpago',      // ← NOVA!
+      
+      // ════════════════════════════════════════════════════
+      // 🛒 CATEGORIAS COMPARTILHADAS (ML + MAGALU)
+      // ════════════════════════════════════════════════════
       'Todas as Ofertas',
-      ...getCategorySlugs(), // Adiciona dinamicamente: ofertas-do-dia, internacional, casa, etc
-      'Ofertas do Dia', // Mantém compatibilidade
+      'Ofertas do Dia',
       'Internacional',
       'Casa',
       'Ferramentas',
@@ -42,14 +53,18 @@ const ProductSchema = new mongoose.Schema({
       'Brinquedos',
       'Automotivo',
       'Domésticos',
-      // Categorias genéricas (outros marketplaces)
       'Eletrônicos',
       'Moda',
       'Beleza',
       'Esportes',
       'Livros',
       'Games',
-      'Informática'
+      'Informática',
+      
+      // ════════════════════════════════════════════════════
+      // 🏪 CATEGORIAS DINÂMICAS DO MAGALU
+      // ════════════════════════════════════════════════════
+      ...getCategorySlugs() // ofertas-do-dia, eletrodomesticos, etc
     ]
   },
   
@@ -77,7 +92,7 @@ ProductSchema.index({ marketplace: 1, desconto: -1 });
 ProductSchema.index({ categoria: 1, ultima_verificacao: -1 });
 ProductSchema.index({ isActive: 1, marketplace: 1 });
 ProductSchema.index({ link_original: 1 }, { unique: true });
-ProductSchema.index({ marketplace: 1, categoria: 1 }); // 🆕 ÍNDICE COMPOSTO PARA FILTROS
+ProductSchema.index({ marketplace: 1, categoria: 1 });
 
 // ═══════════════════════════════════════════════════════════
 // CACHE DE MODELS
@@ -147,41 +162,3 @@ module.exports = {
   getProductModel,
   normalizeMarketplaceName
 };
-
-// ═══════════════════════════════════════════════════════════
-// EXEMPLO DE USO:
-// ═══════════════════════════════════════════════════════════
-
-/*
-const { getProductConnection } = require('../mongodb');
-const { getProductModel } = require('./Products');
-
-// Obter conexão do database "produtos"
-const conn = getProductConnection();
-
-// Obter model da collection "magalu"
-const ProductMagalu = getProductModel('magalu', conn);
-
-// Buscar produtos por categoria
-const produtosFerramentas = await ProductMagalu.find({ 
-  isActive: true,
-  categoria: 'Ferramentas',
-  desconto: { $gte: '30%' }
-}).limit(50);
-
-// Criar produto com categoria
-await ProductMagalu.create({
-  nome: 'Furadeira Bosch',
-  imagem: 'https://...',
-  link_original: 'https://...',
-  link_afiliado: 'https://...',
-  preco: 'R$ 100',
-  preco_anterior: 'R$ 150',
-  preco_de: '15000',
-  preco_para: '10000',
-  desconto: '33%',
-  categoria: 'Ferramentas', // 🆕 CATEGORIA
-  marketplace: 'MAGALU',
-  isActive: true
-});
-*/
