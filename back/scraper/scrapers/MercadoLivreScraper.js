@@ -5,13 +5,17 @@
  * 
  * Sistema profissional de coleta de ofertas do Mercado Livre
  * Otimizado para alto volume e máxima precisão
+ * COM STEALTH MODE - Anti-detecção avançada
  * 
- * @version 2.0.1 - CORREÇÃO: Extração de preços e desconto
+ * @version 2.1.0 - STEALTH: Playwright-extra com anti-detecção
  * @author Dashboard Promoforia
  * @license Proprietary
  */
 
-const { chromium } = require('playwright');
+const { chromium } = require('playwright-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+chromium.use(StealthPlugin());
+
 const fs = require('fs');
 const path = require('path');
 const { getProductConnection, getProductModel } = require('../../database/mongodb');
@@ -185,18 +189,20 @@ class MercadoLivreScraper {
   }
 
   /**
-   * Cria contexto do navegador com sessão persistente
+   * Cria contexto do navegador com sessão persistente + STEALTH MODE
    */
   async createBrowserContext() {
     const browser = await chromium.launch({
-      headless: true,
+      headless: true,  // SEMPRE TRUE para produção
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--window-size=1920,1080'
+        '--window-size=1920,1080',
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-blink-features=AutomationControlled'
       ]
     });
 
@@ -367,9 +373,12 @@ class MercadoLivreScraper {
           console.log(`   🔗 ${url}\n`);
         }
        
-        try {
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: this.config.pageTimeout });
-          await page.waitForTimeout(800);
+                  try {
+          await page.goto(url, { waitUntil: 'networkidle', timeout: this.config.pageTimeout });
+          await page.waitForTimeout(2000);
+
+          // Screenshot para debug
+          await page.screenshot({ path: 'debug-page.png', fullPage: false });
 
           // Scroll para carregar produtos lazy-loaded
           await page.evaluate(async ({ iterations, delay }) => {
@@ -377,55 +386,62 @@ class MercadoLivreScraper {
               window.scrollBy(0, 800);
               await new Promise(r => setTimeout(r, delay));
             }
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, 500));
           }, { iterations: this.config.scrollIterations, delay: this.config.scrollDelay });
 
-          await page.waitForTimeout(400);
+          await page.waitForTimeout(1000);
 
-          // Extrai links de produtos com desconto
-          const productLinks = await page.evaluate(({ minDisc, maxPriceLimit }) => {
-            const items = document.querySelectorAll('.poly-card, .promotion-item__container, .ui-search-result, [class*="promotion-item"]');
-            const results = [];
-
-            items.forEach(item => {
-              try {
-                // Verifica desconto
-                const discEl = item.querySelector('.poly-discount-badge, .andes-money-amount__discount, .promotion-item__discount-text, [class*="discount"]');
-                const discountText = discEl ? discEl.innerText : '';
-                const discountVal = parseInt(discountText.replace(/[^\d]/g, '')) || 0;
-
-                if (discountVal >= minDisc) {
-                  // Verifica preço se houver filtro
-                  if (maxPriceLimit) {
-                    const priceElements = item.querySelectorAll('.andes-money-amount__fraction');
-                    if (priceElements.length >= 1) {
-                      const currentPrice = priceElements[0].innerText.replace(/\./g, '');
-                      const productPrice = parseInt(currentPrice);
-                      
-                      if (productPrice > parseInt(maxPriceLimit)) {
-                        return;
-                      }
-                    }
+          // DEBUG: Mostra estrutura da página
+          const pageDebug = await page.evaluate(() => {
+            const allElements = document.querySelectorAll('*');
+            const classesFound = new Set();
+            
+            allElements.forEach(el => {
+              if (el.className && typeof el.className === 'string') {
+                el.className.split(' ').forEach(c => {
+                  if (c.includes('card') || c.includes('item') || c.includes('product') || 
+                      c.includes('poly') || c.includes('promotion') || c.includes('deal')) {
+                    classesFound.add(c);
                   }
-
-                  // Extrai link
-                  const linkEl = item.querySelector('a');
-                  if (linkEl && linkEl.href) {
-                    const cleanLink = linkEl.href.split('?')[0].split('#')[0];
-                    
-                    if (cleanLink && cleanLink.length > 20 && cleanLink.startsWith('http')) {
-                      results.push(cleanLink);
-                    }
-                  }
-                }
-              } catch (e) {
-                // Ignora erros individuais
+                });
               }
             });
-           
-            return results;
-          }, { minDisc: this.minDiscount, maxPriceLimit: this.maxPrice });
+            
+            return {
+              totalElements: allElements.length,
+              relevantClasses: Array.from(classesFound).slice(0, 50),
+              bodyHTML: document.body.innerHTML.substring(0, 2000)
+            };
+          });
+          
+          console.log(`   🔍 DEBUG - Total elementos: ${pageDebug.totalElements}`);
+          console.log(`   🔍 DEBUG - Classes relevantes encontradas:`, pageDebug.relevantClasses);
+          
+          // Extrai links de produtos com desconto (SIMPLIFICADO - SEM FILTROS)
+          const productLinks = await page.evaluate(() => {
+            // Busca TODOS os links de produtos
+            const allLinks = Array.from(document.querySelectorAll('a[href*="/MLB"]'));
+            const productLinks = new Set();
+            
+            allLinks.forEach(link => {
+              const href = link.href;
+              if (href.includes('/MLB') && !href.includes('/reviews') && !href.includes('/questions')) {
+                const cleanLink = href.split('?')[0].split('#')[0];
+                if (cleanLink.match(/MLB\d+/)) {
+                  productLinks.add(cleanLink);
+                }
+              }
+            });
+            
+            return Array.from(productLinks);
+          });
 
-          console.log(`   📦 ${productLinks.length} produtos encontrados\n`);
+          console.log(`   📦 ${productLinks.length} produtos encontrados (SEM FILTRO DE DESCONTO)\n`);
+          
+          if (productLinks.length > 0) {
+            console.log(`   🔗 Primeiro link: ${productLinks[0]}\n`);
+          }
 
           // Se não encontrou produtos, incrementa contador de páginas vazias
           if (productLinks.length === 0) {
@@ -445,6 +461,13 @@ class MercadoLivreScraper {
             if (allProducts.length >= this.limit) {
               console.log(`   ✅ META ATINGIDA! ${allProducts.length}/${this.limit}\n`);
               break;
+            }
+
+            // VERIFICAÇÃO CRÍTICA: Já processou este link?
+            const alreadyProcessed = allProducts.some(p => p.link_original === productLink);
+            if (alreadyProcessed) {
+              console.log(`   ⏭️  Produto já processado, pulando...\n`);
+              continue;
             }
 
             let retries = 0;
@@ -540,9 +563,9 @@ class MercadoLivreScraper {
                   };
                 }, this.categoriaInfo ? this.categoriaInfo.nome : 'Todas as Ofertas');
 
-                // Define links (sem modificação)
+                // Define links (IMPORTANTES para verificação de duplicata)
                 productData.link_afiliado = affiliateLink;
-                productData.link_original = affiliateLink;
+                productData.link_original = productLink;  // Link original da listagem
 
                 // Processa produto
                 const result = await this.processProduct(productData, allProducts);

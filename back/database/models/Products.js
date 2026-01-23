@@ -71,7 +71,7 @@ const BASE_CATEGORIES = [
   'Brinquedos',
   'Automotivo',
   'Domésticos',
-  'Eletrônicos',
+  'Preços Imbatíveis',
   'Moda',
   'Beleza',
   'Esportes',

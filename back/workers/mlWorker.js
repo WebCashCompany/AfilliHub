@@ -43,10 +43,10 @@ const CATEGORIES = {
   '5': { key: 'calcados_roupas', name: 'Calçados e Roupas', emoji: '👟' },
   '6': { key: 'informatica', name: 'Informática', emoji: '💻' },
   '7': { key: 'games', name: 'Games', emoji: '🎮' },
-  '8': { key: 'eletronicos', name: 'Eletrônicos', emoji: '📱' },
+  '8': { key: 'ferramentas', name: 'Ferramentas', emoji: '🔧' },
   '9': { key: 'joias_relogios', name: 'Joias e Relógios', emoji: '⌚' },
   '10': { key: 'esportes', name: 'Esportes', emoji: '⚽' },
-  '11': { key: 'ferramentas', name: 'Ferramentas', emoji: '🔧' },
+  '11': { key: 'precos_imbativeis', name: 'Preços Imbatíveis', emoji: '💥' },
   '12': { key: 'ofertas_dia', name: 'Ofertas do Dia', emoji: '🌟' },
   '13': { key: 'ofertas_relampago', name: 'Ofertas Relâmpago', emoji: '⚡' }
 };

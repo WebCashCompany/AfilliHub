@@ -38,11 +38,11 @@ const CATEGORIAS_ML = {
     codigo: 'MLB1648',
     emoji: '💻'
   },
-  eletronicos: {
-    nome: 'Eletrônicos',
-    url: 'https://www.mercadolivre.com.br/ofertas?category=MLB1000&container_id=MLB779362-1',
-    codigo: 'MLB1000',
-    emoji: '📱'
+  precos_imbativeis: {
+    nome: 'Preços Imbatíveis',
+    url: 'https://www.mercadolivre.com.br/ofertas?container_id=MLB1298579-1&deal_ids=MLB1298579',
+    codigo: 'MLB1298579',
+    emoji: '💥'
   },
   eletrodomesticos: {
     nome: 'Eletrodomésticos',
