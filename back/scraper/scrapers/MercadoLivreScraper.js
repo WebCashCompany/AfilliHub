@@ -47,18 +47,17 @@ class MercadoLivreScraper {
     // Sessão do navegador
     this.sessionPath = path.join(process.cwd(), 'ml-session.json');
     
-    // Timeouts e configurações
+    // Timeouts e configurações (OTIMIZADO PARA VELOCIDADE)
     this.config = {
-      pageTimeout: 30000,
-      productTimeout: 20000,
-      scrollDelay: 150,
-      scrollIterations: 3,
-      shareButtonDelay: 2000,
-      clipboardDelay: 1000,
-      tabDelay: 200,
-      maxRetries: 3,
+      pageTimeout: 15000,          // 30s → 15s
+      productTimeout: 10000,       // 20s → 10s
+      scrollDelay: 100,            // 150ms → 100ms
+      scrollIterations: 2,         // 3 → 2
+      productPageDelay: 800,       // Delay ao entrar na página do produto
+      backDelay: 300,              // Delay ao voltar
+      maxRetries: 2,               // 3 → 2
       maxPages: 50,
-      maxEmptyPages: 3
+      maxEmptyPages: 2             // 3 → 2
     };
   }
 
@@ -190,13 +189,11 @@ class MercadoLivreScraper {
    */
   async createBrowserContext() {
     const browser = await chromium.launch({
-      headless: false,
+      headless: false, // PRECISA SER FALSE para modal funcionar
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
+        '--disable-blink-features=AutomationControlled'
       ]
     });
 
@@ -228,35 +225,26 @@ class MercadoLivreScraper {
   }
 
   /**
-   * Obtém link de afiliado usando o método de compartilhamento do ML
-   * Método: Tab 4x + Enter para copiar link direto
+   * Obtém link de afiliado usando Tab 4x + Enter
+   * Este método FUNCIONA - pega o link correto do modal
    */
   async getAffiliateLink(page) {
     try {
-      await page.waitForTimeout(1500);
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(500);
 
-      // Localiza e clica no botão Compartilhar
+      // Clica no botão Compartilhar
       const shareSelectors = [
         'button:has-text("Compartilhar")',
-        'a:has-text("Compartilhar")',
-        'button[class*="share"]',
-        '[aria-label*="Compartilhar"]',
-        'div:has-text("Compartilhar")'
+        'a:has-text("Compartilhar")'
       ];
 
       let clicked = false;
       for (const selector of shareSelectors) {
         try {
-          const element = await page.$(selector);
-          if (element && await element.isVisible()) {
-            await element.click();
-            clicked = true;
-            console.log(`   ✅ Botão Compartilhar clicado`);
-            await page.waitForTimeout(this.config.shareButtonDelay);
-            break;
-          }
+          await page.click(selector, { timeout: 3000 });
+          clicked = true;
+          await page.waitForTimeout(1500);
+          break;
         } catch (e) {
           continue;
         }
@@ -267,46 +255,40 @@ class MercadoLivreScraper {
         return null;
       }
 
-      // Concede permissões de clipboard
+      // Concede permissão de clipboard
       const context = page.context();
       await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
-      // Navega até o campo de link com Tab
-      console.log(`   ⌨️  Navegando até campo de link...`);
+      // Tab 4x para chegar no campo do link
       for (let i = 0; i < 4; i++) {
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(this.config.tabDelay);
+        await page.waitForTimeout(150);
       }
 
-      // Copia o link
-      console.log(`   ⌨️  Copiando link...`);
+      // Enter para copiar
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(this.config.clipboardDelay);
+      await page.waitForTimeout(800);
 
       // Lê do clipboard
-      const clipboardText = await page.evaluate(() => {
-        return navigator.clipboard.readText();
+      const clipboardText = await page.evaluate(async () => {
+        return await navigator.clipboard.readText();
       });
 
       // Fecha modal
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(200);
 
-      if (clipboardText && clipboardText.includes('mercadolivre.com')) {
-        console.log(`   ✅ Link obtido: ${clipboardText.substring(0, 60)}...`);
+      if (clipboardText && clipboardText.includes('mercadolivre.com/sec/')) {
+        console.log(`   ✅ ${clipboardText}`);
         return clipboardText;
       }
 
-      console.log(`   ⚠️  Link inválido no clipboard`);
+      console.log(`   ❌ Link inválido: ${clipboardText}`);
       return null;
 
     } catch (error) {
-      console.log(`   ❌ Erro ao obter link: ${error.message.substring(0, 80)}`);
-      
-      try {
-        await page.keyboard.press('Escape');
-      } catch (e) {}
-      
+      console.log(`   ❌ Erro: ${error.message.substring(0, 50)}`);
+      try { await page.keyboard.press('Escape'); } catch (e) {}
       return null;
     }
   }
@@ -449,13 +431,13 @@ class MercadoLivreScraper {
                   timeout: this.config.productTimeout
                 });
                 
-                await page.waitForTimeout(1500);
+                await page.waitForTimeout(this.config.productPageDelay);
 
-                // Obtém link de afiliado
+                // Obtém link de afiliado (RÁPIDO - extração direta)
                 const affiliateLink = await this.getAffiliateLink(page);
 
                 if (!affiliateLink) {
-                  console.log(`   ⏭️  Link não obtido, pulando produto\n`);
+                  console.log(`   ⏭️  Link não obtido, pulando\n`);
                   break;
                 }
 
@@ -509,9 +491,9 @@ class MercadoLivreScraper {
                   console.log(`   ✨ [${allProducts.length}/${this.limit}] ${productData.nome.substring(0, 50)}...\n`);
                 }
 
-                // Volta para listagem
-                await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10000 });
-                await page.waitForTimeout(500);
+                // Volta para listagem (RÁPIDO)
+                await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 });
+                await page.waitForTimeout(this.config.backDelay);
 
                 success = true;
 
@@ -540,7 +522,7 @@ class MercadoLivreScraper {
               }
             }
 
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(200); // 500ms → 200ms
           }
 
           if (allProducts.length >= this.limit) break;
