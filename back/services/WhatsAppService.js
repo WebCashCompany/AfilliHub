@@ -9,28 +9,48 @@ class WhatsAppService {
         this.sock = null;
         this.isReady = false;
         this.authFolder = path.join(__dirname, '..', 'baileys_auth');
+        this.isConnecting = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 3;
     }
 
     async initialize() {
+        if (this.isConnecting) {
+            console.log('⚠️ Bot já está conectando...');
+            return;
+        }
+
+        if (this.isReady) {
+            console.log('✅ Bot já está conectado!');
+            return;
+        }
+
+        this.isConnecting = true;
+
         try {
-            // Criar pasta de autenticação se não existir
+            console.log('\n╔════════════════════════════════════════════════════╗');
+            console.log('║     🤖 INICIALIZANDO WHATSAPP BOT...             ║');
+            console.log('╚════════════════════════════════════════════════════╝\n');
+
             if (!fs.existsSync(this.authFolder)) {
                 fs.mkdirSync(this.authFolder, { recursive: true });
             }
 
-            // Carregar estado de autenticação
             const { state, saveCreds } = await useMultiFileAuthState(this.authFolder);
 
-            // Criar socket do WhatsApp
             this.sock = makeWASocket({
                 auth: state,
                 printQRInTerminal: false,
-                logger: pino({ level: 'silent' }), // Desabilitar logs verbosos
-                browser: ['Promoforia Bot', 'Chrome', '10.0.0'],
-                defaultQueryTimeoutMs: 60000
+                logger: pino({ level: 'silent' }),
+                browser: ['DivulgaLinks Bot', 'Chrome', '10.0.0'],
+                defaultQueryTimeoutMs: 60000,
+                connectTimeoutMs: 60000,
+                keepAliveIntervalMs: 30000,
+                markOnlineOnConnect: true
             });
 
-            // Evento: QR Code
+            this.sock.ev.on('creds.update', saveCreds);
+
             this.sock.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, qr } = update;
 
@@ -39,46 +59,68 @@ class WhatsAppService {
                     console.log('║  📱 ESCANEIE O QR CODE COM SEU WHATSAPP           ║');
                     console.log('╚════════════════════════════════════════════════════╝\n');
                     qrcode.generate(qr, { small: true });
-                    console.log('\n💡 Abra o WhatsApp > Dispositivos Conectados > Conectar\n');
-                }
-
-                if (connection === 'close') {
-                    const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-                    console.log('⚠️ Conexão fechada. Reconectar?', shouldReconnect);
-                    
-                    if (shouldReconnect) {
-                        await delay(3000);
-                        this.initialize();
-                    } else {
-                        this.isReady = false;
-                    }
+                    console.log('\n💡 WhatsApp → Dispositivos Conectados → Conectar\n');
                 }
 
                 if (connection === 'open') {
                     console.log('\n╔════════════════════════════════════════════════════╗');
                     console.log('║  🤖 BOT WHATSAPP CONECTADO E PRONTO! 🚀          ║');
                     console.log('╚════════════════════════════════════════════════════╝\n');
+                    
                     this.isReady = true;
+                    this.isConnecting = false;
+                    this.reconnectAttempts = 0;
+                }
+
+                if (connection === 'close') {
+                    this.isReady = false;
+                    this.isConnecting = false;
+
+                    const statusCode = lastDisconnect?.error?.output?.statusCode;
+                    const reason = lastDisconnect?.error?.output?.payload?.message || 'Desconhecido';
+
+                    console.log(`\n⚠️ Conexão fechada. Status: ${statusCode} | Motivo: ${reason}`);
+
+                    const dontReconnect = [
+                        DisconnectReason.loggedOut,
+                        DisconnectReason.badSession,
+                        DisconnectReason.connectionReplaced,
+                        440
+                    ];
+
+                    if (dontReconnect.includes(statusCode)) {
+                        console.log('❌ Bot desconectado permanentemente.');
+                        console.log('💡 Delete a pasta baileys_auth e tente novamente.');
+                        return;
+                    }
+
+                    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                        this.reconnectAttempts++;
+                        const delayMs = this.reconnectAttempts * 5000;
+                        
+                        console.log(`🔄 Reconectando (${this.reconnectAttempts}/${this.maxReconnectAttempts}) em ${delayMs/1000}s...`);
+                        
+                        await delay(delayMs);
+                        await this.initialize();
+                    } else {
+                        console.error('❌ Máximo de tentativas atingido.');
+                    }
                 }
             });
 
-            // Salvar credenciais quando atualizadas
-            this.sock.ev.on('creds.update', saveCreds);
-
         } catch (error) {
             console.error('❌ Erro ao inicializar WhatsApp:', error);
+            this.isConnecting = false;
             throw error;
         }
     }
 
-    // Listar grupos
     async listarGrupos() {
         if (!this.isReady || !this.sock) {
             throw new Error('Bot não está conectado');
         }
 
         try {
-            // Buscar todos os chats
             const chats = await this.sock.groupFetchAllParticipating();
             const grupos = Object.values(chats);
 
@@ -93,14 +135,12 @@ class WhatsAppService {
         }
     }
 
-    // Enviar ofertas
     async enviarOfertas(grupoId, ofertas) {
         if (!this.isReady || !this.sock) {
             throw new Error('Bot não está conectado');
         }
 
         try {
-            // Formatar mensagem
             let mensagem = '🔥 *OFERTAS IMPERDÍVEIS!* 🔥\n\n';
             
             ofertas.forEach((oferta, index) => {
@@ -120,7 +160,6 @@ class WhatsAppService {
 
             mensagem += '⚡ *Aproveite enquanto tem estoque!*';
 
-            // Enviar mensagem
             await this.sock.sendMessage(grupoId, { text: mensagem });
 
             console.log(`✅ Ofertas enviadas para: ${grupoId}`);
@@ -136,7 +175,6 @@ class WhatsAppService {
         }
     }
 
-    // Verificar status
     getStatus() {
         return {
             conectado: this.isReady,
@@ -144,8 +182,22 @@ class WhatsAppService {
             clientReady: this.sock !== null
         };
     }
+
+    async disconnect() {
+        if (this.sock) {
+            try {
+                await this.sock.logout();
+            } catch (error) {
+                console.log('Erro ao fazer logout:', error.message);
+            }
+            this.sock = null;
+            this.isReady = false;
+            this.isConnecting = false;
+            this.reconnectAttempts = 0;
+            console.log('🔌 Bot desconectado.');
+        }
+    }
 }
 
-// Exportar instância única
 const whatsappService = new WhatsAppService();
 module.exports = whatsappService;

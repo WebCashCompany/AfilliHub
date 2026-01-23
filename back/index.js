@@ -1,97 +1,80 @@
-require('dotenv').config();
+// back/index.js - COMPLETO COM LOGS DE DEBUG
 
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./database/mongodb');
 
 const app = express();
+const PORT = process.env.PORT || 3001;
 
-// ═══════════════════════════════════════════════════════════
-// MIDDLEWARES
-// ═══════════════════════════════════════════════════════════
-
+// Middlewares
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+// Importe o serviço MAS NÃO INICIALIZE
+const whatsappService = require('./services/WhatsAppService');
+
+// Banner inicial
+console.log('\n╔════════════════════════════════════════════════════╗');
+console.log('║     🚀 AFFILIATE HUB PRO - API SERVER 🚀         ║');
+console.log('╚════════════════════════════════════════════════════╝\n');
+
+// Conectar MongoDB
+connectDB();
 
 // ═══════════════════════════════════════════════════════════
 // ROTAS
 // ═══════════════════════════════════════════════════════════
 
-// Health check
+// Health Check
 app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'API Online',
-    timestamp: new Date().toISOString()
+  res.json({ 
+    status: 'OK', 
+    message: 'Servidor rodando',
+    whatsappBot: whatsappService.getStatus()
   });
 });
 
-// ──────────────────────────────────────────────────────────
-// 🔥 ROTAS DE PRODUTOS
-// ──────────────────────────────────────────────────────────
-const productRoutes = require('./routes/products.routes');
-app.use('/api/products', productRoutes);
+// Rotas de Produtos
+const productsRoutes = require('./routes/products.routes');
+app.use('/api/products', productsRoutes);
 
-// ──────────────────────────────────────────────────────────
-// 📱 ROTAS DE DIVULGAÇÃO (WHATSAPP BOT)
-// ──────────────────────────────────────────────────────────
-const divulgacaoRoutes = require('./routes/divulgacao.routes');
-app.use('/api/divulgacao', divulgacaoRoutes);
-
-// ──────────────────────────────────────────────────────────
-// 🔍 SCRAPING (SSE)
-// ──────────────────────────────────────────────────────────
+// Rotas de Scraping
 const scrapingRoutes = require('./routes/scraping.routes');
 app.use('/api/scraping', scrapingRoutes);
 
+// ✅ ROTAS DE DIVULGAÇÃO (WHATSAPP BOT) - COM DEBUG
+console.log('📂 Carregando rotas de divulgação...');
+try {
+  const divulgacaoRoutes = require('./routes/divulgacao.routes');
+  console.log('✅ Arquivo divulgacao.routes carregado');
+  
+  app.use('/api/divulgacao', divulgacaoRoutes);
+  console.log('✅ Rotas /api/divulgacao registradas com sucesso!');
+} catch (error) {
+  console.error('❌ ERRO ao carregar divulgacao.routes:', error.message);
+  console.error(error.stack);
+}
+
 // ═══════════════════════════════════════════════════════════
-// INICIALIZAÇÃO
+// INICIAR SERVIDOR
 // ═══════════════════════════════════════════════════════════
 
-(async () => {
-  try {
-    console.log('\n╔════════════════════════════════════════════════════╗');
-    console.log('║     🚀 AFFILIATE HUB PRO - API SERVER 🚀         ║');
-    console.log('╚════════════════════════════════════════════════════╝\n');
-
-    console.log('🔌 Conectando ao MongoDB...');
-    await connectDB();
-    console.log('✅ MongoDB conectado!\n');
-
-    const PORT = process.env.PORT || 3001;
-
-    app.listen(PORT, async () => {
-      console.log('╔════════════════════════════════════════════════════╗');
-      console.log(`║  ✅ Servidor rodando na porta ${PORT}              ║`);
-      console.log('╚════════════════════════════════════════════════════╝');
-      console.log(`\n📡 API disponível em: http://localhost:${PORT}`);
-      console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
-      console.log(`📦 Produtos: http://localhost:${PORT}/api/products`);
-      console.log(`🔍 Scraping SSE: http://localhost:${PORT}/api/scraping/start`);
-      console.log(`📱 Divulgação: http://localhost:${PORT}/api/divulgacao`);
-      console.log(`🌐 CORS: Habilitado para todas as origens\n`);
-
-      // ──────────────────────────────────────────────────────────
-      // 🤖 INICIALIZAR WHATSAPP BOT
-      // ──────────────────────────────────────────────────────────
-      console.log('╔════════════════════════════════════════════════════╗');
-      console.log('║     🤖 INICIALIZANDO WHATSAPP BOT...             ║');
-      console.log('╚════════════════════════════════════════════════════╝\n');
-      
-      try {
-        const whatsappService = require('./services/WhatsAppService');
-        await whatsappService.initialize();
-        console.log('\n✅ WhatsApp Bot inicializado com sucesso!\n');
-      } catch (error) {
-        console.error('⚠️ Erro ao inicializar WhatsApp Bot:', error.message);
-        console.log('💡 O bot pode ser inicializado manualmente via API\n');
-      }
-    });
-
-  } catch (error) {
-    console.error('\n❌ ERRO ao iniciar servidor:', error.message);
-    console.error(error.stack);
-    process.exit(1);
-  }
-})();
+app.listen(PORT, () => {
+  console.log('\n╔════════════════════════════════════════════════════╗');
+  console.log(`║  ✅ Servidor rodando na porta ${PORT}              ║`);
+  console.log('╚════════════════════════════════════════════════════╝\n');
+  
+  console.log(`📡 API disponível em: http://localhost:${PORT}`);
+  console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`📦 Produtos: http://localhost:${PORT}/api/products`);
+  console.log(`🔍 Scraping: http://localhost:${PORT}/api/scraping`);
+  console.log(`📱 Divulgação: http://localhost:${PORT}/api/divulgacao`);
+  console.log(`🌐 CORS: Habilitado\n`);
+  
+  console.log('╔════════════════════════════════════════════════════╗');
+  console.log('║  🤖 WhatsApp Bot: Aguardando conexão manual       ║');
+  console.log('║  💡 Use o botão "Conectar Bot" no frontend        ║');
+  console.log('╚════════════════════════════════════════════════════╝\n');
+});

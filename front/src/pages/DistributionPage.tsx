@@ -1,3 +1,5 @@
+// src/pages/DistributionPage.tsx - CORRIGIDO
+
 import { useState, useMemo } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -17,12 +19,15 @@ import {
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { AutomationModal } from '@/components/dashboard/AutomationModal';
 import { AutomationTimer } from '@/components/dashboard/AutomationTimer';
+import { ConnectBotModal } from '@/components/modals/ConnectBotModal';
+import { SelectGroupsModal } from '@/components/modals/SelectGroupsModal';
 import { 
   Send, MessageCircle, Search, CheckCircle, Eye, Copy,
-  Smartphone, ExternalLink, Zap, Bot
+  Smartphone, Zap, Bot, Settings, Loader2 // ✅ ADICIONADO LOADER2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency, Product } from '@/lib/mockData';
+import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
 
 interface AutomationConfig {
   intervalMinutes: number;
@@ -37,9 +42,17 @@ export function DistributionPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
-  const [telegramEnabled, setTelegramEnabled] = useState(true);
+  const [telegramEnabled, setTelegramEnabled] = useState(false);
   const [botConnected, setBotConnected] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  
+  // WhatsApp groups
+  const [whatsappGroups, setWhatsappGroups] = useState<WhatsAppGroup[]>([]);
+  
+  // Modals
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [showGroupsModal, setShowGroupsModal] = useState(false);
   
   // Automation states
   const [showAutomationModal, setShowAutomationModal] = useState(false);
@@ -74,15 +87,26 @@ export function DistributionPage() {
     );
   };
 
-  const handleConnectBot = () => {
+  const handleBotConnected = () => {
     setBotConnected(true);
+    setShowConnectModal(false);
+    setShowGroupsModal(true);
+    
     toast({
       title: "Bot conectado!",
-      description: "DivulgaLinks está pronto para enviar suas ofertas.",
+      description: "Agora selecione os grupos para enviar ofertas.",
     });
   };
 
-  const handleSend = () => {
+  const handleGroupsSaved = (groups: WhatsAppGroup[]) => {
+    setWhatsappGroups(groups);
+    toast({
+      title: "Grupos salvos!",
+      description: `${groups.length} grupo${groups.length > 1 ? 's' : ''} selecionado${groups.length > 1 ? 's' : ''}.`,
+    });
+  };
+
+  const handleSend = async () => {
     if (selectedIds.length === 0) {
       toast({
         title: "Selecione produtos",
@@ -101,16 +125,51 @@ export function DistributionPage() {
       return;
     }
 
-    const channels = [];
-    if (whatsappEnabled) channels.push('WhatsApp');
-    if (telegramEnabled) channels.push('Telegram');
+    if (whatsappEnabled && whatsappGroups.length === 0) {
+      toast({
+        title: "Selecione grupos",
+        description: "Configure os grupos do WhatsApp antes de enviar.",
+        variant: "destructive"
+      });
+      setShowGroupsModal(true);
+      return;
+    }
 
-    toast({
-      title: "Ofertas enviadas!",
-      description: `${selectedIds.length} ofertas enviadas para ${channels.join(' e ')}.`,
-    });
+    setSending(true);
 
-    setSelectedIds([]);
+    try {
+      // Enviar para WhatsApp
+      if (whatsappEnabled) {
+        for (const group of whatsappGroups) {
+          const ofertas = selectedProducts.map(p => ({
+            nome: p.name,
+            preco: formatCurrency(p.price),
+            desconto: `-${p.discount}%`,
+            link: p.affiliateLink || `https://mercadolivre.com.br/produto/${p.id}`
+          }));
+
+          await whatsappService.sendOffers({
+            grupoId: group.id,
+            ofertas
+          });
+        }
+      }
+
+      toast({
+        title: "Ofertas enviadas!",
+        description: `${selectedIds.length} ofertas enviadas para ${whatsappGroups.length} grupo${whatsappGroups.length > 1 ? 's' : ''}.`,
+      });
+
+      setSelectedIds([]);
+    } catch (error: any) {
+      toast({
+        title: "Erro ao enviar",
+        description: error.message || "Não foi possível enviar as ofertas.",
+        variant: "destructive"
+      });
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleStartAutomation = (config: AutomationConfig) => {
@@ -151,13 +210,25 @@ export function DistributionPage() {
     });
   };
 
+  // ✅ CORRIGIDO: Calcular oldPrice baseado no desconto
+  const calculateOldPrice = (product: Product): number => {
+    // Se o produto tem desconto, calcula o preço anterior
+    if (product.discount > 0) {
+      return product.price / (1 - product.discount / 100);
+    }
+    // Caso contrário, usa o próprio preço como base
+    return product.price;
+  };
+
   const generateMessagePreview = (product: Product) => {
     const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!*\n\n`;
+    const oldPrice = calculateOldPrice(product); // ✅ USANDO A FUNÇÃO
+    
     return `${message}📦 *${product.name}*\n\n` +
-           `💰 De: ~R$ ${product.originalPrice.toFixed(2)}~\n` +
+           `💰 De: ~R$ ${oldPrice.toFixed(2)}~\n` +
            `🏷️ Por: *${formatCurrency(product.price)}*\n` +
            `📉 Desconto: *${product.discount}% OFF*\n\n` +
-           `🛒 Compre agora: ${product.affiliateLink}\n\n` +
+           `🛒 Compre agora: ${product.affiliateLink || 'Link indisponível'}\n\n` +
            `⚡ Corra! Estoque limitado!`;
   };
 
@@ -304,7 +375,7 @@ export function DistributionPage() {
                   <p className="text-sm text-muted-foreground mb-4">
                     Conecte o DivulgaLinks para automatizar seus envios
                   </p>
-                  <Button onClick={handleConnectBot} className="w-full gap-2">
+                  <Button onClick={() => setShowConnectModal(true)} className="w-full gap-2">
                     <Zap className="w-4 h-4" />
                     Conectar DivulgaLinks
                   </Button>
@@ -328,27 +399,39 @@ export function DistributionPage() {
                         </div>
                         <div>
                           <p className="font-medium">WhatsApp</p>
-                          <p className="text-xs text-muted-foreground">3 grupos conectados</p>
+                          <p className="text-xs text-muted-foreground">
+                            {whatsappGroups.length} grupo{whatsappGroups.length !== 1 ? 's' : ''} conectado{whatsappGroups.length !== 1 ? 's' : ''}
+                          </p>
                         </div>
                       </div>
-                      <Switch 
-                        checked={whatsappEnabled} 
-                        onCheckedChange={setWhatsappEnabled}
-                      />
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowGroupsModal(true)}
+                        >
+                          <Settings className="w-4 h-4" />
+                        </Button>
+                        <Switch 
+                          checked={whatsappEnabled} 
+                          onCheckedChange={setWhatsappEnabled}
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex items-center justify-between p-3 border rounded-lg opacity-50">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <Send className="w-5 h-5 text-primary" />
                         </div>
                         <div>
                           <p className="font-medium">Telegram</p>
-                          <p className="text-xs text-muted-foreground">2 canais conectados</p>
+                          <p className="text-xs text-muted-foreground">Em breve</p>
                         </div>
                       </div>
                       <Switch 
                         checked={telegramEnabled} 
                         onCheckedChange={setTelegramEnabled}
+                        disabled
                       />
                     </div>
                   </div>
@@ -399,18 +482,40 @@ export function DistributionPage() {
               <Button 
                 className="w-full gap-2" 
                 size="lg"
-                disabled={!botConnected || selectedIds.length === 0}
+                disabled={!botConnected || selectedIds.length === 0 || sending}
                 onClick={handleSend}
               >
-                <Send className="w-4 h-4" />
-                Enviar {selectedIds.length} Ofertas
+                {sending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Enviar {selectedIds.length} Ofertas
+                  </>
+                )}
               </Button>
             </CardContent>
           </Card>
         </div>
       </div>
 
-      {/* Automation Modal */}
+      {/* Modals */}
+      <ConnectBotModal
+        open={showConnectModal}
+        onClose={() => setShowConnectModal(false)}
+        onConnected={handleBotConnected}
+      />
+
+      <SelectGroupsModal
+        open={showGroupsModal}
+        onClose={() => setShowGroupsModal(false)}
+        onSave={handleGroupsSaved}
+        initialSelected={whatsappGroups}
+      />
+
       <AutomationModal
         open={showAutomationModal}
         onClose={() => setShowAutomationModal(false)}
