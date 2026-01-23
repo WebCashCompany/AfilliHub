@@ -1,7 +1,7 @@
 const { chromium } = require('playwright');
 const { getProductConnection } = require('../../database/mongodb');
 const { getProductModel } = require('../../database/models/Products');
-const { getCategoryUrl, MAGALU_CATEGORIES } = require('../../config/categorias-magalu');
+const { getCategoryUrl, getCategoryName, MAGALU_CATEGORIES } = require('../../config/categorias-magalu');
 
 class MagaluScraper {
   constructor(minDiscount = 30) {
@@ -12,14 +12,15 @@ class MagaluScraper {
     this.existingProductsMap = new Map();
     this.affiliateId = process.env.MAGALU_AFFILIATE_ID || 'magazinepromoforia';
     
-    // 🆕 CATEGORIA ATUAL (pode ser definida externamente)
+    // 🆕 CATEGORIA ATUAL
     this.currentCategory = 'OFERTAS_DIA'; // Default
-    this.categoryName = 'Ofertas do Dia';
+    this.categoryName = 'Ofertas do Dia'; // Nome para exibição
+    this.categoryNameForDB = 'Ofertas do Dia'; // Nome para salvar no banco
   }
 
   /**
    * Define a categoria que será coletada
-   * @param {string} categoryKey - Chave da categoria (ex: 'OFERTAS_DIA')
+   * @param {string} categoryKey - Chave da categoria (ex: 'OFERTAS_DIA', 'CASA_UTILIDADES')
    */
   setCategory(categoryKey) {
     if (!MAGALU_CATEGORIES[categoryKey]) {
@@ -27,9 +28,10 @@ class MagaluScraper {
     }
     
     this.currentCategory = categoryKey;
-    this.categoryName = MAGALU_CATEGORIES[categoryKey].name;
+    this.categoryName = MAGALU_CATEGORIES[categoryKey].name; // Ex: "Casa - Utilidades"
+    this.categoryNameForDB = getCategoryName(categoryKey); // Ex: "Casa"
     
-    console.log(`📂 Categoria definida: ${this.categoryName} (${categoryKey})`);
+    console.log(`📂 Categoria definida: ${this.categoryName} → Salva como "${this.categoryNameForDB}"`);
   }
 
   async loadExistingProducts() {
@@ -196,12 +198,12 @@ class MagaluScraper {
 
     try {
       console.log(`╔════════════════════════════════════════════════════╗`);
-      console.log(`║  📂 CATEGORIA: ${this.categoryName.toUpperCase().padEnd(38)} ║`);
+      console.log(`║  📂 ${this.categoryName.padEnd(48)} ║`);
+      console.log(`║  💾 Salva como: "${this.categoryNameForDB}"${' '.repeat(48 - 16 - this.categoryNameForDB.length)} ║`);
       console.log(`║  🎯 META: ${this.limit} produtos (${this.minDiscount}%+ desconto)${' '.repeat(19)} ║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
       while (allProducts.length < this.limit && pageNum <= maxPages) {
-        // 🆕 USA A URL DA CATEGORIA CONFIGURADA
         const url = getCategoryUrl(this.currentCategory, this.affiliateId, pageNum);
         
         const progressBar = this.getProgressBar(allProducts.length, this.limit);
@@ -238,7 +240,7 @@ class MagaluScraper {
             console.log(`   ⚠️  Timeout aguardando produtos, mas continuando...`);
           }
 
-          const productsFromPage = await page.evaluate(({ minDisc, affiliateId, categoryName }) => {
+          const productsFromPage = await page.evaluate(({ minDisc, affiliateId, categoryNameForDB }) => {
             const results = [];
             
             function extractPriceInCents(text) {
@@ -401,7 +403,7 @@ class MagaluScraper {
                   return;
                 }
                 
-                // 🆕 ADICIONA CATEGORIA AO PRODUTO
+                // 🆕 USA categoryNameForDB (categoria principal)
                 results.push({
                   nome: productTitle,
                   imagem: imageUrl,
@@ -411,7 +413,7 @@ class MagaluScraper {
                   preco_de: oldPriceCents.toString(),
                   preco_para: currentPriceCents.toString(),
                   desconto: `${discountVal}%`,
-                  categoria: categoryName, // 🆕 CATEGORIA DINÂMICA
+                  categoria: categoryNameForDB, // 🆕 Ex: "Casa" (não "Casa - Utilidades")
                   marketplace: 'MAGALU',
                   isActive: true
                 });
@@ -425,7 +427,7 @@ class MagaluScraper {
           }, { 
             minDisc: this.minDiscount, 
             affiliateId: this.affiliateId,
-            categoryName: this.categoryName // 🆕 PASSA CATEGORIA PARA O BROWSER
+            categoryNameForDB: this.categoryNameForDB // 🆕 Passa categoria principal
           });
 
           console.log(`   ✅ Extraídos: ${productsFromPage.length} produtos da página ${pageNum}`);
@@ -479,7 +481,8 @@ class MagaluScraper {
       console.log('\n╔════════════════════════════════════════════════════╗');
       console.log(`║           🏁 SCRAPING FINALIZADO 🏁              ║`);
       console.log(`╚════════════════════════════════════════════════════╝`);
-      console.log(`📂 Categoria: ${this.categoryName}`);
+      console.log(`📂 Subcategoria: ${this.categoryName}`);
+      console.log(`💾 Salvo como: ${this.categoryNameForDB}`);
       console.log(`✨ Produtos coletados: ${finalProducts.length}/${this.limit}`);
       console.log(`   └─ Novos: ${finalProducts.filter(p => !p._shouldUpdate).length}`);
       console.log(`   └─ Ofertas melhoradas: ${this.betterOffersUpdated}`);

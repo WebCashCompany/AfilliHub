@@ -1,4 +1,4 @@
-// src/contexts/DashboardContext.tsx - ATUALIZADO
+// src/contexts/DashboardContext.tsx - CORRIGIDO
 
 import React, {
   createContext,
@@ -215,6 +215,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
     console.log('🚀 runScraping iniciado');
+    console.log('📋 Config recebida:', JSON.stringify(config, null, 2));
     
     // Calcula total esperado
     const totalItems = Object.values(config.marketplaces)
@@ -240,14 +241,30 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     await new Promise(resolve => setTimeout(resolve, 200));
 
     try {
+      // ✅ CORREÇÃO: Monta payload com filtros específicos por marketplace
       const payload: ScrapingRequestPayload = {
-        marketplaces: config.marketplaces,
+        marketplaces: Object.fromEntries(
+          Object.entries(config.marketplaces).map(([key, mp]) => {
+            console.log(`🔍 Montando payload para ${key}:`, mp.filters);
+            return [
+              key,
+              {
+                enabled: mp.enabled,
+                quantity: mp.quantity,
+                // 🔥 ENVIA OS FILTROS ESPECÍFICOS DE CADA MARKETPLACE
+                filters: mp.filters || {}
+              }
+            ];
+          })
+        ),
         minDiscount: config.minDiscount,
         maxPrice: config.maxPrice,
-        filters: config.filters
+        filters: config.filters || {}
       };
 
-      // ✅ PASSO 3: Inicia simulação de progresso MAIS LENTA
+      console.log('📤 Payload FINAL enviado para API:', JSON.stringify(payload, null, 2));
+
+      // ✅ PASSO 3: Inicia simulação de progresso
       console.log('⏳ Iniciando simulação de progresso');
       let currentProgress = 5;
       let currentMpIndex = 0;
@@ -259,11 +276,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             return prev;
           }
 
-          // Avança DEVAGAR (1% a 3% por vez)
-          const increment = Math.random() * 2 + 1; // Entre 1% e 3%
+          const increment = Math.random() * 2 + 1;
           currentProgress = Math.min(90, currentProgress + increment);
 
-          // Simula mudança de marketplace
           const progressPerMarketplace = 90 / enabledMarketplaces.length;
           const expectedMpIndex = Math.floor(currentProgress / progressPerMarketplace);
           
@@ -278,37 +293,32 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             itemsCollected: Math.floor((currentProgress / 100) * prev.totalItems)
           };
         });
-      }, 2000); // A cada 2 segundos ao invés de 800ms
+      }, 2000);
 
       // ✅ PASSO 4: Executa scraping real
       console.log('🔄 Chamando API de scraping...');
       const res = await scrapingService.start(payload);
       console.log('✅ Scraping concluído:', res);
 
-      // Para a simulação
       clearInterval(progressInterval);
 
       if (res.success) {
-        // Finaliza com 100% mas MANTÉM a tela
         setScrapingStatus({
-          isRunning: true, // MANTÉM TRUE
+          isRunning: true,
           progress: 100,
           currentMarketplace: null,
           itemsCollected: res.data?.total || 0,
           totalItems
         });
 
-        // Aguarda 2s mostrando 100%
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Atualiza produtos (ignora erro se backend cair)
         try {
           await refreshProducts();
         } catch (refreshError) {
           console.warn('⚠️ Falha ao atualizar produtos, mas scraping foi concluído');
         }
 
-        // Agora sim fecha a tela
         setScrapingStatus({
           isRunning: false,
           progress: 100,
@@ -317,7 +327,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           totalItems
         });
 
-        // Reset após 3s
         setTimeout(() => {
           setScrapingStatus({
             isRunning: false,
@@ -372,8 +381,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
    HOOK
 ================================ */
 
-export function useDashboard() {
+export const useDashboard = () => {
   const ctx = useContext(DashboardContext);
   if (!ctx) throw new Error('useDashboard fora do Provider');
   return ctx;
-}
+};

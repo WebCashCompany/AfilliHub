@@ -15,6 +15,7 @@ import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
 
 interface MarketplaceFilters {
   categoria?: string;
+  categoryKey?: string; // 🆕 Para Magalu
   palavraChave?: string;
   frete_gratis?: boolean;
   minDiscount?: number;
@@ -26,6 +27,38 @@ interface MarketplaceConfig {
   quantity: number;
   filters?: MarketplaceFilters;
 }
+
+// ═══════════════════════════════════════════════════════════
+// 🆕 CATEGORIAS DO MAGAZINE LUIZA (lowercase para exibição, UPPERCASE para backend)
+// ═══════════════════════════════════════════════════════════
+const MAGALU_CATEGORIES = [
+  { value: '', label: 'Todas as categorias', key: '', icon: '📦' },
+  { value: 'ofertas-do-dia', label: 'Ofertas do Dia', key: 'OFERTAS_DIA', icon: '🔥' },
+  { value: 'internacional', label: 'Internacional', key: 'INTERNACIONAL', icon: '🌎' },
+  { value: 'casa-utilidades', label: 'Casa - Utilidades', key: 'CASA_UTILIDADES', icon: '🏠' },
+  { value: 'casa-construcao', label: 'Casa - Construção', key: 'CASA_CONSTRUCAO', icon: '🏗️' },
+  { value: 'casa-moveis', label: 'Casa - Móveis', key: 'CASA_MOVEIS', icon: '🪑' },
+  { value: 'ferramentas', label: 'Ferramentas', key: 'FERRAMENTAS', icon: '🔧' },
+  { value: 'eletroportateis', label: 'Eletroportáteis', key: 'ELETROPORTATEIS', icon: '🔌' },
+  { value: 'brinquedos', label: 'Brinquedos', key: 'BRINQUEDOS', icon: '🧸' },
+  { value: 'automotivo', label: 'Automotivo', key: 'AUTOMOTIVO', icon: '🚗' },
+  { value: 'domesticos', label: 'Domésticos', key: 'DOMESTICOS', icon: '🧹' },
+];
+
+const MERCADOLIVRE_CATEGORIES = [
+  { value: '', label: 'Todas as categorias', icon: '📦' },
+  { value: 'celulares', label: 'Celulares', icon: '📱' },
+  { value: 'beleza', label: 'Beleza', icon: '💄' },
+  { value: 'eletrodomesticos', label: 'Eletrodomésticos', icon: '🏠' },
+  { value: 'casa_decoracao', label: 'Casa e Decoração', icon: '🛋️' },
+  { value: 'calcados_roupas', label: 'Calçados e Roupas', icon: '👟' },
+  { value: 'informatica', label: 'Informática', icon: '💻' },
+  { value: 'games', label: 'Games', icon: '🎮' },
+  { value: 'eletronicos', label: 'Eletrônicos', icon: '📺' },
+  { value: 'joias_relogios', label: 'Joias e Relógios', icon: '⌚' },
+  { value: 'esportes', label: 'Esportes', icon: '⚽' },
+  { value: 'ferramentas', label: 'Ferramentas', icon: '🔧' },
+];
 
 export function AutomationPage() {
   const { runScraping, scrapingStatus, products } = useDashboard();
@@ -173,7 +206,44 @@ export function AutomationPage() {
 
   const hasActiveFilters = (filters?: MarketplaceFilters) => {
     if (!filters) return false;
-    return !!(filters.categoria || filters.palavraChave || filters.frete_gratis);
+    return !!(filters.categoria || filters.categoryKey || filters.palavraChave || filters.frete_gratis);
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // 🆕 FUNÇÃO PARA OBTER CATEGORIAS BASEADO NO MARKETPLACE
+  // ═══════════════════════════════════════════════════════════
+  const getCategoriesForMarketplace = (mp: Marketplace | null) => {
+    if (mp === 'magalu') {
+      return MAGALU_CATEGORIES;
+    } else if (mp === 'mercadolivre') {
+      return MERCADOLIVRE_CATEGORIES;
+    }
+    return [];
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // 🆕 VERIFICAR SE MARKETPLACE TEM FILTROS AVANÇADOS
+  // ═══════════════════════════════════════════════════════════
+  const marketplaceHasAdvancedFilters = (mp: Marketplace | null) => {
+    return mp === 'mercadolivre' || mp === 'magalu';
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // 🆕 HANDLER PARA MUDANÇA DE CATEGORIA (MAGALU USA categoryKey)
+  // ═══════════════════════════════════════════════════════════
+  const handleCategoryChange = (value: string) => {
+    if (currentMarketplace === 'magalu') {
+      // Encontra a categoria pelo value e extrai o key
+      const category = MAGALU_CATEGORIES.find(cat => cat.value === value);
+      setTempFilters(prev => ({ 
+        ...prev, 
+        categoryKey: category?.key || '', // UPPERCASE para backend
+        categoria: value // lowercase para exibição
+      }));
+    } else {
+      // Mercado Livre usa apenas categoria
+      setTempFilters(prev => ({ ...prev, categoria: value }));
+    }
   };
 
   return (
@@ -322,7 +392,7 @@ export function AutomationPage() {
           </CardContent>
         </Card>
 
-        {/* Status Panel - AGORA COM LOADING DENTRO */}
+        {/* Status Panel */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -332,7 +402,6 @@ export function AutomationPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             {scrapingStatus.isRunning ? (
-              // ✅ TELA DE LOADING DENTRO DO CARD
               <>
                 <div className="text-center py-4">
                   <div className="relative inline-flex items-center justify-center w-32 h-32 mb-4">
@@ -402,7 +471,6 @@ export function AutomationPage() {
                 </div>
               </>
             ) : (
-              // Estado normal (não rodando)
               <>
                 <div className="text-center py-8">
                   <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
@@ -448,7 +516,9 @@ export function AutomationPage() {
         </Card>
       </div>
 
-      {/* Modal de Filtros */}
+      {/* ═══════════════════════════════════════════════════════════
+          🆕 MODAL DE FILTROS - COM SUPORTE A MAGALU (categoryKey) E MERCADO LIVRE
+          ═══════════════════════════════════════════════════════════ */}
       <Dialog open={configModalOpen} onOpenChange={setConfigModalOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -462,6 +532,7 @@ export function AutomationPage() {
           </DialogHeader>
 
           <div className="space-y-6 py-4">
+            {/* Filtros Básicos (Todos os marketplaces) */}
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -502,7 +573,8 @@ export function AutomationPage() {
               </div>
             </div>
 
-            {currentMarketplace === 'mercadolivre' && (
+            {/* 🆕 Filtros Avançados (Mercado Livre e Magalu) */}
+            {marketplaceHasAdvancedFilters(currentMarketplace) && (
               <>
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                   <div className="space-y-2">
@@ -510,21 +582,14 @@ export function AutomationPage() {
                     <select
                       id="modal-categoria"
                       value={tempFilters.categoria || ''}
-                      onChange={(e) => setTempFilters(prev => ({ ...prev, categoria: e.target.value }))}
+                      onChange={(e) => handleCategoryChange(e.target.value)}
                       className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                     >
-                      <option value="">Todas as categorias</option>
-                      <option value="celulares">📱 Celulares</option>
-                      <option value="beleza">💄 Beleza</option>
-                      <option value="eletrodomesticos">🏠 Eletrodomésticos</option>
-                      <option value="casa_decoracao">🛋️ Casa e Decoração</option>
-                      <option value="calcados_roupas">👟 Calçados e Roupas</option>
-                      <option value="informatica">💻 Informática</option>
-                      <option value="games">🎮 Games</option>
-                      <option value="eletronicos">📺 Eletrônicos</option>
-                      <option value="joias_relogios">⌚ Joias e Relógios</option>
-                      <option value="esportes">⚽ Esportes</option>
-                      <option value="ferramentas">🔧 Ferramentas</option>
+                      {getCategoriesForMarketplace(currentMarketplace).map(cat => (
+                        <option key={cat.value} value={cat.value}>
+                          {cat.icon} {cat.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -534,7 +599,7 @@ export function AutomationPage() {
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
                         id="modal-palavra"
-                        placeholder="Ex: smartphone..."
+                        placeholder={currentMarketplace === 'magalu' ? 'Ex: panela...' : 'Ex: smartphone...'}
                         value={tempFilters.palavraChave || ''}
                         onChange={(e) => setTempFilters(prev => ({ ...prev, palavraChave: e.target.value }))}
                         className="pl-9"
@@ -543,6 +608,7 @@ export function AutomationPage() {
                   </div>
                 </div>
 
+                {/* Checkbox de frete grátis */}
                 <div className="flex items-center gap-2">
                   <Checkbox
                     id="modal-frete"
@@ -553,6 +619,17 @@ export function AutomationPage() {
                     🚚 Apenas produtos com frete grátis
                   </Label>
                 </div>
+
+                {/* 🆕 Preview do filtro (Debug) */}
+                {currentMarketplace === 'magalu' && tempFilters.categoryKey && (
+                  <div className="flex items-start gap-2 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                    <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5" />
+                    <div className="text-xs text-blue-700 dark:text-blue-400">
+                      <p className="font-medium mb-1">✅ Categoria selecionada</p>
+                      <p>Categoria: <strong>{tempFilters.categoria}</strong> → Backend: <strong>{tempFilters.categoryKey}</strong></p>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>

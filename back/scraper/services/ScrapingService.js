@@ -52,7 +52,7 @@ class ScrapingService {
       limit = 50, 
       mode = 'auto', 
       categoria = null,
-      categoryKey = null,
+      categoryKey = null, // 🆕 PARA MAGALU (chave como 'OFERTAS_DIA')
       maxPrice = null 
     } = options;
 
@@ -62,25 +62,11 @@ class ScrapingService {
     if (!marketplace) throw new Error(`Marketplace "${marketplaceName}" não encontrado`);
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
-    
-    // ═══════════════════════════════════════════════════════════
-    // 🔧 EXIBIÇÃO DE FILTROS MELHORADA
-    // ═══════════════════════════════════════════════════════════
     if (categoria || maxPrice || categoryKey) {
       const filters = [];
-      
-      if (categoria) {
-        const catInfo = getCategoria(categoria);
-        if (catInfo) {
-          filters.push(`Categoria: ${catInfo.emoji} ${catInfo.nome} (${categoria})`);
-        } else {
-          filters.push(`Categoria: ${categoria}`);
-        }
-      }
-      
+      if (categoria) filters.push(`Categoria: ${categoria}`);
       if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
       if (maxPrice) filters.push(`Preço Máx: R$ ${maxPrice}`);
-      
       console.log(`🎯 FILTROS ATIVOS: ${filters.join(' | ')}`);
     }
 
@@ -93,26 +79,23 @@ class ScrapingService {
     marketplace.scraper.limit = limit;
     marketplace.scraper.maxPrice = maxPrice;
     
-    // Para Mercado Livre
-    if (marketplace.code === 'ML' && categoria) {
-      marketplace.scraper.categoriaKey = categoria;
-      marketplace.scraper.categoriaInfo = getCategoria(categoria);
-      
-      if (!marketplace.scraper.categoriaInfo) {
-        console.log(`⚠️  Categoria "${categoria}" não encontrada, usando "todas"`);
-        marketplace.scraper.categoriaKey = 'todas';
-        marketplace.scraper.categoriaInfo = getCategoria('todas');
-      }
-    }
-    
-    // Para Magalu
+    // ═══════════════════════════════════════════════════════════
+    // 🆕 CONFIGURAÇÃO DE CATEGORIA PARA MAGALU
+    // ═══════════════════════════════════════════════════════════
     if (marketplace.code === 'MAGALU' && categoryKey) {
       if (typeof marketplace.scraper.setCategory === 'function') {
         marketplace.scraper.setCategory(categoryKey);
       }
     }
     
+    // Configuração para Mercado Livre (mantém compatibilidade)
+    if (categoria && marketplace.code === 'ML') {
+      const { getCategoria } = require('../../config/categorias-ml');
+      marketplace.scraper.categoriaInfo = getCategoria(categoria);
+    }
+    
     products = await marketplace.scraper.scrapeCategory();
+    console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
     // ═══════════════════════════════════════════════════════════
     // ✅ GERAÇÃO DE LINKS DE AFILIADO (SEM MODIFICAR O ORIGINAL)

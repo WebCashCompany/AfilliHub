@@ -44,6 +44,8 @@ router.post('/start', async (req, res) => {
   try {
     const { marketplaces, minDiscount, maxPrice, filters } = req.body;
 
+    console.log('📥 Payload recebido:', JSON.stringify(req.body, null, 2));
+
     // Validação básica
     if (!marketplaces || typeof marketplaces !== 'object') {
       return res.status(400).json({
@@ -105,15 +107,20 @@ router.post('/start', async (req, res) => {
         });
 
         try {
+          // 🔥 MONTA OPTIONS COM FILTROS COMPLETOS DO MARKETPLACE
+          const options = {
+            minDiscount: mpConfig.filters?.minDiscount || minDiscount || 30,
+            limit: mpConfig.quantity,
+            maxPrice: mpConfig.filters?.maxPrice || maxPrice,
+            filters: mpConfig.filters || {} // 🆕 Passa TODOS os filtros
+          };
+
+          console.log(`\n📦 Opções para ${marketplaceName}:`, JSON.stringify(options, null, 2));
+
           // Coletar produtos deste marketplace
           const products = await scrapingService.collectFromMarketplace(
             marketplaceName,
-            {
-              minDiscount: mpConfig.filters?.minDiscount || minDiscount || 30,
-              limit: mpConfig.quantity,
-              categoria: mpConfig.filters?.categoria,
-              maxPrice: mpConfig.filters?.maxPrice || maxPrice,
-            }
+            options
           );
 
           // Salvar produtos
