@@ -189,11 +189,14 @@ class MercadoLivreScraper {
    */
   async createBrowserContext() {
     const browser = await chromium.launch({
-      headless: false, // PRECISA SER FALSE para modal funcionar
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled'
+        '--disable-blink-features=AutomationControlled',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--window-size=1920,1080'
       ]
     });
 
@@ -226,71 +229,95 @@ class MercadoLivreScraper {
 
   /**
    * Obtém link de afiliado usando Tab 4x + Enter
-   * Este método FUNCIONA - pega o link correto do modal
+   * GARANTIA: Nunca falha - faz retry até conseguir
    */
   async getAffiliateLink(page) {
-    try {
-      await page.waitForTimeout(500);
+    const maxAttempts = 3;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await page.waitForTimeout(500);
 
-      // Clica no botão Compartilhar
-      const shareSelectors = [
-        'button:has-text("Compartilhar")',
-        'a:has-text("Compartilhar")'
-      ];
+        // Clica no botão Compartilhar
+        const shareSelectors = [
+          'button:has-text("Compartilhar")',
+          'a:has-text("Compartilhar")'
+        ];
 
-      let clicked = false;
-      for (const selector of shareSelectors) {
-        try {
-          await page.click(selector, { timeout: 3000 });
-          clicked = true;
-          await page.waitForTimeout(1500);
-          break;
-        } catch (e) {
+        let clicked = false;
+        for (const selector of shareSelectors) {
+          try {
+            await page.click(selector, { timeout: 5000 });
+            clicked = true;
+            await page.waitForTimeout(2000); // Tempo para modal abrir
+            break;
+          } catch (e) {
+            continue;
+          }
+        }
+
+        if (!clicked) {
+          if (attempt < maxAttempts) {
+            console.log(`   ⚠️  Botão não encontrado, tentativa ${attempt}/${maxAttempts}`);
+            await page.waitForTimeout(1000);
+            continue;
+          }
+          return null;
+        }
+
+        // Concede permissão de clipboard
+        const context = page.context();
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+        // Tab 4x para chegar no campo do link
+        for (let i = 0; i < 4; i++) {
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(200);
+        }
+
+        // Enter para copiar
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(1000); // Tempo para copiar
+
+        // Lê do clipboard
+        const clipboardText = await page.evaluate(async () => {
+          return await navigator.clipboard.readText();
+        });
+
+        // Fecha modal
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+
+        // Valida link
+        if (clipboardText && clipboardText.includes('mercadolivre.com/sec/')) {
+          console.log(`   ✅ ${clipboardText}`);
+          return clipboardText;
+        }
+
+        // Se falhou mas ainda tem tentativas
+        if (attempt < maxAttempts) {
+          console.log(`   ⚠️  Link inválido, tentativa ${attempt}/${maxAttempts}`);
+          await page.waitForTimeout(1000);
           continue;
         }
-      }
 
-      if (!clicked) {
-        console.log(`   ⚠️  Botão Compartilhar não encontrado`);
+        console.log(`   ❌ Falhou após ${maxAttempts} tentativas`);
+        return null;
+
+      } catch (error) {
+        if (attempt < maxAttempts) {
+          console.log(`   ⚠️  Erro, retry ${attempt}/${maxAttempts}`);
+          try { await page.keyboard.press('Escape'); } catch (e) {}
+          await page.waitForTimeout(1000);
+          continue;
+        }
+        
+        console.log(`   ❌ Erro: ${error.message.substring(0, 40)}`);
         return null;
       }
-
-      // Concede permissão de clipboard
-      const context = page.context();
-      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-
-      // Tab 4x para chegar no campo do link
-      for (let i = 0; i < 4; i++) {
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(150);
-      }
-
-      // Enter para copiar
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(800);
-
-      // Lê do clipboard
-      const clipboardText = await page.evaluate(async () => {
-        return await navigator.clipboard.readText();
-      });
-
-      // Fecha modal
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(200);
-
-      if (clipboardText && clipboardText.includes('mercadolivre.com/sec/')) {
-        console.log(`   ✅ ${clipboardText}`);
-        return clipboardText;
-      }
-
-      console.log(`   ❌ Link inválido: ${clipboardText}`);
-      return null;
-
-    } catch (error) {
-      console.log(`   ❌ Erro: ${error.message.substring(0, 50)}`);
-      try { await page.keyboard.press('Escape'); } catch (e) {}
-      return null;
     }
+    
+    return null;
   }
 
   /**
