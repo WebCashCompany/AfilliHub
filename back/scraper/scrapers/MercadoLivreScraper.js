@@ -43,13 +43,14 @@ class MercadoLivreScraper {
     this.sessionPath = path.join(process.cwd(), 'ml-session.json');
     
     this.config = {
-      pageTimeout: 12000,
-      affiliateLinkTimeout: 5000,
-      scrollDelay: 80,
-      scrollIterations: 2,
+      pageTimeout: 10000,          // 12s → 10s
+      affiliateLinkTimeout: 4000,  // 5s → 4s
+      scrollDelay: 60,             // 80ms → 60ms
+      scrollIterations: 1,         // 2 → 1
       maxPages: 50,
       maxEmptyPages: 3,
-      maxRetries: 2
+      maxRetries: 2,
+      parallelTabs: 3              // Processa 3 produtos simultaneamente
     };
     
     this.browser = null;
@@ -175,21 +176,16 @@ class MercadoLivreScraper {
     return { browser: this.browser, context: this.context };
   }
 
-  async getAffiliateLink(productUrl) {
-    console.log(`      🔍 Tentando obter link de afiliado...`);
-    
+  async getAffiliateLink(page, productUrl) {
     for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
       try {
-        console.log(`      → Tentativa ${attempt}/${this.config.maxRetries}`);
-        
-        await this.page.goto(productUrl, { 
+        await page.goto(productUrl, { 
           waitUntil: 'domcontentloaded', 
           timeout: this.config.affiliateLinkTimeout 
         });
-        await this.page.waitForTimeout(500);
+        await page.waitForTimeout(300);
 
-        console.log(`      → Procurando botão Compartilhar...`);
-        const clicked = await this.page.evaluate(() => {
+        const clicked = await page.evaluate(() => {
           const buttons = Array.from(document.querySelectorAll('button, a'));
           const shareBtn = buttons.find(btn => 
             btn.textContent && btn.textContent.toLowerCase().includes('compartilhar')
@@ -203,56 +199,47 @@ class MercadoLivreScraper {
         });
 
         if (!clicked) {
-          console.log(`      ⚠️  Botão Compartilhar não encontrado`);
           if (attempt < this.config.maxRetries) {
-            await this.page.waitForTimeout(500);
+            await page.waitForTimeout(400);
             continue;
           }
           return null;
         }
 
-        console.log(`      ✓ Botão clicado`);
-        await this.page.waitForTimeout(1500);
+        await page.waitForTimeout(1200);
 
         await this.context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
-        console.log(`      → Tab 4x + Enter...`);
         for (let i = 0; i < 4; i++) {
-          await this.page.keyboard.press('Tab');
-          await this.page.waitForTimeout(150);
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(100);
         }
 
-        await this.page.keyboard.press('Enter');
-        await this.page.waitForTimeout(800);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(600);
 
-        const clipboardText = await this.page.evaluate(async () => {
+        const clipboardText = await page.evaluate(async () => {
           return await navigator.clipboard.readText();
         });
 
-        console.log(`      → Clipboard: ${clipboardText ? clipboardText.substring(0, 60) + '...' : 'VAZIO'}`);
-
-        await this.page.keyboard.press('Escape');
-        await this.page.waitForTimeout(200);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(150);
 
         if (clipboardText && clipboardText.includes('mercadolivre.com/sec/')) {
-          console.log(`      ✅ Link de afiliado obtido!`);
           return clipboardText;
         }
 
-        console.log(`      ❌ Link inválido ou vazio`);
-        
         if (attempt < this.config.maxRetries) {
-          await this.page.waitForTimeout(500);
+          await page.waitForTimeout(400);
           continue;
         }
 
         return null;
 
       } catch (error) {
-        console.log(`      ❌ Erro: ${error.message}`);
         if (attempt < this.config.maxRetries) {
-          try { await this.page.keyboard.press('Escape'); } catch (e) {}
-          await this.page.waitForTimeout(500);
+          try { await page.keyboard.press('Escape'); } catch (e) {}
+          await page.waitForTimeout(400);
           continue;
         }
         return null;
@@ -288,13 +275,13 @@ class MercadoLivreScraper {
        
         try {
           await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: this.config.pageTimeout });
-          await this.page.waitForTimeout(800);
+          await this.page.waitForTimeout(600);
 
           await this.page.evaluate(async () => {
-            window.scrollBy(0, 1000);
-            await new Promise(r => setTimeout(r, 100));
+            window.scrollBy(0, 1200);
+            await new Promise(r => setTimeout(r, 80));
             window.scrollTo(0, document.body.scrollHeight);
-            await new Promise(r => setTimeout(r, 300));
+            await new Promise(r => setTimeout(r, 200));
           });
 
           const pageData = await this.page.evaluate(({ minDiscount, maxPrice }) => {
@@ -360,62 +347,78 @@ class MercadoLivreScraper {
           }
           emptyPagesCount = 0;
 
-          console.log(`   🔗 Obtendo links de afiliado...\n`);
+          console.log(`   🔗 Obtendo links de afiliado (${this.config.parallelTabs} abas paralelas)...\n`);
           
-          for (const prodData of newProducts) {
+          // Processa produtos em paralelo
+          const batches = [];
+          for (let i = 0; i < newProducts.length; i += this.config.parallelTabs) {
+            batches.push(newProducts.slice(i, i + this.config.parallelTabs));
+          }
+
+          for (const batch of batches) {
             if (allProducts.length >= this.limit) {
               console.log(`   🎯 META! ${allProducts.length}/${this.limit}\n`);
               break;
             }
 
-            this.processedLinks.add(prodData.link);
+            // Abre múltiplas abas
+            const tabs = await Promise.all(
+              batch.map(() => this.context.newPage())
+            );
 
-            console.log(`\n   📱 [${allProducts.length + 1}/${this.limit}] ${prodData.name.substring(0, 40)}...`);
-            const affiliateLink = await this.getAffiliateLink(prodData.link);
+            // Processa produtos em paralelo
+            const results = await Promise.all(
+              batch.map(async (prodData, idx) => {
+                this.processedLinks.add(prodData.link);
+                
+                const tab = tabs[idx];
+                const affiliateLink = await this.getAffiliateLink(tab, prodData.link);
+                
+                return {
+                  data: prodData,
+                  affiliateLink: affiliateLink || prodData.link,
+                  success: !!affiliateLink
+                };
+              })
+            );
 
-            if (!affiliateLink) {
-              console.log(`      ⚠️  FALHOU - Usando link original como fallback\n`);
-            }
+            // Fecha todas as abas
+            await Promise.all(tabs.map(tab => tab.close().catch(() => {})));
 
-            const product = {
-              nome: prodData.name,
-              imagem: prodData.image,
-              link_original: prodData.link,
-              link_afiliado: affiliateLink || prodData.link,
-              desconto: `${prodData.discount}%`,
-              preco: `R$ ${prodData.currentPrice}`,
-              preco_anterior: `R$ ${prodData.oldPrice}`,
-              preco_de: String(prodData.oldPrice),
-              preco_para: String(prodData.currentPrice),
-              categoria: this.categoriaInfo.nome,
-              marketplace: 'ML',
-              isActive: true
-            };
+            // Processa resultados
+            for (const result of results) {
+              if (allProducts.length >= this.limit) break;
 
-            const result = await this.processProduct(product, allProducts);
-           
-            if (result.action === 'add' || result.action === 'update') {
-              if (result.action === 'update') {
-                product._shouldUpdate = true;
-                product._oldLink = result.oldLink;
-              }
+              const product = {
+                nome: result.data.name,
+                imagem: result.data.image,
+                link_original: result.data.link,
+                link_afiliado: result.affiliateLink,
+                desconto: `${result.data.discount}%`,
+                preco: `R$ ${result.data.currentPrice}`,
+                preco_anterior: `R$ ${result.data.oldPrice}`,
+                preco_de: String(result.data.oldPrice),
+                preco_para: String(result.data.currentPrice),
+                categoria: this.categoriaInfo.nome,
+                marketplace: 'ML',
+                isActive: true
+              };
+
+              const processResult = await this.processProduct(product, allProducts);
              
-              allProducts.push(product);
-              this.stats.productsCollected++;
-              
-              if (affiliateLink && affiliateLink.includes('mercadolivre.com/sec/')) {
-                console.log(`      ✅ SALVO COM LINK DE AFILIADO: ${affiliateLink}\n`);
-              } else {
-                console.log(`      ⚠️  SALVO COM LINK ORIGINAL (falha ao obter afiliado)\n`);
+              if (processResult.action === 'add' || processResult.action === 'update') {
+                if (processResult.action === 'update') {
+                  product._shouldUpdate = true;
+                  product._oldLink = processResult.oldLink;
+                }
+               
+                allProducts.push(product);
+                this.stats.productsCollected++;
+                
+                const status = result.success ? '✅' : '⚠️';
+                const linkType = result.success ? 'AFILIADO' : 'ORIGINAL';
+                console.log(`   ${status} [${allProducts.length}/${this.limit}] ${product.nome.substring(0, 45)}... (${linkType})`);
               }
-            }
-
-            try {
-              await this.page.goBack({ waitUntil: 'domcontentloaded', timeout: 3000 });
-              await this.page.waitForTimeout(200);
-            } catch (e) {
-              await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 5000 });
-              await this.page.waitForTimeout(300);
             }
           }
 
@@ -424,7 +427,7 @@ class MercadoLivreScraper {
           this.stats.pagesScraped = pageNum;
           pageNum++;
           currentOffset += 48;
-          await this.page.waitForTimeout(300);
+          await this.page.waitForTimeout(200);
 
         } catch (pageError) {
           console.error(`   ❌ Erro: ${pageError.message}`);
