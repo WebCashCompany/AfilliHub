@@ -3,12 +3,8 @@
  * SCRAPING SERVICE - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * Serviço unificado para coleta de produtos de múltiplos marketplaces
- * Sistema de cache, validação e salvamento otimizado
- * 
- * @version 2.1.0 - CORRIGIDO: Reutiliza instância do scraper
+ * @version 2.2.0 - CORREÇÃO CRÍTICA: Não sobrescreve links de afiliado
  * @author Dashboard Promoforia
- * @license Proprietary
  */
 
 const { getProductConnection } = require('../../database/mongodb');
@@ -16,7 +12,6 @@ const { getProductModel } = require('../../database/models/Products');
 const MercadoLivreScraper = require('../scrapers/MercadoLivreScraper');
 const { getCategoria } = require('../../config/categorias-ml');
 
-// Scrapers opcionais
 let MagaluScraper, ShopeeScraper;
 
 try {
@@ -37,22 +32,16 @@ class ScrapingService {
     this.initializeMarketplaces();
   }
 
-  /**
-   * Inicializa scrapers de marketplaces disponíveis
-   */
   initializeMarketplaces() {
-    // ═══════════════════════════════════════════════════════════
     // MERCADO LIVRE
-    // ═══════════════════════════════════════════════════════════
     try {
       const mlConfig = {
         name: 'Mercado Livre',
         code: 'ML',
-        scraper: new MercadoLivreScraper(), // ← Instância única reutilizada
+        scraper: new MercadoLivreScraper(),
         enabled: true
       };
       
-      // Registra com múltiplos aliases para compatibilidade
       this.marketplaces.set('mercadolivre', mlConfig);
       this.marketplaces.set('ML', mlConfig);
       this.marketplaces.set('ml', mlConfig);
@@ -61,9 +50,7 @@ class ScrapingService {
       console.error('⚠️  Mercado Livre não disponível:', error.message);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // MAGAZINE LUIZA (NÃO MODIFICADO)
-    // ═══════════════════════════════════════════════════════════
+    // MAGAZINE LUIZA
     if (MagaluScraper) {
       try {
         const magaluConfig = {
@@ -81,9 +68,7 @@ class ScrapingService {
       }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // SHOPEE (NÃO MODIFICADO)
-    // ═══════════════════════════════════════════════════════════
+    // SHOPEE
     if (ShopeeScraper) {
       try {
         const shopeeConfig = {
@@ -102,10 +87,6 @@ class ScrapingService {
     }
   }
 
-  /**
-   * Limpa o cache do scraper de um marketplace específico
-   * Útil ao trocar de categoria
-   */
   clearScraperCache(marketplaceName) {
     const marketplace = this.marketplaces.get(marketplaceName) || 
                         this.marketplaces.get(marketplaceName.toLowerCase()) ||
@@ -116,9 +97,6 @@ class ScrapingService {
     }
   }
 
-  /**
-   * Coleta produtos de um marketplace específico
-   */
   async collectFromMarketplace(marketplaceName, options = {}) {
     const { 
       minDiscount = 30, 
@@ -128,7 +106,6 @@ class ScrapingService {
       maxPrice = null 
     } = options;
 
-    // Busca marketplace (case-insensitive)
     const marketplace = this.marketplaces.get(marketplaceName) || 
                         this.marketplaces.get(marketplaceName.toLowerCase()) ||
                         this.marketplaces.get(marketplaceName.toUpperCase());
@@ -143,7 +120,6 @@ class ScrapingService {
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
     
-    // Exibe filtros ativos
     const filters = [];
     if (categoria) filters.push(`Categoria: ${categoria}`);
     if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
@@ -154,16 +130,12 @@ class ScrapingService {
 
     console.log('🟡 Iniciando Web Scraper (Playwright)...\n');
     
-    // ═══════════════════════════════════════════════════════════
-    // CONFIGURAÇÃO DO SCRAPER (REUTILIZA INSTÂNCIA)
-    // ═══════════════════════════════════════════════════════════
-    const scraper = marketplace.scraper; // ← Reutiliza a mesma instância
+    const scraper = marketplace.scraper;
     
     scraper.minDiscount = minDiscount;
     scraper.limit = limit;
     scraper.maxPrice = maxPrice;
     
-    // Configuração específica por marketplace
     if (marketplace.code === 'ML' && categoria) {
       const categoriaInfo = getCategoria(categoria);
       if (categoriaInfo) {
@@ -180,14 +152,13 @@ class ScrapingService {
       }
     }
     
-    // Executa scraping (cache persiste entre chamadas)
     const products = await scraper.scrapeCategory();
     
     console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
-    // ═══════════════════════════════════════════════════════════
-    // VALIDAÇÃO E PROCESSAMENTO DE LINKS
-    // ═══════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════
+    // VALIDAÇÃO DE LINKS - NÃO SOBRESCREVE LINKS JÁ DEFINIDOS
+    // ═══════════════════════════════════════════════════════════════════
     if (products.length > 0) {
       console.log(`🔗 Processando ${products.length} links de afiliado...\n`);
       
@@ -196,25 +167,31 @@ class ScrapingService {
       for (let i = 0; i < products.length; i++) {
         const product = products[i];
         
-        // ═════════════════════════════════════════════════════════
-        // IMPORTANTE: Para ML, o link já vem pronto do scraper
-        // NÃO modificamos, apenas usamos como está
-        // ═════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════
+        // MERCADO LIVRE: Link JÁ VEM PRONTO do scraper
+        // NÃO MODIFICAR EM HIPÓTESE ALGUMA!
+        // ═══════════════════════════════════════════════════════════
         if (marketplace.code === 'ML') {
-          // Link já vem correto do getAffiliateLink()
-          if (!product.link_afiliado) {
+          // Valida se o link de afiliado existe e está correto
+          if (!product.link_afiliado || !product.link_afiliado.includes('mercadolivre.com/sec/')) {
+            console.log(`   ⚠️  Produto sem link de afiliado válido: ${product.nome.substring(0, 40)}...`);
+            console.log(`       Link atual: ${product.link_afiliado || 'VAZIO'}`);
+            console.log(`       Usando link original como fallback\n`);
             product.link_afiliado = product.link_original;
           }
+          
           processados++;
           
-          if (i < 3) {
+          if (i < 3 || i === products.length - 1) {
             console.log(`   [${i + 1}] ${product.nome.substring(0, 40)}...`);
             console.log(`       🔗 ${product.link_afiliado.substring(0, 80)}...`);
+          } else if (i === 3) {
+            console.log(`   ... (${products.length - 4} produtos omitidos)`);
           }
         } 
-        // ═════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════
         // OUTROS MARKETPLACES: Adiciona parâmetros de afiliado
-        // ═════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════
         else if (marketplace.code === 'MAGALU') {
           const separator = product.link_original.includes('?') ? '&' : '?';
           product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
@@ -235,10 +212,6 @@ class ScrapingService {
           processados++;
         }
       }
-
-      if (processados < products.length) {
-        console.log(`   ...e mais ${products.length - 3} produtos\n`);
-      }
       
       console.log(`✅ ${processados} links processados\n`);
     }
@@ -246,9 +219,6 @@ class ScrapingService {
     return products;
   }
 
-  /**
-   * Salva produtos no banco de dados com detecção de duplicatas
-   */
   async saveProducts(products, marketplaceCode = 'ML') {
     console.log(`\n💾 Salvando no MongoDB (Marketplace: ${marketplaceCode})...`);
     
@@ -275,9 +245,7 @@ class ScrapingService {
 
         const normalizedName = this.normalizeProductName(product.nome);
         
-        // ═══════════════════════════════════════════════════════
         // ATUALIZAÇÃO DE OFERTA MELHOR
-        // ═══════════════════════════════════════════════════════
         if (product._shouldUpdate) {
           const query = { link_afiliado: product._oldLink || product.link_afiliado };
           const existing = await Product.findOne(query);
@@ -301,7 +269,6 @@ class ScrapingService {
             stats.betterOffers++;
             console.log(`   🔥 MELHOR OFERTA: ${product.nome.substring(0, 35)}... (${product.desconto})`);
           } else {
-            // Produto não existe, cria novo
             const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
             
             await Product.create({ 
@@ -315,15 +282,12 @@ class ScrapingService {
             console.log(`   ✨ NOVO: ${product.nome.substring(0, 40)}...`);
           }
         } 
-        // ═══════════════════════════════════════════════════════
-        // PRODUTO NORMAL (verificar se já existe)
-        // ═══════════════════════════════════════════════════════
+        // PRODUTO NORMAL
         else {
           const query = { link_afiliado: product.link_afiliado };
           const existing = await Product.findOne(query);
 
           if (existing) {
-            // Atualiza produto existente
             await Product.updateOne(
               { _id: existing._id }, 
               { 
@@ -338,7 +302,6 @@ class ScrapingService {
             );
             stats.updated++;
           } else {
-            // Cria novo produto
             await Product.create({ 
               ...product, 
               nome_normalizado: normalizedName,
@@ -363,7 +326,6 @@ class ScrapingService {
 
     stats.totalSaved = stats.inserted + stats.betterOffers;
 
-    // Relatório
     console.log(`\n╔═══════════════════════════════════════╗`);
     console.log(`║         📊 RESULTADO FINAL 📊         ║`);
     console.log(`╚═══════════════════════════════════════╝`);
@@ -383,9 +345,6 @@ class ScrapingService {
     return stats;
   }
 
-  /**
-   * Normaliza nome do produto para comparação
-   */
   normalizeProductName(name) {
     return name
       .toLowerCase()
@@ -399,9 +358,6 @@ class ScrapingService {
       .join(' ');
   }
 
-  /**
-   * Lista marketplaces disponíveis
-   */
   listMarketplaces() {
     console.log('\n📋 MARKETPLACES DISPONÍVEIS:\n');
     
@@ -415,9 +371,6 @@ class ScrapingService {
     console.log('');
   }
 
-  /**
-   * Coleta de todos os marketplaces (paralelo ou sequencial)
-   */
   async collectFromAll(options = {}) {
     const results = {};
     const unique = new Set();
