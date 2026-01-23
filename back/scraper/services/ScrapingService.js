@@ -51,8 +51,9 @@ class ScrapingService {
       limit = 50, 
       mode = 'auto', 
       categoria = null,
-      categoryKey = null, // 🆕 PARA MAGALU (chave como 'OFERTAS_DIA')
-      maxPrice = null 
+      categoryKey = null,
+      maxPrice = null,
+      filters = {} // 🆕 Recebe filtros adicionais
     } = options;
 
     const marketplace = this.marketplaces.get(marketplaceName.toLowerCase());
@@ -61,37 +62,80 @@ class ScrapingService {
     if (!marketplace) throw new Error(`Marketplace "${marketplaceName}" não encontrado`);
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
-    if (categoria || maxPrice || categoryKey) {
-      const filters = [];
-      if (categoria) filters.push(`Categoria: ${categoria}`);
-      if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
-      if (maxPrice) filters.push(`Preço Máx: R$ ${maxPrice}`);
-      console.log(`🎯 FILTROS ATIVOS: ${filters.join(' | ')}`);
+    
+    // ═══════════════════════════════════════════════════════════
+    // 🔥 EXTRAI CATEGORIA DOS FILTROS (PRIORIDADE MÁXIMA)
+    // ═══════════════════════════════════════════════════════════
+    const finalCategoryKey = filters.categoryKey || categoryKey;
+    const finalCategoria = filters.categoria || categoria;
+    
+    console.log(`🔍 DEBUG - filters recebido:`, JSON.stringify(filters, null, 2));
+    console.log(`🔍 DEBUG - finalCategoryKey: "${finalCategoryKey}"`);
+    console.log(`🔍 DEBUG - finalCategoria: "${finalCategoria}"`);
+    
+    if (finalCategoria || finalCategoryKey || maxPrice) {
+      const filterInfo = [];
+      if (finalCategoria) filterInfo.push(`Categoria: ${finalCategoria}`);
+      if (finalCategoryKey) filterInfo.push(`Categoria Key: ${finalCategoryKey}`);
+      if (maxPrice) filterInfo.push(`Preço Máx: R$ ${maxPrice}`);
+      console.log(`🎯 FILTROS ATIVOS: ${filterInfo.join(' | ')}`);
     }
 
     console.log('🟡 Usando Web Scraper (Playwright)...');
     
     marketplace.scraper.minDiscount = minDiscount;
     marketplace.scraper.limit = limit;
-    marketplace.scraper.categoria = categoria;
     marketplace.scraper.maxPrice = maxPrice;
     
     // ═══════════════════════════════════════════════════════════
-    // 🆕 CONFIGURAÇÃO DE CATEGORIA PARA MAGALU
+    // 🔥 CONFIGURAÇÃO ESPECÍFICA POR MARKETPLACE
     // ═══════════════════════════════════════════════════════════
-    if (marketplace.code === 'MAGALU' && categoryKey) {
-      if (typeof marketplace.scraper.setCategory === 'function') {
-        marketplace.scraper.setCategory(categoryKey);
+    
+    if (marketplace.code === 'MAGALU') {
+      // 🔥 MAGALU: USA categoryKey
+      if (finalCategoryKey) {
+        console.log(`🏷️ MAGALU - Configurando categoria: ${finalCategoryKey}`);
+        
+        // ✅ CHAMA setCategory() ANTES DO SCRAPING
+        if (typeof marketplace.scraper.setCategory === 'function') {
+          try {
+            marketplace.scraper.setCategory(finalCategoryKey);
+            console.log(`   ✅ Categoria "${finalCategoryKey}" configurada com sucesso!`);
+          } catch (error) {
+            console.error(`   ❌ Erro ao configurar categoria: ${error.message}`);
+            console.log(`   ⚠️  Continuando com categoria padrão (OFERTAS_DIA)`);
+          }
+        } else {
+          console.error(`   ❌ ERRO: Método setCategory() não existe no MagaluScraper!`);
+        }
+      } else {
+        console.log(`⚠️ MAGALU - Nenhuma categoria especificada, usando padrão (OFERTAS_DIA)`);
+      }
+      
+    } else if (marketplace.code === 'ML') {
+      // 🔥 MERCADO LIVRE: USA categoria string
+      if (finalCategoria) {
+        console.log(`🏷️ MERCADO LIVRE - Configurando categoria: ${finalCategoria}`);
+        const { getCategoria } = require('../../config/categorias-ml');
+        marketplace.scraper.categoriaInfo = getCategoria(finalCategoria);
+        marketplace.scraper.categoria = finalCategoria;
+      } else {
+        console.log(`⚠️ MERCADO LIVRE - Nenhuma categoria especificada`);
+        marketplace.scraper.categoria = null;
+      }
+      
+    } else if (marketplace.code === 'shopee') {
+      // 🔥 SHOPEE: Pode usar categoria se implementado
+      if (finalCategoria) {
+        console.log(`🏷️ SHOPEE - Configurando categoria: ${finalCategoria}`);
+        marketplace.scraper.categoria = finalCategoria;
       }
     }
     
-    // Configuração para Mercado Livre (mantém compatibilidade)
-    if (categoria && marketplace.code === 'ML') {
-      const { getCategoria } = require('../../config/categorias-ml');
-      marketplace.scraper.categoriaInfo = getCategoria(categoria);
-    }
-    
+    // ✅ EXECUTA O SCRAPING
+    console.log(`\n🔄 Iniciando scraping...`);
     products = await marketplace.scraper.scrapeCategory();
+    console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
     // ═══════════════════════════════════════════════════════════
     // ✅ GERAÇÃO DE LINKS DE AFILIADO
@@ -152,11 +196,8 @@ class ScrapingService {
   async saveProducts(products, marketplaceCode = 'ML') {
     console.log(`\n💾 Salvando/Atualizando no MongoDB...`);
     
-    // ═══════════════════════════════════════════════════════════
-    // OBTER CONEXÃO E MODEL CORRETOS
-    // ═══════════════════════════════════════════════════════════
-    const conn = getProductConnection(); // Database "produtos"
-    const Product = getProductModel(marketplaceCode, conn); // Collection "ML", "shopee", etc
+    const conn = getProductConnection();
+    const Product = getProductModel(marketplaceCode, conn);
     
     let inserted = 0, updated = 0, errors = 0, duplicates = 0, betterOffers = 0;
 

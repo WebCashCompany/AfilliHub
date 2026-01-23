@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════════
 
 const mongoose = require('mongoose');
-const { getCategorySlugs } = require('../../config/categorias-magalu');
+const { getUniqueCategoryNames } = require('../../config/categorias-magalu');
 
 // ═══════════════════════════════════════════════════════════
 // SCHEMA
@@ -25,23 +25,16 @@ const ProductSchema = new mongoose.Schema({
   preco_para: { type: String, required: true },
   desconto: { type: String, required: true, index: true },
   
-  // 🆕 CATEGORIA COM ENUM DINÂMICO DAS CATEGORIAS DO MAGALU
+  // 🆕 CATEGORIA COM ENUM DINÂMICO (SEM DUPLICATAS)
   categoria: { 
     type: String, 
     default: 'Ofertas do Dia', 
     index: true,
-    // Enum inclui as categorias do Magalu + categorias genéricas
+    // Enum com nomes ÚNICOS das categorias principais
+    // Ex: "Casa" (não "Casa - Utilidades", "Casa - Construção", etc)
     enum: [
       'Todas as Ofertas',
-      ...getCategorySlugs(), // Adiciona dinamicamente: ofertas-do-dia, internacional, casa, etc
-      'Ofertas do Dia', // Mantém compatibilidade
-      'Internacional',
-      'Casa',
-      'Ferramentas',
-      'Eletroportáteis',
-      'Brinquedos',
-      'Automotivo',
-      'Domésticos',
+      ...getUniqueCategoryNames(), // 🆕 Retorna apenas nomes principais únicos
       // Categorias genéricas (outros marketplaces)
       'Eletrônicos',
       'Moda',
@@ -162,16 +155,16 @@ const conn = getProductConnection();
 // Obter model da collection "magalu"
 const ProductMagalu = getProductModel('magalu', conn);
 
-// Buscar produtos por categoria
-const produtosFerramentas = await ProductMagalu.find({ 
+// Buscar produtos por categoria PRINCIPAL
+const produtosCasa = await ProductMagalu.find({ 
   isActive: true,
-  categoria: 'Ferramentas',
+  categoria: 'Casa', // 🆕 Busca produtos de TODAS as subcategorias de Casa
   desconto: { $gte: '30%' }
 }).limit(50);
 
-// Criar produto com categoria
+// Criar produto (será salvo com categoria principal)
 await ProductMagalu.create({
-  nome: 'Furadeira Bosch',
+  nome: 'Panela Tramontina',
   imagem: 'https://...',
   link_original: 'https://...',
   link_afiliado: 'https://...',
@@ -180,7 +173,7 @@ await ProductMagalu.create({
   preco_de: '15000',
   preco_para: '10000',
   desconto: '33%',
-  categoria: 'Ferramentas', // 🆕 CATEGORIA
+  categoria: 'Casa', // 🆕 Categoria principal (não importa de qual subcategoria veio)
   marketplace: 'MAGALU',
   isActive: true
 });

@@ -11,6 +11,10 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
  * Este worker coleta produtos de TODAS as categorias do Magalu
  * de forma distribuída e organizada
  * 
+ * CATEGORIAS COM SUBCATEGORIAS:
+ * - CASA tem 3 subcategorias (Utilidades, Construção, Móveis)
+ *   Todas salvam no banco como "Casa"
+ * 
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -33,14 +37,16 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     const MODE = process.env.SCRAPING_MODE || 'auto';
     
     // Estratégia de distribuição:
-    // 'equal' = Divide igualmente entre todas as categorias
+    // 'equal' = Divide igualmente entre todas as categorias/subcategorias
     // 'priority' = Mais produtos nas categorias de alta prioridade
     const DISTRIBUTION_MODE = process.env.DISTRIBUTION_MODE || 'equal';
     
     const scrapingService = new ScrapingService();
+    
+    // 🆕 getEnabledCategories() retorna TODAS (incluindo subcategorias)
     const categories = getEnabledCategories();
     
-    console.log(`📋 Categorias habilitadas: ${categories.length}`);
+    console.log(`📋 Categorias/Subcategorias habilitadas: ${categories.length}`);
     console.log(`🎯 Meta total: ${TOTAL_PRODUCTS} produtos NOVOS`);
     console.log(`📊 Modo de distribuição: ${DISTRIBUTION_MODE}\n`);
     
@@ -51,7 +57,7 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     let productsPerCategory = {};
     
     if (DISTRIBUTION_MODE === 'equal') {
-      // Distribui igualmente
+      // Distribui igualmente entre TODAS (incluindo subcategorias)
       const perCat = Math.ceil(TOTAL_PRODUCTS / categories.length);
       categories.forEach(cat => {
         productsPerCategory[cat.key] = perCat;
@@ -67,12 +73,13 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     
     console.log('📊 Distribuição de produtos por categoria:');
     categories.forEach(cat => {
-      console.log(`   ${cat.name.padEnd(20)} → ${productsPerCategory[cat.key]} produtos`);
+      const prefix = cat.isSubcategory ? '  └─ ' : '   ';
+      console.log(`${prefix}${cat.name.padEnd(30)} → ${productsPerCategory[cat.key]} produtos`);
     });
     console.log('');
     
     // ═══════════════════════════════════════════════════════════
-    // COLETA POR CATEGORIA
+    // COLETA POR CATEGORIA/SUBCATEGORIA
     // ═══════════════════════════════════════════════════════════
     
     let totalSaved = 0;
@@ -81,8 +88,15 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     for (const category of categories) {
       const categoryStart = Date.now();
       
+      const displayName = category.isSubcategory 
+        ? `🏠 ${category.name}` 
+        : `📂 ${category.name}`;
+      
       console.log(`\n${'═'.repeat(60)}`);
-      console.log(`🔄 CATEGORIA: ${category.name.toUpperCase()}`);
+      console.log(`🔄 ${displayName.toUpperCase()}`);
+      if (category.isSubcategory) {
+        console.log(`💾 Salva como: ${category.categoryName || category.name}`);
+      }
       console.log(`${'═'.repeat(60)}\n`);
       
       const targetProducts = productsPerCategory[category.key];
@@ -97,12 +111,12 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
         
         console.log(`📌 Tentativa ${attempt}/${MAX_ATTEMPTS} | Faltam ${remainingProducts} produtos\n`);
         
-        // Coleta produtos da categoria específica
+        // Coleta produtos da categoria/subcategoria específica
         const products = await scrapingService.collectFromMarketplace('magalu', {
           minDiscount: MIN_DISCOUNT,
           limit: remainingProducts,
           mode: MODE,
-          categoryKey: category.key // 🆕 PASSA A CHAVE DA CATEGORIA
+          categoryKey: category.key // 🆕 Passa a chave (ex: 'CASA_UTILIDADES')
         });
         
         if (!products || products.length === 0) {
@@ -117,10 +131,10 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
         savedInCategory += savedThisRound;
         totalSaved += savedThisRound;
         
-        console.log(`📊 Progresso da categoria: ${savedInCategory}/${targetProducts} produtos salvos`);
+        console.log(`📊 Progresso: ${savedInCategory}/${targetProducts} produtos salvos`);
         
         if (savedInCategory >= targetProducts) {
-          console.log(`✅ Meta da categoria atingida!\n`);
+          console.log(`✅ Meta atingida!\n`);
           break;
         }
         
@@ -142,10 +156,12 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
         target: targetProducts,
         saved: savedInCategory,
         attempts: attempt,
-        duration: categoryDuration
+        duration: categoryDuration,
+        isSubcategory: category.isSubcategory || false,
+        savedAs: category.categoryName || category.name
       };
       
-      console.log(`\n✅ Categoria "${category.name}" finalizada em ${categoryDuration}s`);
+      console.log(`\n✅ "${category.name}" finalizada em ${categoryDuration}s`);
       console.log(`   ${savedInCategory}/${targetProducts} produtos salvos (${attempt} tentativas)\n`);
     }
     
@@ -164,7 +180,10 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     
     Object.entries(resultsByCategory).forEach(([name, stats]) => {
       const percentage = ((stats.saved / stats.target) * 100).toFixed(1);
-      console.log(`   ${name.padEnd(20)} → ${stats.saved}/${stats.target} (${percentage}%) - ${stats.duration}s`);
+      const prefix = stats.isSubcategory ? '  └─ ' : '   ';
+      const suffix = stats.isSubcategory ? ` → DB: "${stats.savedAs}"` : '';
+      
+      console.log(`${prefix}${name.padEnd(32)} ${stats.saved}/${stats.target} (${percentage}%) - ${stats.duration}s${suffix}`);
     });
     
     if (totalSaved < TOTAL_PRODUCTS) {

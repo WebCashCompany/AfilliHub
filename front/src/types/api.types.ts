@@ -56,23 +56,34 @@ export interface ProductFromDB {
 }
 
 // ─────────────────────────────────────────────────────────
-// SCRAPING
+// SCRAPING - 🆕 FILTROS ESPECÍFICOS POR MARKETPLACE
 // ─────────────────────────────────────────────────────────
+
+export interface MarketplaceFilters {
+  categoria?: string;
+  categoryKey?: string; // 🆕 Para Magalu (uppercase)
+  palavraChave?: string;
+  frete_gratis?: boolean;
+  minDiscount?: number;
+  maxPrice?: number;
+}
+
+export interface MarketplaceConfig {
+  enabled: boolean;
+  quantity: number;
+  filters?: MarketplaceFilters; // 🆕 Cada marketplace tem seus próprios filtros
+}
 
 export interface ScrapingRequestPayload {
   marketplaces: {
-    mercadolivre?: { enabled: boolean; quantity: number };
-    amazon?: { enabled: boolean; quantity: number };
-    magalu?: { enabled: boolean; quantity: number };
-    shopee?: { enabled: boolean; quantity: number };
+    mercadolivre?: MarketplaceConfig;
+    amazon?: MarketplaceConfig;
+    magalu?: MarketplaceConfig;
+    shopee?: MarketplaceConfig;
   };
   minDiscount: number;
   maxPrice: number;
-  filters?: {
-    categoria?: string;
-    palavraChave?: string;
-    frete_gratis?: boolean;
-  };
+  filters?: MarketplaceFilters; // 🆕 Filtros globais (opcionais)
 }
 
 export interface ScrapingResult {
