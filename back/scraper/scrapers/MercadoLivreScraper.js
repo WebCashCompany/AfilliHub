@@ -6,7 +6,7 @@
  * Sistema profissional de coleta de ofertas do Mercado Livre
  * Otimizado para alto volume e máxima precisão
  * 
- * @version 2.0.0
+ * @version 2.0.1 - CORREÇÃO: Extração de preços e desconto
  * @author Dashboard Promoforia
  * @license Proprietary
  */
@@ -478,21 +478,61 @@ class MercadoLivreScraper {
                                 document.querySelector('figure img')?.src ||
                                 '';
 
-                  const precoAtual = document.querySelector('.andes-money-amount__fraction')?.innerText || '0';
-                  const precoAntigo = document.querySelectorAll('.andes-money-amount__fraction')[1]?.innerText || precoAtual;
-
-                  const precoAtualNum = parseInt(precoAtual.replace(/\D/g, ''));
-                  const precoAntigoNum = parseInt(precoAntigo.replace(/\D/g, ''));
-                  const descontoCalc = precoAntigoNum > 0 ?
-                    Math.round(((precoAntigoNum - precoAtualNum) / precoAntigoNum) * 100) : 0;
+                  // Extrai o badge de desconto da página
+                  const descontoElement = document.querySelector('.ui-pdp-price__second-line .andes-money-amount__discount') ||
+                                         document.querySelector('.andes-money-amount__discount');
+                  const descontoBadge = descontoElement?.innerText.replace(/[^\d]/g, '') || '0';
+                  
+                  // Extrai todos os elementos de preço
+                  const allPriceElements = Array.from(document.querySelectorAll('.andes-money-amount__fraction'));
+                  
+                  // Preço atual (sempre o primeiro)
+                  let precoAtual = allPriceElements[0]?.innerText || '0';
+                  
+                  // Preço anterior
+                  let precoAntigo = precoAtual;
+                  
+                  // Tenta encontrar o segundo preço (preço riscado)
+                  if (allPriceElements.length > 1) {
+                    precoAntigo = allPriceElements[1]?.innerText || precoAtual;
+                  } else if (descontoBadge && parseInt(descontoBadge) > 0) {
+                    // Se não tem segundo preço mas tem badge de desconto, calcula
+                    const precoAtualNum = parseInt(precoAtual.replace(/\./g, ''));
+                    const desconto = parseInt(descontoBadge);
+                    const precoAntigoCalculado = Math.round(precoAtualNum / (1 - desconto / 100));
+                    precoAntigo = String(precoAntigoCalculado);
+                  }
+                  
+                  // Converte para números
+                  let precoAtualNum = parseInt(precoAtual.replace(/\./g, ''));
+                  let precoAntigoNum = parseInt(precoAntigo.replace(/\./g, ''));
+                  
+                  // VALIDAÇÃO CRÍTICA: Garante que preco_de >= preco_para
+                  if (precoAntigoNum < precoAtualNum) {
+                    // Inverte os valores usando variável temporária
+                    const tempNum = precoAntigoNum;
+                    precoAntigoNum = precoAtualNum;
+                    precoAtualNum = tempNum;
+                    
+                    const tempStr = precoAntigo;
+                    precoAntigo = precoAtual;
+                    precoAtual = tempStr;
+                  }
+                  
+                  // Calcula desconto (prioriza badge, senão calcula)
+                  let descontoCalc = parseInt(descontoBadge) || 0;
+                  
+                  if (descontoCalc === 0 && precoAntigoNum > precoAtualNum && precoAntigoNum > 0) {
+                    descontoCalc = Math.round(((precoAntigoNum - precoAtualNum) / precoAntigoNum) * 100);
+                  }
 
                   return {
                     nome: nome.trim(),
                     imagem: imagem,
                     preco: `R$ ${precoAtual}`,
                     preco_anterior: `R$ ${precoAntigo}`,
-                    preco_de: precoAntigo.replace(/\D/g, ''),
-                    preco_para: precoAtual.replace(/\D/g, ''),
+                    preco_de: String(precoAntigoNum),
+                    preco_para: String(precoAtualNum),
                     desconto: `${descontoCalc}%`,
                     categoria: categoriaNome,
                     marketplace: 'ML',
@@ -549,7 +589,7 @@ class MercadoLivreScraper {
               }
             }
 
-            await page.waitForTimeout(200); // 500ms → 200ms
+            await page.waitForTimeout(200);
           }
 
           if (allProducts.length >= this.limit) break;
