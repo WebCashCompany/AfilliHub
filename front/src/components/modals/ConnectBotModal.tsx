@@ -1,9 +1,10 @@
-// src/components/modals/ConnectBotModal.tsx - CORRIGIDO
+// src/components/modals/ConnectBotModal.tsx - COM QR CODE NA TELA
 
 import { useState, useEffect } from 'react';
 import { Loader2, MessageCircle, Send, CheckCircle, X } from 'lucide-react';
 import { whatsappService } from '@/api/services/whatsapp.service';
 import { useToast } from '@/hooks/use-toast';
+import QRCode from 'react-qr-code'; // Instalar: npm install react-qr-code
 
 interface ConnectBotModalProps {
   open: boolean;
@@ -11,11 +12,12 @@ interface ConnectBotModalProps {
   onConnected: () => void;
 }
 
-type ConnectionStep = 'choose' | 'connecting' | 'connected';
+type ConnectionStep = 'choose' | 'connecting' | 'qrcode' | 'connected';
 
 export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalProps) {
   const [step, setStep] = useState<ConnectionStep>('choose');
   const [selectedPlatform, setSelectedPlatform] = useState<'whatsapp' | 'telegram' | null>(null);
+  const [qrCode, setQrCode] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Resetar ao abrir
@@ -23,6 +25,7 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
     if (open) {
       setStep('choose');
       setSelectedPlatform(null);
+      setQrCode(null);
     }
   }, [open]);
 
@@ -37,23 +40,25 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
       return;
     }
 
-    // ✅ CONECTAR WHATSAPP
+    // CONECTAR WHATSAPP
     setStep('connecting');
     
     try {
-      // ✅ CHAMAR ROTA DE CONEXÃO (gera QR Code no terminal do servidor)
+      // Iniciar conexão
       await whatsappService.connectBot();
       
-      toast({
-        title: "QR Code gerado!",
-        description: "Escaneie o QR Code no terminal do servidor.",
-      });
-
-      // ✅ POLLING - Verificar status a cada 2 segundos
+      // Polling para pegar QR Code
       const pollInterval = setInterval(async () => {
         try {
           const status = await whatsappService.getStatus();
           
+          // Se recebeu QR Code
+          if (status.qrCode && !status.conectado) {
+            setQrCode(status.qrCode);
+            setStep('qrcode');
+          }
+          
+          // Se conectou
           if (status.conectado) {
             clearInterval(pollInterval);
             setStep('connected');
@@ -68,18 +73,18 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
         }
       }, 2000);
 
-      // ✅ TIMEOUT - Cancelar após 2 minutos
+      // Timeout de 2 minutos
       setTimeout(() => {
         clearInterval(pollInterval);
-        if (step === 'connecting') {
+        if (step !== 'connected') {
           toast({
             title: "Tempo esgotado",
-            description: "Não foi possível detectar a conexão. Tente novamente.",
+            description: "Não foi possível conectar. Tente novamente.",
             variant: "destructive"
           });
           setStep('choose');
         }
-      }, 120000); // 2 minutos
+      }, 120000);
 
     } catch (error: any) {
       toast({
@@ -108,7 +113,7 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
           <div>
             <h2 className="text-lg font-semibold">Conectar Bot</h2>
             <p className="text-sm text-muted-foreground">
-              Escolha a plataforma para conectar seu bot de divulgação
+              {step === 'qrcode' ? 'Escaneie o QR Code' : 'Escolha a plataforma'}
             </p>
           </div>
           <button
@@ -156,11 +161,22 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
           <div className="py-8 flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
             <div className="text-center">
-              <p className="font-medium">Aguardando conexão...</p>
+              <p className="font-medium">Inicializando bot...</p>
               <p className="text-sm text-muted-foreground">
-                Escaneie o QR Code no <strong>terminal do servidor</strong>
+                Aguarde, gerando QR Code...
               </p>
-              <p className="text-xs text-muted-foreground mt-2">
+            </div>
+          </div>
+        )}
+
+        {step === 'qrcode' && qrCode && (
+          <div className="py-6 flex flex-col items-center gap-4">
+            <div className="bg-white p-4 rounded-lg">
+              <QRCode value={qrCode} size={256} />
+            </div>
+            <div className="text-center">
+              <p className="font-medium">Escaneie com seu WhatsApp</p>
+              <p className="text-sm text-muted-foreground mt-2">
                 WhatsApp → Dispositivos Conectados → Conectar
               </p>
             </div>

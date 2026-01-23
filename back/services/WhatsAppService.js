@@ -12,6 +12,18 @@ class WhatsAppService {
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 3;
+        this.qrCodeCallback = null;
+        this.connectedCallback = null;
+    }
+
+    // Callback para QR Code
+    onQRCode(callback) {
+        this.qrCodeCallback = callback;
+    }
+
+    // Callback para conexão estabelecida
+    onConnected(callback) {
+        this.connectedCallback = callback;
     }
 
     async initialize() {
@@ -40,7 +52,7 @@ class WhatsAppService {
 
             this.sock = makeWASocket({
                 auth: state,
-                printQRInTerminal: false,
+                printQRInTerminal: false, // NÃO printar no terminal
                 logger: pino({ level: 'silent' }),
                 browser: ['DivulgaLinks Bot', 'Chrome', '10.0.0'],
                 defaultQueryTimeoutMs: 60000,
@@ -54,14 +66,17 @@ class WhatsAppService {
             this.sock.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, qr } = update;
 
+                // QR CODE - Enviar para callback
                 if (qr) {
-                    console.log('\n╔════════════════════════════════════════════════════╗');
-                    console.log('║  📱 ESCANEIE O QR CODE COM SEU WHATSAPP           ║');
-                    console.log('╚════════════════════════════════════════════════════╝\n');
-                    qrcode.generate(qr, { small: true });
-                    console.log('\n💡 WhatsApp → Dispositivos Conectados → Conectar\n');
+                    console.log('📱 QR Code gerado!');
+                    
+                    // Enviar QR Code para o callback (frontend)
+                    if (this.qrCodeCallback) {
+                        this.qrCodeCallback(qr);
+                    }
                 }
 
+                // CONECTADO
                 if (connection === 'open') {
                     console.log('\n╔════════════════════════════════════════════════════╗');
                     console.log('║  🤖 BOT WHATSAPP CONECTADO E PRONTO! 🚀          ║');
@@ -70,8 +85,14 @@ class WhatsAppService {
                     this.isReady = true;
                     this.isConnecting = false;
                     this.reconnectAttempts = 0;
+
+                    // Chamar callback de conexão
+                    if (this.connectedCallback) {
+                        this.connectedCallback();
+                    }
                 }
 
+                // DESCONECTADO
                 if (connection === 'close') {
                     this.isReady = false;
                     this.isConnecting = false;
@@ -194,6 +215,8 @@ class WhatsAppService {
             this.isReady = false;
             this.isConnecting = false;
             this.reconnectAttempts = 0;
+            this.qrCodeCallback = null;
+            this.connectedCallback = null;
             console.log('🔌 Bot desconectado.');
         }
     }
