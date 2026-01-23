@@ -1,10 +1,11 @@
-// src/components/modals/ConnectBotModal.tsx - COM QR CODE NA TELA
+// src/components/modals/ConnectBotModal.tsx
+// ⚠️ ESTE ARQUIVO É DO FRONTEND (REACT) - NÃO COLOQUE NO BACKEND!
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Loader2, MessageCircle, Send, CheckCircle, X } from 'lucide-react';
 import { whatsappService } from '@/api/services/whatsapp.service';
 import { useToast } from '@/hooks/use-toast';
-import QRCode from 'react-qr-code'; // Instalar: npm install react-qr-code
+import QRCode from 'react-qr-code';
 
 interface ConnectBotModalProps {
   open: boolean;
@@ -19,6 +20,20 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
   const [selectedPlatform, setSelectedPlatform] = useState<'whatsapp' | 'telegram' | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const { toast } = useToast();
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Limpar intervalos ao desmontar
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   // Resetar ao abrir
   useEffect(() => {
@@ -26,6 +41,15 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
       setStep('choose');
       setSelectedPlatform(null);
       setQrCode(null);
+      
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
     }
   }, [open]);
 
@@ -40,27 +64,35 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
       return;
     }
 
-    // CONECTAR WHATSAPP
     setStep('connecting');
     
     try {
-      // Iniciar conexão
       await whatsappService.connectBot();
       
-      // Polling para pegar QR Code
-      const pollInterval = setInterval(async () => {
+      const checkStatus = async () => {
         try {
           const status = await whatsappService.getStatus();
           
-          // Se recebeu QR Code
+          console.log('📊 Status polling:', status);
+          
           if (status.qrCode && !status.conectado) {
+            console.log('✅ QR Code recebido!');
             setQrCode(status.qrCode);
             setStep('qrcode');
           }
           
-          // Se conectou
           if (status.conectado) {
-            clearInterval(pollInterval);
+            console.log('✅ Bot conectado!');
+            
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            if (timeoutRef.current) {
+              clearTimeout(timeoutRef.current);
+              timeoutRef.current = null;
+            }
+            
             setStep('connected');
             
             setTimeout(() => {
@@ -69,13 +101,19 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
             }, 1500);
           }
         } catch (error) {
-          console.error('Erro no polling:', error);
+          console.error('❌ Erro no polling:', error);
         }
-      }, 2000);
+      };
 
-      // Timeout de 2 minutos
-      setTimeout(() => {
-        clearInterval(pollInterval);
+      await checkStatus();
+      pollIntervalRef.current = setInterval(checkStatus, 2000);
+
+      timeoutRef.current = setTimeout(() => {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+        
         if (step !== 'connected') {
           toast({
             title: "Tempo esgotado",
@@ -83,10 +121,22 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
             variant: "destructive"
           });
           setStep('choose');
+          setQrCode(null);
         }
       }, 120000);
 
     } catch (error: any) {
+      console.error('❌ Erro ao conectar:', error);
+      
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      
       toast({
         title: "Erro ao conectar",
         description: error.message || "Não foi possível iniciar a conexão.",
@@ -96,19 +146,29 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
     }
   };
 
+  const handleClose = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    
+    onClose();
+  };
+
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleClose}
       />
       
-      {/* Modal */}
       <div className="relative bg-background border rounded-lg shadow-lg w-full max-w-md p-6 z-10">
-        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold">Conectar Bot</h2>
@@ -117,17 +177,15 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-sm opacity-70 hover:opacity-100 transition-opacity"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Content */}
         {step === 'choose' && (
           <div className="grid grid-cols-2 gap-4 py-4">
-            {/* WhatsApp */}
             <div
               className="cursor-pointer border rounded-lg p-6 flex flex-col items-center gap-3 hover:border-green-500 transition-all"
               onClick={() => handleSelectPlatform('whatsapp')}
@@ -141,7 +199,6 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
               </div>
             </div>
 
-            {/* Telegram */}
             <div
               className="cursor-pointer border rounded-lg p-6 flex flex-col items-center gap-3 hover:border-blue-500 transition-all opacity-50"
               onClick={() => handleSelectPlatform('telegram')}
@@ -202,7 +259,7 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
         {step === 'choose' && (
           <div className="flex justify-end mt-4">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="px-4 py-2 text-sm rounded-md hover:bg-muted transition-colors"
             >
               Cancelar

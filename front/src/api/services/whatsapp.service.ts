@@ -1,7 +1,7 @@
-// src/api/services/whatsapp.service.ts - CORRIGIDO
+// src/api/services/whatsapp.service.ts
+// VERSÃO SIMPLIFICADA COM FETCH DIRETO
 
-import apiClient from '@/api/client';
-import type { ApiResponse } from '@/types/api.types';
+const API_BASE = 'http://localhost:3001';
 
 export interface WhatsAppGroup {
   id: string;
@@ -13,6 +13,7 @@ export interface WhatsAppStatus {
   conectado: boolean;
   status: 'online' | 'offline';
   clientReady: boolean;
+  qrCode?: string;
 }
 
 export interface SendOffersPayload {
@@ -32,68 +33,89 @@ export interface SendOffersResponse {
 }
 
 class WhatsAppService {
-  private readonly BASE_PATH = '/api/divulgacao'; // ✅ CORRIGIDO
+  private readonly BASE_PATH = '/api/divulgacao';
 
   async connectBot(): Promise<{ success: boolean; message: string }> {
-    const response = await apiClient.post<{ success: boolean; message: string }>(
-      `${this.BASE_PATH}/conectar-bot`
-    );
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/conectar-bot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
     
-    if (!response.success) {
-      throw new Error(response.error || 'Erro ao conectar bot');
+    const data = await response.json();
+    console.log('🔌 Connect Response:', data);
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Erro ao conectar bot');
     }
     
-    return response.data!;
+    return data;
   }
 
   async getStatus(): Promise<WhatsAppStatus> {
-    const response = await apiClient.get<WhatsAppStatus>(`${this.BASE_PATH}/status-bot`);
-    return response.data || { conectado: false, status: 'offline', clientReady: false };
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/status-bot`);
+    const data = await response.json();
+    
+    console.log('📊 Status Response:', data);
+    
+    return {
+      conectado: data.conectado || false,
+      status: data.status || 'offline',
+      clientReady: data.clientReady || false,
+      qrCode: data.qrCode || undefined
+    };
   }
 
   async listGroups(): Promise<WhatsAppGroup[]> {
-    const response = await apiClient.get<{ success: boolean; grupos: WhatsAppGroup[] }>(
-      `${this.BASE_PATH}/listar-grupos`
-    );
-    return response.data?.grupos || [];
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/listar-grupos`);
+    const data = await response.json();
+    return data.grupos || [];
   }
 
   async sendOffers(payload: SendOffersPayload): Promise<SendOffersResponse> {
-    const response = await apiClient.post<SendOffersResponse>(
-      `${this.BASE_PATH}/enviar-ofertas`,
-      payload
-    );
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/enviar-ofertas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     
-    if (!response.success) {
-      throw new Error(response.error || 'Erro ao enviar ofertas');
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Erro ao enviar ofertas');
     }
     
-    return response.data!;
+    return data;
   }
 
   async sendTest(grupoId: string): Promise<SendOffersResponse> {
-    const response = await apiClient.post<SendOffersResponse>(
-      `${this.BASE_PATH}/enviar-teste`,
-      { grupoId }
-    );
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/enviar-teste`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grupoId })
+    });
     
-    if (!response.success) {
-      throw new Error(response.error || 'Erro ao enviar teste');
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Erro ao enviar teste');
     }
     
-    return response.data!;
+    return data;
   }
 
   async disconnectBot(): Promise<{ success: boolean; message: string }> {
-    const response = await apiClient.post<{ success: boolean; message: string }>(
-      `${this.BASE_PATH}/desconectar-bot`
-    );
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/desconectar-bot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
     
-    if (!response.success) {
-      throw new Error(response.error || 'Erro ao desconectar bot');
+    const data = await response.json();
+    
+    if (!data.success) {
+      throw new Error(data.error || 'Erro ao desconectar bot');
     }
     
-    return response.data!;
+    return data;
   }
 }
 
