@@ -189,3 +189,15 @@ pnpm-lock.yaml
 # *.avi
 # *.pdf
 # *.psd
+
+# ═══════════════════════════════════════════════════════════════
+# 📱 WHATSAPP BOT - AUTENTICAÇÃO (BAILEYS)
+# ═══════════════════════════════════════════════════════════════
+
+# Pasta de autenticação do Baileys
+baileys_auth/
+.baileys_auth/
+
+# Sessões antigas do whatsapp-web.js (se existirem)
+.wwebjs_auth/
+.wwebjs_cache/

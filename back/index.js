@@ -28,13 +28,19 @@ app.get('/api/health', (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────
-// 🔥 ROTAS DE PRODUTOS (AGORA EXISTEM)
+// 🔥 ROTAS DE PRODUTOS
 // ──────────────────────────────────────────────────────────
 const productRoutes = require('./routes/products.routes');
 app.use('/api/products', productRoutes);
 
 // ──────────────────────────────────────────────────────────
-// SCRAPING (SSE)
+// 📱 ROTAS DE DIVULGAÇÃO (WHATSAPP BOT)
+// ──────────────────────────────────────────────────────────
+const divulgacaoRoutes = require('./routes/divulgacao.routes');
+app.use('/api/divulgacao', divulgacaoRoutes);
+
+// ──────────────────────────────────────────────────────────
+// 🔍 SCRAPING (SSE)
 // ──────────────────────────────────────────────────────────
 const scrapingRoutes = require('./routes/scraping.routes');
 app.use('/api/scraping', scrapingRoutes);
@@ -55,15 +61,32 @@ app.use('/api/scraping', scrapingRoutes);
 
     const PORT = process.env.PORT || 3001;
 
-    app.listen(PORT, () => {
+    app.listen(PORT, async () => {
       console.log('╔════════════════════════════════════════════════════╗');
       console.log(`║  ✅ Servidor rodando na porta ${PORT}              ║`);
       console.log('╚════════════════════════════════════════════════════╝');
       console.log(`\n📡 API disponível em: http://localhost:${PORT}`);
       console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
       console.log(`📦 Produtos: http://localhost:${PORT}/api/products`);
-      console.log(`🚀 Scraping SSE: http://localhost:${PORT}/api/scraping/start`);
+      console.log(`🔍 Scraping SSE: http://localhost:${PORT}/api/scraping/start`);
+      console.log(`📱 Divulgação: http://localhost:${PORT}/api/divulgacao`);
       console.log(`🌐 CORS: Habilitado para todas as origens\n`);
+
+      // ──────────────────────────────────────────────────────────
+      // 🤖 INICIALIZAR WHATSAPP BOT
+      // ──────────────────────────────────────────────────────────
+      console.log('╔════════════════════════════════════════════════════╗');
+      console.log('║     🤖 INICIALIZANDO WHATSAPP BOT...             ║');
+      console.log('╚════════════════════════════════════════════════════╝\n');
+      
+      try {
+        const whatsappService = require('./services/WhatsAppService');
+        await whatsappService.initialize();
+        console.log('\n✅ WhatsApp Bot inicializado com sucesso!\n');
+      } catch (error) {
+        console.error('⚠️ Erro ao inicializar WhatsApp Bot:', error.message);
+        console.log('💡 O bot pode ser inicializado manualmente via API\n');
+      }
     });
 
   } catch (error) {
