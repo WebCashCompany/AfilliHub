@@ -1,8 +1,8 @@
-// src/lib/priceUtils.ts - UTILITÁRIO CENTRALIZADO DE PREÇOS
+// src/lib/priceUtils.ts - CORRIGIDO DEFINITIVAMENTE
 
 /**
  * Converte preço de centavos para formato brasileiro
- * @param cents - Valor em centavos (ex: 20359 = R$ 203,59)
+ * @param cents - Valor em centavos (ex: 1296 = R$ 12,96)
  */
 export function formatCurrency(cents: number): string {
   if (!cents) return 'R$ 0,00';
@@ -15,77 +15,94 @@ export function formatCurrency(cents: number): string {
   });
 }
 
-// ✅ ALIAS para compatibilidade com código existente
 export const formatCurrencyFromCents = formatCurrency;
 
 /**
  * Converte qualquer formato de preço para centavos
- * Detecta automaticamente se está em centavos, reais, ou string formatada
+ * REGRA: Strings sem separador decimal do ML/Scrapers JÁ ESTÃO EM CENTAVOS
  */
 export function parsePriceToCents(value: any): number {
   if (!value) return 0;
   
-  // Se já é número
+  // ========================================
+  // NÚMEROS
+  // ========================================
   if (typeof value === 'number') {
-    // Se for menor que 1000, assume que está em reais (ex: 203.59)
-    // Se for maior, assume que está em centavos (ex: 20359)
-    return value < 1000 ? Math.round(value * 100) : value;
+    // Números pequenos < 100 provavelmente são reais
+    if (value < 100) {
+      return Math.round(value * 100);
+    }
+    // Números >= 100 já são centavos
+    return Math.round(value);
   }
   
-  // Se é string
+  // ========================================
+  // STRINGS
+  // ========================================
   let str = String(value).trim();
   
-  // Remove R$, espaços
-  str = str.replace(/R\$/g, '').replace(/\s/g, '');
+  // Remove "R$" e espaços
+  str = str.replace(/R\$/gi, '').replace(/\s+/g, '');
+  
+  if (!str) return 0;
   
   const hasComma = str.includes(',');
   const hasDot = str.includes('.');
   
-  // Caso 1: Sem separador decimal → está em centavos
-  // "20359" → 20359
+  // ----------------------------------------
+  // CASO 1: SEM SEPARADOR (ML/Scrapers)
+  // ----------------------------------------
+  // "1296" → 1296 REAIS → 129600 centavos
+  // "503" → 503 REAIS → 50300 centavos
   if (!hasComma && !hasDot) {
-    return parseInt(str) || 0;
+    const num = parseInt(str) || 0;
+    // Sempre multiplica por 100 (está em reais)
+    return num * 100;
   }
   
-  // Caso 2: Tem vírgula e ponto → formato brasileiro
-  // "20.359,00" → remove ponto, troca vírgula por ponto → 20359.00 → *100
+  // ----------------------------------------
+  // CASO 2: COM VÍRGULA E PONTO
+  // ----------------------------------------
   if (hasComma && hasDot) {
-    const lastComma = str.lastIndexOf(',');
-    const lastDot = str.lastIndexOf('.');
+    const lastCommaIndex = str.lastIndexOf(',');
+    const lastDotIndex = str.lastIndexOf('.');
     
-    if (lastComma > lastDot) {
-      // "20.359,00" → "20359.00"
+    if (lastCommaIndex > lastDotIndex) {
       str = str.replace(/\./g, '').replace(',', '.');
     } else {
-      // "20,359.00" → "20359.00"
       str = str.replace(/,/g, '');
     }
-  } 
-  // Caso 3: Só tem vírgula → decimal brasileiro
-  // "203,59" → "203.59"
-  else if (hasComma) {
+    
+    const num = parseFloat(str);
+    return Math.round(num * 100);
+  }
+  
+  // ----------------------------------------
+  // CASO 3: SÓ VÍRGULA (decimal BR)
+  // ----------------------------------------
+  if (hasComma) {
     str = str.replace(',', '.');
+    const num = parseFloat(str);
+    return Math.round(num * 100);
   }
-  // Caso 4: Só tem ponto → pode ser decimal ou milhar
-  // "203.59" (decimal) ou "1.234" (milhar)
-  else if (hasDot) {
+  
+  // ----------------------------------------
+  // CASO 4: SÓ PONTO
+  // ----------------------------------------
+  if (hasDot) {
     const parts = str.split('.');
-    // Se tem 2 casas depois do ponto, é decimal
-    if (parts.length === 2 && parts[1].length === 2) {
-      // "203.59" → mantém
-    } 
-    // Se tem mais de 2 pontos ou 3+ casas, é milhar
-    else if (parts.length > 2 || (parts.length === 2 && parts[1].length >= 3)) {
-      // "1.234" ou "1.234.567" → remove pontos
-      str = str.replace(/\./g, '');
+    
+    if (parts.length === 2 && parts[1].length <= 2) {
+      const num = parseFloat(str);
+      return Math.round(num * 100);
     }
+    
+    str = str.replace(/\./g, '');
+    const num = parseFloat(str);
+    return Math.round(num * 100);
   }
   
-  const parsed = parseFloat(str);
-  if (isNaN(parsed)) return 0;
-  
-  // Se o valor é menor que 1000, está em reais → converte para centavos
-  return parsed < 1000 ? Math.round(parsed * 100) : Math.round(parsed);
+  return 0;
 }
 
 /**
@@ -97,7 +114,7 @@ export function calculateDiscount(oldPriceCents: number, newPriceCents: number):
 }
 
 /**
- * Extrai preço atual de um produto (prioriza campos do scraper)
+ * Extrai preço atual de um produto
  */
 export function getCurrentPrice(product: any): number {
   return parsePriceToCents(
@@ -109,7 +126,7 @@ export function getCurrentPrice(product: any): number {
 }
 
 /**
- * Extrai preço antigo de um produto (prioriza campos do scraper)
+ * Extrai preço antigo de um produto
  */
 export function getOldPrice(product: any): number {
   return parsePriceToCents(
@@ -122,10 +139,10 @@ export function getOldPrice(product: any): number {
 }
 
 /**
- * Retorna desconto do produto (prioriza o campo desconto do banco)
+ * Retorna desconto do produto
  */
 export function getDiscount(product: any): number {
-  // ✅ PRIORIDADE 1: Usar desconto que veio do banco (SEMPRE)
+  // Prioridade 1: desconto do banco
   if (product.desconto) {
     const str = String(product.desconto).replace('%', '').trim();
     const parsed = parseInt(str);
@@ -138,7 +155,7 @@ export function getDiscount(product: any): number {
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
   
-  // ✅ PRIORIDADE 2: Só calcula se NÃO tem desconto no banco
+  // Prioridade 2: calcular
   const currentPrice = getCurrentPrice(product);
   const oldPrice = getOldPrice(product);
   

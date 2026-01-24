@@ -1,4 +1,4 @@
-// src/pages/ProductsPage.tsx - CORRIGIDO COMPLETAMENTE
+// src/pages/ProductsPage.tsx - USANDO PRICEUTILS CORRETO
 
 import { useState, useMemo } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -47,71 +47,10 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { formatNumber, Marketplace, ProductStatus } from '@/lib/mockData';
 import { productsService } from '@/api/services/products.service';
+// ✅ IMPORTAR AS FUNÇÕES CORRETAS DO PRICEUTILS
+import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib/priceUtils';
 
 type CleanupType = 'all' | 'marketplace' | 'old' | 'selected';
-
-// ═══════════════════════════════════════════════════════════
-// 🔧 FUNÇÕES AUXILIARES DE CONVERSÃO
-// ═══════════════════════════════════════════════════════════
-
-/**
- * Converte valores em centavos para formato de moeda brasileira
- * @param value - Valor em centavos (ex: 6678) ou string (ex: "6678")
- * @returns String formatada (ex: "R$ 66,78")
- */
-function formatCurrencyFromCents(value: number | string | undefined | null): string {
-  if (!value) return 'R$ 0,00';
-  
-  let cents = 0;
-  
-  if (typeof value === 'string') {
-    // Remove tudo exceto números
-    const cleaned = value.replace(/\D/g, '');
-    cents = parseInt(cleaned) || 0;
-  } else {
-    cents = value;
-  }
-  
-  // Converte centavos para reais
-  const reais = cents / 100;
-  
-  return reais.toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
-
-/**
- * Extrai valor numérico de qualquer formato de preço
- * @param price - Preço em qualquer formato
- * @returns Valor em centavos
- */
-function parsePriceToCents(price: any): number {
-  if (!price) return 0;
-  
-  // Se já é número, retorna direto
-  if (typeof price === 'number') {
-    // Se for muito pequeno (< 1000), assume que está em reais
-    return price < 1000 ? price * 100 : price;
-  }
-  
-  // Se é string, remove tudo exceto números
-  const cleaned = String(price).replace(/\D/g, '');
-  return parseInt(cleaned) || 0;
-}
-
-/**
- * Calcula o desconto percentual entre dois valores
- * @param oldPrice - Preço antigo em centavos
- * @param newPrice - Preço novo em centavos
- * @returns Desconto em percentual (0-100)
- */
-function calculateDiscount(oldPrice: number, newPrice: number): number {
-  if (!oldPrice || !newPrice || oldPrice <= newPrice) return 0;
-  return Math.round(((oldPrice - newPrice) / oldPrice) * 100);
-}
 
 export function ProductsPage() {
   const { products, deleteProducts, refreshProducts, isLoading } = useDashboard();
@@ -357,43 +296,21 @@ export function ProductsPage() {
 
                 <TableBody>
                   {paginatedProducts.map(product => {
-                    // ═══════════════════════════════════════════════════════════
-                    // 🔥 CONVERSÃO DE PREÇOS - PRIORIZA CAMPOS DO SCRAPER
-                    // ═══════════════════════════════════════════════════════════
+                    // ✅ USAR AS FUNÇÕES CORRETAS DO PRICEUTILS
+                    const productAny = product as any;
                     
-                    const rawProduct = product as any;
+                    const currentPriceCents = getCurrentPrice(productAny);
+                    const oldPriceCents = getOldPrice(productAny);
+                    const discount = getDiscount(productAny);
                     
-                    // PRIORIDADE 1: Campos do scraper (preco_para, preco_de)
-                    let currentPriceCents = 0;
-                    let oldPriceCents = 0;
+                    const formattedCurrentPrice = formatCurrency(currentPriceCents);
+                    const formattedOldPrice = formatCurrency(oldPriceCents);
                     
-                    if (rawProduct.preco_para) {
-                      currentPriceCents = parsePriceToCents(rawProduct.preco_para);
-                    } else if (rawProduct.price) {
-                      currentPriceCents = parsePriceToCents(rawProduct.price);
-                    }
-                    
-                    if (rawProduct.preco_de) {
-                      oldPriceCents = parsePriceToCents(rawProduct.preco_de);
-                    } else if (rawProduct.oldPrice) {
-                      oldPriceCents = parsePriceToCents(rawProduct.oldPrice);
-                    } else if (rawProduct.preco_anterior) {
-                      oldPriceCents = parsePriceToCents(rawProduct.preco_anterior);
-                    }
-                    
-                    // Calcula desconto real
-                    const discountPercent = calculateDiscount(oldPriceCents, currentPriceCents);
-                    
-                    // Formata preços
-                    const formattedCurrentPrice = formatCurrencyFromCents(currentPriceCents);
-                    const formattedOldPrice = formatCurrencyFromCents(oldPriceCents);
-                    
-                    // Imagem
                     const imageSrc =
-                      rawProduct.imagem ||
-                      rawProduct.image ||
-                      rawProduct.thumbnail ||
-                      rawProduct.images?.[0] ||
+                      productAny.imagem ||
+                      productAny.image ||
+                      productAny.thumbnail ||
+                      productAny.images?.[0] ||
                       '/no-image.png';
 
                     return (
@@ -418,10 +335,10 @@ export function ProductsPage() {
 
                         <TableCell>
                           <p className="font-medium truncate max-w-xs">
-                            {rawProduct.nome || product.name}
+                            {productAny.nome || product.name}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {rawProduct.categoria || product.category}
+                            {productAny.categoria || product.category}
                           </p>
                         </TableCell>
 
@@ -445,9 +362,9 @@ export function ProductsPage() {
                         </TableCell>
 
                         <TableCell className="text-right">
-                          {discountPercent > 0 ? (
+                          {discount > 0 ? (
                             <span className="text-green-600 font-semibold">
-                              -{discountPercent}%
+                              -{discount}%
                             </span>
                           ) : (
                             <span className="text-muted-foreground text-sm">
