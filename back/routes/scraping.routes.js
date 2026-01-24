@@ -1,40 +1,32 @@
-// backend/routes/scraping.routes.js - SSE COM PRODUTOS EM TEMPO REAL
+// backend/routes/scraping.routes.js - FIX DEFINITIVO
 
 const express = require('express');
 const router = express.Router();
 const ScrapingService = require('../scraper/services/ScrapingService');
 const { v4: uuidv4 } = require('uuid');
 
-// ═══════════════════════════════════════════════════════════
-// GERENCIAMENTO DE SESSÕES E CLIENTES SSE
-// ═══════════════════════════════════════════════════════════
-
 const activeScrapingSessions = new Map();
 const sseClients = new Map();
 
-// Helper para enviar evento SSE
 function sendSSE(sessionId, data) {
   const clients = sseClients.get(sessionId) || [];
+  
+  if (clients.length === 0) {
+    console.log(`⚠️ Nenhum cliente SSE conectado`);
+    return;
+  }
+  
   const message = `data: ${JSON.stringify(data)}\n\n`;
+  console.log(`📡 SSE: ${data.progress}% | ${data.itemsCollected}/${data.totalItems} itens`);
   
-  console.log(`📡 Enviando SSE para ${clients.length} cliente(s):`, {
-    progress: data.progress,
-    items: data.itemsCollected,
-    lastProducts: data.lastProducts?.length || 0
-  });
-  
-  clients.forEach(client => {
+  clients.forEach((client) => {
     try {
       client.write(message);
     } catch (error) {
-      console.error('❌ Erro ao enviar SSE:', error);
+      console.error(`❌ Erro SSE:`, error.message);
     }
   });
 }
-
-// ═══════════════════════════════════════════════════════════
-// 🚀 POST /api/scraping/start - INICIAR SCRAPING
-// ═══════════════════════════════════════════════════════════
 
 router.post('/start', async (req, res) => {
   try {
@@ -54,7 +46,6 @@ router.post('/start', async (req, res) => {
     const totalItems = enabledMarketplaces
       .reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
 
-    // Inicializar sessão
     activeScrapingSessions.set(sessionId, {
       status: 'running',
       progress: 0,
@@ -65,7 +56,8 @@ router.post('/start', async (req, res) => {
       lastProducts: []
     });
 
-    // ✅ ENVIAR RESPOSTA IMEDIATA
+    console.log('✅ Scraping iniciado - Session ID:', sessionId);
+    
     res.json({
       success: true,
       data: {
@@ -75,7 +67,6 @@ router.post('/start', async (req, res) => {
       }
     });
 
-    // ✅ PROCESSAR SCRAPING EM BACKGROUND
     (async () => {
       const scrapingService = new ScrapingService();
       let totalCollected = 0;
@@ -96,7 +87,7 @@ router.post('/start', async (req, res) => {
           itemsCollected: totalCollected,
           totalItems,
           status: 'running',
-          lastProducts: allLastProducts.slice(-3) // Últimos 3 produtos
+          lastProducts: allLastProducts.slice(-3)
         });
 
         try {
@@ -107,16 +98,26 @@ router.post('/start', async (req, res) => {
             filters: mpConfig.filters || {}
           };
 
-          console.log(`\n📦 Coletando ${marketplaceName}...`);
+          console.log(`\n📦 Iniciando coleta: ${marketplaceName}`);
 
-          // Coletar produtos
           const products = await scrapingService.collectFromMarketplace(
             marketplaceName,
             options
           );
 
-          if (products && products.length > 0) {
-            // ✅ ADICIONAR PRODUTOS À LISTA DE "ÚLTIMOS"
+          console.log(`\n✅ Coleta finalizada!`);
+          console.log(`   Produtos retornados: ${products ? products.length : 0}`);
+          console.log(`   Tipo: ${typeof products}`);
+          console.log(`   É array? ${Array.isArray(products)}`);
+
+          // ✅ VALIDAÇÃO CRÍTICA
+          const hasProducts = products && Array.isArray(products) && products.length > 0;
+          
+          console.log(`   Tem produtos válidos? ${hasProducts}`);
+
+          if (hasProducts) {
+            console.log(`\n🎯 ENTRANDO NO PROCESSAMENTO!`);
+            
             const formattedProducts = products.slice(0, 5).map(p => ({
               name: p.nome || 'Produto',
               image: p.imagem || '',
@@ -126,9 +127,10 @@ router.post('/start', async (req, res) => {
             }));
 
             allLastProducts.push(...formattedProducts);
-            session.lastProducts = allLastProducts.slice(-5); // Mantém últimos 5
+            session.lastProducts = allLastProducts.slice(-5);
 
-            // Salvar no banco
+            console.log(`💾 Salvando ${products.length} produtos...`);
+
             const marketplaceCode = getMarketplaceCode(marketplaceName);
             const result = await scrapingService.saveProducts(products, marketplaceCode);
             
@@ -138,10 +140,17 @@ router.post('/start', async (req, res) => {
 
             const newProgress = Math.min(Math.round((processedItems / totalItems) * 100), 100);
             
+            // ✅ ATUALIZAR SESSÃO
             session.progress = newProgress;
             session.itemsCollected = totalCollected;
 
-            // ✅ ENVIAR UPDATE COM PRODUTOS
+            console.log(`\n🔄 SESSION ATUALIZADA!`);
+            console.log(`   Progress: ${session.progress}%`);
+            console.log(`   Items: ${session.itemsCollected}/${session.totalItems}`);
+            console.log(`   Last Products: ${session.lastProducts.length}`);
+
+            console.log(`\n📤 Enviando SSE...`);
+
             sendSSE(sessionId, {
               progress: newProgress,
               currentMarketplace: marketplaceName,
@@ -155,8 +164,24 @@ router.post('/start', async (req, res) => {
                 total: products.length,
               }
             });
+
+            console.log(`✅ SSE Enviado!\n`);
           } else {
+            console.log(`\n⚠️ NÃO TEM PRODUTOS VÁLIDOS, pulando...`);
             processedItems += mpConfig.quantity;
+            
+            // ✅ ATUALIZAR PROGRESSO MESMO SEM PRODUTOS
+            const newProgress = Math.min(Math.round((processedItems / totalItems) * 100), 100);
+            session.progress = newProgress;
+            
+            sendSSE(sessionId, {
+              progress: newProgress,
+              currentMarketplace: marketplaceName,
+              itemsCollected: totalCollected,
+              totalItems,
+              status: 'running',
+              lastProducts: session.lastProducts
+            });
           }
 
           await new Promise(resolve => setTimeout(resolve, 1000));
@@ -167,12 +192,14 @@ router.post('/start', async (req, res) => {
         }
       }
 
-      // ✅ FINALIZAR SESSÃO
+      // ✅ FINALIZAR
       const session = activeScrapingSessions.get(sessionId);
       if (session) {
         session.status = 'completed';
         session.progress = 100;
         session.completedAt = new Date();
+
+        console.log(`\n🎉 FINALIZANDO: ${totalCollected} produtos coletados`);
 
         sendSSE(sessionId, {
           progress: 100,
@@ -184,7 +211,6 @@ router.post('/start', async (req, res) => {
           message: `✅ Scraping concluído! ${totalCollected} produtos coletados.`
         });
 
-        // Limpar após 5 minutos
         setTimeout(() => {
           activeScrapingSessions.delete(sessionId);
           sseClients.delete(sessionId);
@@ -201,37 +227,40 @@ router.post('/start', async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════
-// 📡 GET /api/scraping/progress/:sessionId - SSE ENDPOINT
-// ═══════════════════════════════════════════════════════════
-
 router.get('/progress/:sessionId', (req, res) => {
   const { sessionId } = req.params;
+
+  console.log('📡 SSE conectando:', sessionId.substring(0, 8));
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('X-Accel-Buffering', 'no');
 
-  // Adicionar cliente
+  res.flushHeaders();
+
   if (!sseClients.has(sessionId)) {
     sseClients.set(sessionId, []);
   }
   sseClients.get(sessionId).push(res);
 
-  console.log(`📡 Cliente SSE conectado para sessão ${sessionId}`);
+  console.log(`✅ Cliente conectado (total: ${sseClients.get(sessionId).length})`);
 
-  // Enviar estado inicial
   const session = activeScrapingSessions.get(sessionId);
+  
   if (session) {
-    res.write(`data: ${JSON.stringify({
+    const initialData = {
       progress: session.progress,
       currentMarketplace: session.currentMarketplace,
       itemsCollected: session.itemsCollected,
       totalItems: session.totalItems,
       status: session.status,
       lastProducts: session.lastProducts || []
-    })}\n\n`);
+    };
+    
+    res.write(`data: ${JSON.stringify(initialData)}\n\n`);
   } else {
     res.write(`data: ${JSON.stringify({
       progress: 0,
@@ -241,20 +270,14 @@ router.get('/progress/:sessionId', (req, res) => {
     })}\n\n`);
   }
 
-  // Cleanup ao desconectar
   req.on('close', () => {
     const clients = sseClients.get(sessionId) || [];
     const index = clients.indexOf(res);
     if (index > -1) {
       clients.splice(index, 1);
-      console.log(`📡 Cliente SSE desconectado de ${sessionId}`);
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════
-// 📊 GET /api/scraping/status - OBTER STATUS
-// ═══════════════════════════════════════════════════════════
 
 router.get('/status', (req, res) => {
   const sessions = Array.from(activeScrapingSessions.entries());
@@ -266,12 +289,19 @@ router.get('/status', (req, res) => {
         status: 'idle',
         progress: 0,
         itemsCollected: 0,
-        totalItems: 0
+        totalItems: 0,
+        currentMarketplace: null,
+        lastProducts: []
       }
     });
   }
 
-  const [sessionId, session] = sessions[sessions.length - 1];
+  const runningSessions = sessions.filter(([_, s]) => s.status === 'running');
+  const targetSession = runningSessions.length > 0 
+    ? runningSessions[runningSessions.length - 1]
+    : sessions[sessions.length - 1];
+  
+  const [sessionId, session] = targetSession;
   
   res.json({
     success: true,
@@ -286,10 +316,6 @@ router.get('/status', (req, res) => {
     }
   });
 });
-
-// ═══════════════════════════════════════════════════════════
-// HELPER FUNCTIONS
-// ═══════════════════════════════════════════════════════════
 
 function getMarketplaceCode(marketplaceName) {
   const codes = {

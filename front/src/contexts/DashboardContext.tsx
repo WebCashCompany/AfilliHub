@@ -192,17 +192,30 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   // SSE - SERVER SENT EVENTS
   // ═══════════════════════════════════════════════════════════
   const connectSSE = (sessionId: string) => {
-    disconnectSSE(); // Garante que não há conexão anterior
+    disconnectSSE();
 
     const sseUrl = `${API_BASE_URL}/api/scraping/progress/${sessionId}`;
-    console.log('📡 Conectando SSE:', sseUrl);
+    console.log('🔌 CONECTANDO SSE:', sseUrl);
+    console.log('🔌 Session ID:', sessionId);
 
     const eventSource = new EventSource(sseUrl);
+
+    eventSource.onopen = () => {
+      console.log('✅ SSE CONECTADO COM SUCESSO!');
+      // ✅ INICIA POLLING PARALELO COMO BACKUP
+      startBackupPolling();
+    };
 
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('📊 SSE recebido:', data);
+        console.log('📊 ===== SSE RECEBIDO =====');
+        console.log('Progress:', data.progress);
+        console.log('Items:', data.itemsCollected, '/', data.totalItems);
+        console.log('Marketplace:', data.currentMarketplace);
+        console.log('Last Products:', data.lastProducts?.length || 0);
+        console.log('Status:', data.status);
+        console.log('==========================');
 
         setScrapingStatus({
           isRunning: data.status === 'running',
@@ -215,9 +228,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           lastProducts: data.lastProducts || []
         });
 
-        // Se completou, desconecta
         if (data.status === 'completed') {
-          console.log('✅ Scraping concluído via SSE');
+          console.log('🎉 SCRAPING COMPLETADO!');
           
           toast({
             title: "✅ Automação concluída!",
@@ -235,16 +247,160 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           }, 1000);
         }
       } catch (error) {
-        console.error('❌ Erro ao processar SSE:', error);
+        console.error('❌ ERRO AO PROCESSAR SSE:', error, event.data);
       }
     };
 
     eventSource.onerror = (error) => {
-      console.error('❌ Erro SSE:', error);
-      disconnectSSE();
+      console.error('❌ ERRO SSE CONNECTION:', error);
+      console.error('ReadyState:', eventSource.readyState);
+      
+      if (eventSource.readyState === EventSource.CLOSED) {
+        console.log('⚠️ SSE fechou, usando apenas polling...');
+        disconnectSSE();
+      }
     };
 
     eventSourceRef.current = eventSource;
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // BACKUP POLLING (roda em paralelo ao SSE)
+  // ═══════════════════════════════════════════════════════════
+  const backupPollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startBackupPolling = () => {
+    if (backupPollingRef.current) {
+      clearInterval(backupPollingRef.current);
+    }
+
+    console.log('🔄 Iniciando polling de backup (1s)...');
+
+    backupPollingRef.current = setInterval(async () => {
+      try {
+        const url = `${API_BASE_URL}/api/scraping/status`;
+        const response = await fetch(url);
+        const json = await response.json();
+
+        if (json.success && json.data) {
+          const data = json.data;
+          
+          console.log('📡 BACKUP POLLING:', {
+            progress: data.progress,
+            items: data.itemsCollected,
+            status: data.status
+          });
+
+          setScrapingStatus({
+            isRunning: data.status === 'running',
+            progress: data.progress || 0,
+            currentMarketplace: data.currentMarketplace 
+              ? normalizeMarketplace(data.currentMarketplace)
+              : null,
+            itemsCollected: data.itemsCollected || 0,
+            totalItems: data.totalItems || 0,
+            lastProducts: data.lastProducts || []
+          });
+
+          if (data.status === 'completed') {
+            stopBackupPolling();
+            disconnectSSE();
+            
+            toast({
+              title: "✅ Automação concluída!",
+              description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
+              className: "bg-green-600 text-white border-none shadow-lg",
+            });
+
+            setTimeout(() => {
+              refreshProducts();
+              setTimeout(() => {
+                setScrapingStatus(getInitialScrapingStatus());
+              }, 3000);
+            }, 1000);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Erro backup polling:', error);
+      }
+    }, 1000); // ✅ Polling agressivo de 1 segundo
+  };
+
+  const stopBackupPolling = () => {
+    if (backupPollingRef.current) {
+      clearInterval(backupPollingRef.current);
+      backupPollingRef.current = null;
+      console.log('⏹️ Backup polling parado');
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // FALLBACK POLLING (caso SSE falhe)
+  // ═══════════════════════════════════════════════════════════
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startFallbackPolling = (sessionId: string) => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    console.log('🔄 Iniciando fallback polling...');
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const url = `${API_BASE_URL}/api/scraping/status`;
+        const response = await fetch(url);
+        const json = await response.json();
+
+        if (json.success && json.data) {
+          const data = json.data;
+          
+          console.log('📡 POLLING:', {
+            progress: data.progress,
+            items: data.itemsCollected,
+            status: data.status
+          });
+
+          setScrapingStatus({
+            isRunning: data.status === 'running',
+            progress: data.progress || 0,
+            currentMarketplace: data.currentMarketplace 
+              ? normalizeMarketplace(data.currentMarketplace)
+              : null,
+            itemsCollected: data.itemsCollected || 0,
+            totalItems: data.totalItems || 0,
+            lastProducts: data.lastProducts || []
+          });
+
+          if (data.status === 'completed') {
+            stopFallbackPolling();
+            
+            toast({
+              title: "✅ Automação concluída!",
+              description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
+              className: "bg-green-600 text-white border-none shadow-lg",
+            });
+
+            setTimeout(() => {
+              refreshProducts();
+              setTimeout(() => {
+                setScrapingStatus(getInitialScrapingStatus());
+              }, 3000);
+            }, 1000);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Erro polling:', error);
+      }
+    }, 2000);
+  };
+
+  const stopFallbackPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      console.log('⏹️ Polling parado');
+    }
   };
 
   const disconnectSSE = () => {
@@ -253,6 +409,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       eventSourceRef.current = null;
       console.log('⏹️ SSE desconectado');
     }
+    stopFallbackPolling();
+    stopBackupPolling();
   };
 
   const deleteProducts = async (ids: string[]) => {
@@ -321,16 +479,23 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       };
 
       console.log('🚀 Iniciando scraping...');
+      console.log('📦 Payload:', payload);
+      
       const res = await scrapingService.start(payload);
+
+      console.log('📥 Resposta do backend:', res);
 
       if (res.success && res.data?.sessionId) {
         sessionIdRef.current = res.data.sessionId;
-        console.log('✅ Scraping iniciado, conectando SSE...');
+        console.log('✅ Session ID recebida:', res.data.sessionId);
+        console.log('🔌 Tentando conectar SSE...');
         connectSSE(res.data.sessionId);
         return res.data.total || 0;
+      } else {
+        console.warn('⚠️ Sem sessionId, usando fallback polling');
+        startFallbackPolling('latest');
+        return res.data?.total || 0;
       }
-
-      throw new Error('Scraping falhou');
     } catch (error) {
       console.error('❌ Erro ao iniciar scraping:', error);
       setScrapingStatus(getInitialScrapingStatus());
