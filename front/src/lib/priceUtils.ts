@@ -2,7 +2,7 @@
 
 /**
  * Converte preço de centavos para formato brasileiro
- * @param cents - Valor em centavos (ex: 1296 = R$ 12,96)
+ * @param cents - Valor em centavos (ex: 3824 = R$ 38,24)
  */
 export function formatCurrency(cents: number): string {
   if (!cents) return 'R$ 0,00';
@@ -19,7 +19,7 @@ export const formatCurrencyFromCents = formatCurrency;
 
 /**
  * Converte qualquer formato de preço para centavos
- * REGRA: Strings sem separador decimal do ML/Scrapers JÁ ESTÃO EM CENTAVOS
+ * REGRA DEFINITIVA: Números SEM separador decimal JÁ ESTÃO EM CENTAVOS
  */
 export function parsePriceToCents(value: any): number {
   if (!value) return 0;
@@ -28,11 +28,8 @@ export function parsePriceToCents(value: any): number {
   // NÚMEROS
   // ========================================
   if (typeof value === 'number') {
-    // Números pequenos < 100 provavelmente são reais
-    if (value < 100) {
-      return Math.round(value * 100);
-    }
-    // Números >= 100 já são centavos
+    // Se já é um número inteiro sem decimais, assumir que está em centavos
+    // Exemplo: 3824 → 3824 centavos = R$ 38,24
     return Math.round(value);
   }
   
@@ -50,25 +47,16 @@ export function parsePriceToCents(value: any): number {
   const hasDot = str.includes('.');
   
   // ----------------------------------------
-  // CASO 1: SEM SEPARADOR (ML/Scrapers)
+  // CASO 1: SEM SEPARADOR DECIMAL
   // ----------------------------------------
-  // Detecta automaticamente:
-  // - Números GRANDES (>=5000): estão em centavos
-  //   "20359" → 20359 centavos → R$ 203,59
-  //   "7461" → 7461 centavos → R$ 74,61
-  // - Números PEQUENOS (<5000): estão em reais
-  //   "1296" → 1296 reais → R$ 1.296,00
-  //   "503" → 503 reais → R$ 503,00
+  // Se não tem vírgula nem ponto, JÁ ESTÁ EM CENTAVOS
+  // Exemplos:
+  //   "3824" → 3824 centavos → R$ 38,24
+  //   "17091" → 17091 centavos → R$ 170,91
+  //   "382400" → 382400 centavos → R$ 3.824,00
   if (!hasComma && !hasDot) {
     const num = parseInt(str) || 0;
-    
-    // Se for >= 5000, já está em centavos (Magalu/valores altos)
-    if (num >= 5000) {
-      return num;
-    }
-    
-    // Se for < 5000, está em reais (Mercado Livre/valores baixos)
-    return num * 100;
+    return num; // JÁ ESTÁ EM CENTAVOS
   }
   
   // ----------------------------------------
@@ -78,9 +66,12 @@ export function parsePriceToCents(value: any): number {
     const lastCommaIndex = str.lastIndexOf(',');
     const lastDotIndex = str.lastIndexOf('.');
     
+    // Formato BR: 1.234,56
     if (lastCommaIndex > lastDotIndex) {
       str = str.replace(/\./g, '').replace(',', '.');
-    } else {
+    } 
+    // Formato US: 1,234.56
+    else {
       str = str.replace(/,/g, '');
     }
     
@@ -91,6 +82,7 @@ export function parsePriceToCents(value: any): number {
   // ----------------------------------------
   // CASO 3: SÓ VÍRGULA (decimal BR)
   // ----------------------------------------
+  // Exemplos: "38,24" → 3824 centavos
   if (hasComma) {
     str = str.replace(',', '.');
     const num = parseFloat(str);
@@ -103,11 +95,13 @@ export function parsePriceToCents(value: any): number {
   if (hasDot) {
     const parts = str.split('.');
     
+    // Se tiver 2 casas após o ponto, é decimal: "38.24" → 3824 centavos
     if (parts.length === 2 && parts[1].length <= 2) {
       const num = parseFloat(str);
       return Math.round(num * 100);
     }
     
+    // Senão é separador de milhar: "3.824" → 3824 reais → 382400 centavos
     str = str.replace(/\./g, '');
     const num = parseFloat(str);
     return Math.round(num * 100);
@@ -128,25 +122,44 @@ export function calculateDiscount(oldPriceCents: number, newPriceCents: number):
  * Extrai preço atual de um produto
  */
 export function getCurrentPrice(product: any): number {
-  return parsePriceToCents(
-    product.preco_para || 
-    product.price || 
-    product.preco || 
-    0
-  );
+  const rawPrice = product.preco_para || product.price || product.preco || 0;
+  const marketplace = product.marketplace || '';
+  
+  // Se for número sem separador decimal
+  if (typeof rawPrice === 'number' && Number.isInteger(rawPrice)) {
+    // Magalu retorna em centavos
+    if (marketplace === 'magalu') {
+      return rawPrice;
+    }
+    // Mercado Livre retorna em reais
+    if (marketplace === 'mercadolivre') {
+      return rawPrice * 100;
+    }
+  }
+  
+  return parsePriceToCents(rawPrice);
 }
 
 /**
  * Extrai preço antigo de um produto
  */
 export function getOldPrice(product: any): number {
-  return parsePriceToCents(
-    product.preco_de || 
-    product.oldPrice || 
-    product.preco_anterior || 
-    product.preco_old ||
-    0
-  );
+  const rawPrice = product.preco_de || product.oldPrice || product.preco_anterior || product.preco_old || 0;
+  const marketplace = product.marketplace || '';
+  
+  // Se for número sem separador decimal
+  if (typeof rawPrice === 'number' && Number.isInteger(rawPrice)) {
+    // Magalu retorna em centavos
+    if (marketplace === 'magalu') {
+      return rawPrice;
+    }
+    // Mercado Livre retorna em reais
+    if (marketplace === 'mercadolivre') {
+      return rawPrice * 100;
+    }
+  }
+  
+  return parsePriceToCents(rawPrice);
 }
 
 /**
@@ -175,4 +188,4 @@ export function getDiscount(product: any): number {
   }
   
   return 0;
-}
+} 

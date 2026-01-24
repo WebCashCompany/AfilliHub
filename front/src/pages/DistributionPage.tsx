@@ -1,4 +1,4 @@
-// src/pages/DistributionPage.tsx - COM AUTOMAÇÃO FUNCIONAL
+// src/pages/DistributionPage.tsx - COM AUTOMAÇÃO FUNCIONAL E PREÇOS CORRETOS
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -77,7 +77,6 @@ export function DistributionPage() {
   const [showGroupsModal, setShowGroupsModal] = useState(false);
   const [showAutomationModal, setShowAutomationModal] = useState(false);
   
-  // ✅ ESTADOS DA AUTOMAÇÃO
   const [automationActive, setAutomationActive] = useState(() => {
     const saved = localStorage.getItem('distribution_automation_active');
     return saved === 'true';
@@ -100,13 +99,11 @@ export function DistributionPage() {
     return null;
   });
 
-  // ✅ ÍNDICE DO PRODUTO ATUAL NA AUTOMAÇÃO
   const [currentProductIndex, setCurrentProductIndex] = useState(() => {
     const saved = localStorage.getItem('automation_current_index');
     return saved ? parseInt(saved) : 0;
   });
 
-  // ✅ TOTAL DE ENVIOS REALIZADOS
   const [totalSent, setTotalSent] = useState(() => {
     const saved = localStorage.getItem('automation_total_sent');
     return saved ? parseInt(saved) : 0;
@@ -175,20 +172,17 @@ export function DistributionPage() {
     return Array.from(marketplaces).sort();
   }, [products]);
 
-  // ✅ FILTRAR PRODUTOS ELEGÍVEIS PARA AUTOMAÇÃO
   const getEligibleProducts = () => {
     if (!automationConfig) return [];
 
     let eligible = activeProducts;
 
-    // Filtrar por categorias
     if (!automationConfig.categories.includes('all')) {
       eligible = eligible.filter(p => 
         automationConfig.categories.includes(p.category)
       );
     }
 
-    // Filtrar por marketplaces
     if (!automationConfig.marketplaces.includes('all')) {
       eligible = eligible.filter(p => 
         automationConfig.marketplaces.includes(p.marketplace)
@@ -223,16 +217,15 @@ export function DistributionPage() {
   };
 
   const generateMessagePreview = (product: Product) => {
-    const productAny = product as any;
-    const currentPriceCents = getCurrentPrice(productAny);
-    const oldPriceCents = getOldPrice(productAny);
-    const discount = getDiscount(productAny);
+    const currentPriceCents = getCurrentPrice(product);
+    const oldPriceCents = getOldPrice(product);
+    const discount = getDiscount(product);
     
     const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!* 🔥`;
-    const link = productAny.link_afiliado || productAny.affiliateLink || 'Link indisponível';
+    const link = (product as any).link_afiliado || product.affiliateLink || 'Link indisponível';
     
     return `${message}\n\n` +
-           `📦 *${productAny.nome || product.name}*\n\n` +
+           `📦 *${(product as any).nome || product.name}*\n\n` +
            `💰 De: ~${formatCurrency(oldPriceCents)}~\n` +
            `💵 Por: *${formatCurrency(currentPriceCents)}*\n` +
            `📉 Desconto: *${discount}%*\n\n` +
@@ -304,7 +297,6 @@ export function DistributionPage() {
     }
   };
 
-  // ✅ FUNÇÃO QUE ENVIA AUTOMATICAMENTE UM PRODUTO
   const sendNextProduct = async () => {
     if (sendingRef.current || automationPaused || !automationActive) return;
     
@@ -324,12 +316,10 @@ export function DistributionPage() {
     setIsAutoSending(true);
 
     try {
-      // ✅ Pegar o produto atual
       const productToSend = eligibleProducts[currentProductIndex];
       
       console.log(`🤖 Enviando produto ${currentProductIndex + 1}/${eligibleProducts.length}:`, productToSend.name);
 
-      // ✅ Enviar para todos os grupos
       for (const group of whatsappGroups) {
         const ofertas = [{
           nome: productToSend.name,
@@ -344,7 +334,6 @@ export function DistributionPage() {
         });
       }
 
-      // ✅ Incrementar contador
       setTotalSent(prev => prev + 1);
 
       toast({
@@ -352,7 +341,6 @@ export function DistributionPage() {
         description: `${productToSend.name} enviado para ${whatsappGroups.length} grupo${whatsappGroups.length > 1 ? 's' : ''}`,
       });
 
-      // ✅ Avançar para o próximo produto (sequencial, sem repetir)
       setCurrentProductIndex(prevIndex => {
         const nextIndex = (prevIndex + 1) % eligibleProducts.length;
         return nextIndex;
@@ -375,7 +363,7 @@ export function DistributionPage() {
     setAutomationConfig(config);
     setAutomationActive(true);
     setAutomationPaused(false);
-    setCurrentProductIndex(0); // Reinicia do zero
+    setCurrentProductIndex(0);
     
     toast({
       title: "Automação iniciada!",
@@ -502,9 +490,9 @@ export function DistributionPage() {
 
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {filteredProducts.map((product) => {
-                const productAny = product as any;
-                const currentPriceCents = getCurrentPrice(productAny);
-                const discount = getDiscount(productAny);
+                const currentPriceCents = getCurrentPrice(product);
+                const oldPriceCents = getOldPrice(product);
+                const discount = getDiscount(product);
                 
                 return (
                   <div 
@@ -521,20 +509,29 @@ export function DistributionPage() {
                       onCheckedChange={() => handleSelect(product.id)}
                     />
                     <img 
-                      src={productAny.imagem || product.image} 
-                      alt={productAny.nome || product.name}
+                      src={(product as any).imagem || product.image} 
+                      alt={(product as any).nome || product.name}
                       className="w-12 h-12 rounded-lg object-cover"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{productAny.nome || product.name}</p>
+                      <p className="font-medium truncate">{(product as any).nome || product.name}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <MarketplaceBadge marketplace={product.marketplace} size="sm" showLabel={false} />
-                        <span className="text-sm text-status-active font-medium">
-                          {formatCurrency(currentPriceCents)}
-                        </span>
-                        <Badge variant="secondary" className="text-xs">
-                          -{discount}%
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          {oldPriceCents > 0 && oldPriceCents > currentPriceCents && (
+                            <span className="text-xs line-through text-muted-foreground">
+                              {formatCurrency(oldPriceCents)}
+                            </span>
+                          )}
+                          <span className="text-sm text-status-active font-medium">
+                            {formatCurrency(currentPriceCents)}
+                          </span>
+                        </div>
+                        {discount > 0 && (
+                          <Badge variant="secondary" className="text-xs">
+                            -{discount}%
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </div>
