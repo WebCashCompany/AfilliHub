@@ -1,14 +1,4 @@
-// backend/routes/scraping.routes.js
-
-/**
- * ═══════════════════════════════════════════════════════════
- * ROTAS DE SCRAPING COM SSE (Server-Sent Events)
- * ═══════════════════════════════════════════════════════════
- * 
- * ✅ SSE para progresso em tempo real
- * ✅ Gerenciamento de sessões
- * ✅ Endpoint de status
- */
+// backend/routes/scraping.routes.js - SSE COM PRODUTOS EM TEMPO REAL
 
 const express = require('express');
 const router = express.Router();
@@ -20,12 +10,18 @@ const { v4: uuidv4 } = require('uuid');
 // ═══════════════════════════════════════════════════════════
 
 const activeScrapingSessions = new Map();
-const sseClients = new Map(); // sessionId -> array de response objects
+const sseClients = new Map();
 
 // Helper para enviar evento SSE
 function sendSSE(sessionId, data) {
   const clients = sseClients.get(sessionId) || [];
   const message = `data: ${JSON.stringify(data)}\n\n`;
+  
+  console.log(`📡 Enviando SSE para ${clients.length} cliente(s):`, {
+    progress: data.progress,
+    items: data.itemsCollected,
+    lastProducts: data.lastProducts?.length || 0
+  });
   
   clients.forEach(client => {
     try {
@@ -44,9 +40,6 @@ router.post('/start', async (req, res) => {
   try {
     const { marketplaces, minDiscount, maxPrice, filters } = req.body;
 
-    console.log('📥 Payload recebido:', JSON.stringify(req.body, null, 2));
-
-    // Validação básica
     if (!marketplaces || typeof marketplaces !== 'object') {
       return res.status(400).json({
         success: false,
@@ -54,10 +47,7 @@ router.post('/start', async (req, res) => {
       });
     }
 
-    // Gerar ID único para esta sessão
     const sessionId = uuidv4();
-
-    // Calcular total de itens
     const enabledMarketplaces = Object.entries(marketplaces)
       .filter(([_, cfg]) => cfg.enabled);
     
@@ -72,9 +62,10 @@ router.post('/start', async (req, res) => {
       itemsCollected: 0,
       totalItems,
       startedAt: new Date(),
+      lastProducts: []
     });
 
-    // ✅ ENVIAR RESPOSTA IMEDIATA (não aguardar scraping)
+    // ✅ ENVIAR RESPOSTA IMEDIATA
     res.json({
       success: true,
       data: {
@@ -89,42 +80,55 @@ router.post('/start', async (req, res) => {
       const scrapingService = new ScrapingService();
       let totalCollected = 0;
       let processedItems = 0;
+      const allLastProducts = [];
 
       for (const [marketplaceName, mpConfig] of enabledMarketplaces) {
         if (!mpConfig.enabled) continue;
 
         const session = activeScrapingSessions.get(sessionId);
-        if (!session) break; // Sessão cancelada
+        if (!session) break;
 
-        // Atualizar marketplace atual
         session.currentMarketplace = marketplaceName;
+        
         sendSSE(sessionId, {
           progress: Math.round((processedItems / totalItems) * 100),
           currentMarketplace: marketplaceName,
           itemsCollected: totalCollected,
           totalItems,
-          status: 'running'
+          status: 'running',
+          lastProducts: allLastProducts.slice(-3) // Últimos 3 produtos
         });
 
         try {
-          // 🔥 MONTA OPTIONS COM FILTROS COMPLETOS DO MARKETPLACE
           const options = {
             minDiscount: mpConfig.filters?.minDiscount || minDiscount || 30,
             limit: mpConfig.quantity,
             maxPrice: mpConfig.filters?.maxPrice || maxPrice,
-            filters: mpConfig.filters || {} // 🆕 Passa TODOS os filtros
+            filters: mpConfig.filters || {}
           };
 
-          console.log(`\n📦 Opções para ${marketplaceName}:`, JSON.stringify(options, null, 2));
+          console.log(`\n📦 Coletando ${marketplaceName}...`);
 
-          // Coletar produtos deste marketplace
+          // Coletar produtos
           const products = await scrapingService.collectFromMarketplace(
             marketplaceName,
             options
           );
 
-          // Salvar produtos
           if (products && products.length > 0) {
+            // ✅ ADICIONAR PRODUTOS À LISTA DE "ÚLTIMOS"
+            const formattedProducts = products.slice(0, 5).map(p => ({
+              name: p.nome || 'Produto',
+              image: p.imagem || '',
+              price: parsePriceToCents(p.preco_para || 0),
+              oldPrice: parsePriceToCents(p.preco_de || 0),
+              discount: parseInt(p.desconto) || 0
+            }));
+
+            allLastProducts.push(...formattedProducts);
+            session.lastProducts = allLastProducts.slice(-5); // Mantém últimos 5
+
+            // Salvar no banco
             const marketplaceCode = getMarketplaceCode(marketplaceName);
             const result = await scrapingService.saveProducts(products, marketplaceCode);
             
@@ -132,18 +136,19 @@ router.post('/start', async (req, res) => {
             totalCollected += saved;
             processedItems += mpConfig.quantity;
 
-            // Atualizar progresso
             const newProgress = Math.min(Math.round((processedItems / totalItems) * 100), 100);
             
             session.progress = newProgress;
             session.itemsCollected = totalCollected;
 
+            // ✅ ENVIAR UPDATE COM PRODUTOS
             sendSSE(sessionId, {
               progress: newProgress,
               currentMarketplace: marketplaceName,
               itemsCollected: totalCollected,
               totalItems,
               status: 'running',
+              lastProducts: session.lastProducts,
               lastMarketplaceResult: {
                 marketplace: marketplaceName,
                 collected: saved,
@@ -154,7 +159,6 @@ router.post('/start', async (req, res) => {
             processedItems += mpConfig.quantity;
           }
 
-          // Delay entre marketplaces
           await new Promise(resolve => setTimeout(resolve, 1000));
 
         } catch (error) {
@@ -176,10 +180,11 @@ router.post('/start', async (req, res) => {
           itemsCollected: totalCollected,
           totalItems,
           status: 'completed',
+          lastProducts: session.lastProducts,
           message: `✅ Scraping concluído! ${totalCollected} produtos coletados.`
         });
 
-        // Manter sessão por 5 minutos antes de limpar
+        // Limpar após 5 minutos
         setTimeout(() => {
           activeScrapingSessions.delete(sessionId);
           sseClients.delete(sessionId);
@@ -203,17 +208,18 @@ router.post('/start', async (req, res) => {
 router.get('/progress/:sessionId', (req, res) => {
   const { sessionId } = req.params;
 
-  // Headers SSE
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  // Adicionar cliente à lista
+  // Adicionar cliente
   if (!sseClients.has(sessionId)) {
     sseClients.set(sessionId, []);
   }
   sseClients.get(sessionId).push(res);
+
+  console.log(`📡 Cliente SSE conectado para sessão ${sessionId}`);
 
   // Enviar estado inicial
   const session = activeScrapingSessions.get(sessionId);
@@ -223,7 +229,15 @@ router.get('/progress/:sessionId', (req, res) => {
       currentMarketplace: session.currentMarketplace,
       itemsCollected: session.itemsCollected,
       totalItems: session.totalItems,
-      status: session.status
+      status: session.status,
+      lastProducts: session.lastProducts || []
+    })}\n\n`);
+  } else {
+    res.write(`data: ${JSON.stringify({
+      progress: 0,
+      status: 'idle',
+      itemsCollected: 0,
+      totalItems: 0
     })}\n\n`);
   }
 
@@ -233,16 +247,16 @@ router.get('/progress/:sessionId', (req, res) => {
     const index = clients.indexOf(res);
     if (index > -1) {
       clients.splice(index, 1);
+      console.log(`📡 Cliente SSE desconectado de ${sessionId}`);
     }
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-// 📊 GET /api/scraping/status - OBTER STATUS (fallback polling)
+// 📊 GET /api/scraping/status - OBTER STATUS
 // ═══════════════════════════════════════════════════════════
 
 router.get('/status', (req, res) => {
-  // Retorna a sessão mais recente
   const sessions = Array.from(activeScrapingSessions.entries());
   
   if (sessions.length === 0) {
@@ -268,6 +282,7 @@ router.get('/status', (req, res) => {
       currentMarketplace: session.currentMarketplace,
       itemsCollected: session.itemsCollected,
       totalItems: session.totalItems,
+      lastProducts: session.lastProducts || []
     }
   });
 });
@@ -284,6 +299,15 @@ function getMarketplaceCode(marketplaceName) {
     'shopee': 'shopee',
   };
   return codes[marketplaceName] || marketplaceName.toUpperCase();
+}
+
+function parsePriceToCents(price) {
+  if (typeof price === 'number') return Math.round(price * 100);
+  if (typeof price === 'string') {
+    const cleaned = price.replace(/[^\d,]/g, '').replace(',', '.');
+    return Math.round(parseFloat(cleaned) * 100);
+  }
+  return 0;
 }
 
 module.exports = router;

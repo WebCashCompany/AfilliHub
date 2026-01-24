@@ -1,4 +1,4 @@
-// src/contexts/DashboardContext.tsx - COM POLLING REAL DO BACKEND
+// src/contexts/DashboardContext.tsx - COM SSE E SYNC REAL
 
 import React, {
   createContext,
@@ -39,6 +39,7 @@ interface DashboardContextType {
   refreshProducts: () => Promise<void>;
   runScraping: (config: ScrapingConfig) => Promise<number>;
   scrapingStatus: ScrapingStatus;
+  resetScrapingStatus: () => void;
 }
 
 export interface ScrapingConfig {
@@ -59,9 +60,27 @@ export interface ScrapingStatus {
   currentMarketplace: Marketplace | null;
   itemsCollected: number;
   totalItems: number;
+  lastProducts?: Array<{
+    name: string;
+    image: string;
+    price: number;
+    oldPrice: number;
+    discount: number;
+  }>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
+
+function getInitialScrapingStatus(): ScrapingStatus {
+  return {
+    isRunning: false,
+    progress: 0,
+    currentMarketplace: null,
+    itemsCollected: 0,
+    totalItems: 0,
+    lastProducts: []
+  };
+}
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
@@ -70,31 +89,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [categoryMetrics, setCategoryMetrics] = useState<CategoryMetrics[]>([]);
   const [marketplaceMetrics, setMarketplaceMetrics] = useState<MarketplaceMetrics[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
-  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>(() => {
-    const saved = localStorage.getItem('scraping_status');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Erro ao carregar scraping status:', e);
-      }
-    }
-    return {
-      isRunning: false,
-      progress: 0,
-      currentMarketplace: null,
-      itemsCollected: 0,
-      totalItems: 0
-    };
-  });
+  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>(getInitialScrapingStatus);
 
   const { toast } = useToast();
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    localStorage.setItem('scraping_status', JSON.stringify(scrapingStatus));
-  }, [scrapingStatus]);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
 
   function normalizeMarketplace(mp: string): Marketplace {
     const map: Record<string, Marketplace> = {
@@ -105,6 +104,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       magalu: 'magalu'
     };
     return map[mp] || 'mercadolivre';
+  }
+
+  function formatNumber(num: number): string {
+    return new Intl.NumberFormat('pt-BR').format(num);
   }
 
   const refreshProducts = async () => {
@@ -151,11 +154,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setCategoryMetrics(generateCategoryMetrics(formatted));
       setMarketplaceMetrics(generateMarketplaceMetrics(formatted));
     } catch (err) {
-      toast({
-        title: 'Erro ao carregar produtos',
-        description: 'Falha ao buscar /api/products',
-        variant: 'destructive'
-      });
+      console.error('Erro ao carregar produtos:', err);
     } finally {
       setIsLoading(false);
     }
@@ -163,12 +162,98 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshProducts();
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
+    
+    // Verifica status inicial do backend
+    const checkInitialStatus = async () => {
+      try {
+        const response = await scrapingService.getStatus();
+        if (response.success && response.data) {
+          const backendStatus = response.data as any;
+          
+          if (backendStatus.status === 'running' && backendStatus.sessionId) {
+            console.log('🔄 Scraping ativo detectado, conectando SSE...');
+            sessionIdRef.current = backendStatus.sessionId;
+            connectSSE(backendStatus.sessionId);
+          }
+        }
+      } catch (error) {
+        console.log('Backend não disponível ou sem scraping ativo');
       }
     };
+
+    checkInitialStatus();
+
+    return () => {
+      disconnectSSE();
+    };
   }, []);
+
+  // ═══════════════════════════════════════════════════════════
+  // SSE - SERVER SENT EVENTS
+  // ═══════════════════════════════════════════════════════════
+  const connectSSE = (sessionId: string) => {
+    disconnectSSE(); // Garante que não há conexão anterior
+
+    const sseUrl = `${API_BASE_URL}/api/scraping/progress/${sessionId}`;
+    console.log('📡 Conectando SSE:', sseUrl);
+
+    const eventSource = new EventSource(sseUrl);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('📊 SSE recebido:', data);
+
+        setScrapingStatus({
+          isRunning: data.status === 'running',
+          progress: data.progress || 0,
+          currentMarketplace: data.currentMarketplace 
+            ? normalizeMarketplace(data.currentMarketplace)
+            : null,
+          itemsCollected: data.itemsCollected || 0,
+          totalItems: data.totalItems || 0,
+          lastProducts: data.lastProducts || []
+        });
+
+        // Se completou, desconecta
+        if (data.status === 'completed') {
+          console.log('✅ Scraping concluído via SSE');
+          
+          toast({
+            title: "✅ Automação concluída!",
+            description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
+            className: "bg-green-600 text-white border-none shadow-lg",
+          });
+
+          setTimeout(() => {
+            disconnectSSE();
+            refreshProducts();
+            
+            setTimeout(() => {
+              setScrapingStatus(getInitialScrapingStatus());
+            }, 3000);
+          }, 1000);
+        }
+      } catch (error) {
+        console.error('❌ Erro ao processar SSE:', error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('❌ Erro SSE:', error);
+      disconnectSSE();
+    };
+
+    eventSourceRef.current = eventSource;
+  };
+
+  const disconnectSSE = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+      console.log('⏹️ SSE desconectado');
+    }
+  };
 
   const deleteProducts = async (ids: string[]) => {
     await fetch(`${API_BASE_URL}/api/products/bulk-delete`, {
@@ -185,71 +270,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return 0;
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // POLLING EM TEMPO REAL DO STATUS DO BACKEND
-  // ═══════════════════════════════════════════════════════════
-  const startStatusPolling = () => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-    }
-
-    console.log('🔄 Iniciando polling de status do scraping...');
-
-    pollingIntervalRef.current = setInterval(async () => {
-      try {
-        const response = await scrapingService.getStatus();
-        
-        if (response.success && response.data) {
-          const backendStatus = response.data as any;
-          
-          // ✅ MAPEAR STATUS DO BACKEND CORRETAMENTE
-          const isRunning = backendStatus.status === 'running';
-          const isCompleted = backendStatus.status === 'completed';
-          
-          setScrapingStatus(prev => ({
-            isRunning: isRunning,
-            progress: backendStatus.progress || 0,
-            currentMarketplace: backendStatus.currentMarketplace 
-              ? normalizeMarketplace(backendStatus.currentMarketplace)
-              : null,
-            itemsCollected: backendStatus.itemsCollected || 0,
-            totalItems: backendStatus.totalItems || prev.totalItems
-          }));
-
-          // Para o polling se o scraping terminou
-          if (isCompleted && prev.isRunning) {
-            console.log('✅ Scraping finalizado pelo backend, parando polling');
-            stopStatusPolling();
-            
-            // Atualiza produtos após conclusão
-            setTimeout(() => {
-              refreshProducts();
-              
-              // Limpa o status após 3 segundos
-              setTimeout(() => {
-                setScrapingStatus({
-                  isRunning: false,
-                  progress: 0,
-                  currentMarketplace: null,
-                  itemsCollected: 0,
-                  totalItems: 0
-                });
-              }, 3000);
-            }, 1000);
-          }
-        }
-      } catch (error) {
-        console.error('❌ Erro ao buscar status do backend:', error);
-      }
-    }, 2000); // Poll a cada 2 segundos
-  };
-
-  const stopStatusPolling = () => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-      console.log('⏹️ Polling parado');
-    }
+  const resetScrapingStatus = () => {
+    console.log('🔄 Reset manual do status');
+    disconnectSSE();
+    setScrapingStatus(getInitialScrapingStatus());
+    sessionIdRef.current = null;
+    
+    toast({
+      title: "Status resetado",
+      description: "O status de scraping foi reinicializado.",
+    });
   };
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
@@ -261,13 +291,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       .filter(([_, mp]) => mp.enabled)
       .map(([key]) => key as Marketplace);
 
-    // Inicia status local
+    // Estado inicial otimista
     setScrapingStatus({
       isRunning: true,
       progress: 0,
       currentMarketplace: enabledMarketplaces[0] || null,
       itemsCollected: 0,
-      totalItems
+      totalItems,
+      lastProducts: []
     });
 
     try {
@@ -289,28 +320,20 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         filters: config.filters || {}
       };
 
-      // Inicia o scraping no backend
+      console.log('🚀 Iniciando scraping...');
       const res = await scrapingService.start(payload);
 
-      if (res.success) {
-        // ✅ INICIA POLLING EM TEMPO REAL
-        startStatusPolling();
-        
-        return res.data?.total || 0;
+      if (res.success && res.data?.sessionId) {
+        sessionIdRef.current = res.data.sessionId;
+        console.log('✅ Scraping iniciado, conectando SSE...');
+        connectSSE(res.data.sessionId);
+        return res.data.total || 0;
       }
 
       throw new Error('Scraping falhou');
     } catch (error) {
-      stopStatusPolling();
-      
-      setScrapingStatus({
-        isRunning: false,
-        progress: 0,
-        currentMarketplace: null,
-        itemsCollected: 0,
-        totalItems: 0
-      });
-      
+      console.error('❌ Erro ao iniciar scraping:', error);
+      setScrapingStatus(getInitialScrapingStatus());
       throw error;
     }
   };
@@ -328,7 +351,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         runCleanup,
         refreshProducts,
         runScraping,
-        scrapingStatus
+        scrapingStatus,
+        resetScrapingStatus
       }}
     >
       {children}

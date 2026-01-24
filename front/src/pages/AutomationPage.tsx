@@ -1,5 +1,3 @@
-// src/pages/AutomationPage.tsx - COM PERSISTÊNCIA COMPLETA
-
 import { useState, useEffect } from 'react';
 import { useDashboard, ScrapingConfig } from '@/contexts/DashboardContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,10 +8,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
+import { ScrapingLiveProducts } from '@/components/dashboard/ScrapingLiveProducts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Zap, Play, Settings2, Loader2, CheckCircle, Package, AlertCircle, Filter, Search, X } from 'lucide-react';
+import { Zap, Play, Settings2, Loader2, CheckCircle, Package, AlertCircle, Filter, Search, X, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
+
+// ... (resto das interfaces e constantes permanecem iguais)
 
 interface MarketplaceFilters {
   categoria?: string;
@@ -60,10 +61,9 @@ const MERCADOLIVRE_CATEGORIES = [
 ];
 
 export function AutomationPage() {
-  const { runScraping, scrapingStatus, products } = useDashboard();
+  const { runScraping, scrapingStatus, products, resetScrapingStatus } = useDashboard();
   const { toast } = useToast();
 
-  // ✅ CARREGAR CONFIG DO LOCALSTORAGE
   const [config, setConfig] = useState<{
     marketplaces: Record<Marketplace, MarketplaceConfig>;
   }>(() => {
@@ -105,7 +105,6 @@ export function AutomationPage() {
   const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
   const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
 
-  // ✅ SALVAR CONFIG NO LOCALSTORAGE SEMPRE QUE MUDAR
   useEffect(() => {
     localStorage.setItem('automation_config', JSON.stringify(config));
   }, [config]);
@@ -225,11 +224,8 @@ export function AutomationPage() {
   };
 
   const getCategoriesForMarketplace = (mp: Marketplace | null) => {
-    if (mp === 'magalu') {
-      return MAGALU_CATEGORIES;
-    } else if (mp === 'mercadolivre') {
-      return MERCADOLIVRE_CATEGORIES;
-    }
+    if (mp === 'magalu') return MAGALU_CATEGORIES;
+    if (mp === 'mercadolivre') return MERCADOLIVRE_CATEGORIES;
     return [];
   };
 
@@ -279,7 +275,6 @@ export function AutomationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Marketplaces */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {(Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][]).map(([mp, mpConfig]) => (
                 <div 
@@ -316,16 +311,11 @@ export function AutomationPage() {
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label htmlFor={`qty-${mp}`} className="text-sm">
-                        Quantidade
-                      </Label>
-                      <span className="text-sm font-medium text-primary">
-                        {mpConfig.quantity} itens
-                      </span>
+                      <Label htmlFor={`qty-${mp}`} className="text-sm">Quantidade</Label>
+                      <span className="text-sm font-medium text-primary">{mpConfig.quantity} itens</span>
                     </div>
                     <div className="flex items-center gap-3">
                       <Slider
-                        id={`qty-slider-${mp}`}
                         min={1}
                         max={300}
                         step={1}
@@ -356,19 +346,12 @@ export function AutomationPage() {
                         <span className="text-muted-foreground">Preço máx:</span>
                         <span className="font-medium">R$ {(mpConfig.filters.maxPrice || 20000).toLocaleString('pt-BR')}</span>
                       </div>
-                      {hasActiveFilters(mpConfig.filters) && (
-                        <div className="text-xs text-primary font-medium flex items-center gap-1">
-                          <Filter className="w-3 h-3" />
-                          Filtros personalizados ativos
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
               ))}
             </div>
 
-            {/* Summary */}
             <div className="flex items-center justify-between p-4 bg-muted rounded-xl">
               <div>
                 <span className="text-sm text-muted-foreground">Total a coletar:</span>
@@ -396,13 +379,28 @@ export function AutomationPage() {
           </CardContent>
         </Card>
 
-        {/* Status Panel */}
+        {/* STATUS PANEL */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Zap className="w-5 h-5 text-primary" />
-              Status da Execução
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-primary" />
+                Status da Execução
+              </CardTitle>
+              
+              {/* ✅ BOTÃO DE RESET DE EMERGÊNCIA */}
+              {scrapingStatus.isRunning && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={resetScrapingStatus}
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  title="Resetar status (usar se travou)"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-6">
             {scrapingStatus.isRunning ? (
@@ -454,18 +452,28 @@ export function AutomationPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-3 bg-secondary rounded-lg">
-                    <p className="text-2xl font-bold text-primary">
-                      {formatNumber(scrapingStatus.itemsCollected)}
-                    </p>
+                    <p className="text-2xl font-bold text-primary">{formatNumber(scrapingStatus.itemsCollected)}</p>
                     <p className="text-xs text-muted-foreground">Coletados</p>
                   </div>
                   <div className="text-center p-3 bg-secondary rounded-lg">
-                    <p className="text-2xl font-bold text-primary">
-                      {formatNumber(scrapingStatus.totalItems)}
-                    </p>
+                    <p className="text-2xl font-bold text-primary">{formatNumber(scrapingStatus.totalItems)}</p>
                     <p className="text-xs text-muted-foreground">Esperados</p>
                   </div>
                 </div>
+
+                {/* ✅ PRODUTOS EM TEMPO REAL */}
+                {scrapingStatus.lastProducts && scrapingStatus.lastProducts.length > 0 && (
+                  <div className="mt-4">
+                    <ScrapingLiveProducts products={scrapingStatus.lastProducts} />
+                  </div>
+                )}
+                
+                {/* Debug - remover depois */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="text-xs text-muted-foreground mt-2">
+                    {scrapingStatus.lastProducts?.length || 0} produtos no buffer
+                  </div>
+                )}
 
                 <div className="text-center">
                   <div className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/10 text-blue-600 rounded-lg">
@@ -496,22 +504,6 @@ export function AutomationPage() {
                         <p className="text-[10px] text-muted-foreground">Há 2 horas</p>
                       </div>
                     </div>
-                    <div className="flex items-start gap-3 text-sm">
-                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
-                      <div>
-                        <p className="font-medium">Scraping concluído</p>
-                        <p className="text-muted-foreground text-xs">80 produtos - Amazon</p>
-                        <p className="text-[10px] text-muted-foreground">Há 4 horas</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3 text-sm">
-                      <AlertCircle className="w-4 h-4 text-orange-500 mt-0.5" />
-                      <div>
-                        <p className="font-medium">Limite de requisições</p>
-                        <p className="text-muted-foreground text-xs">Shopee - aguardando 5min</p>
-                        <p className="text-[10px] text-muted-foreground">Ontem</p>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </>
@@ -529,12 +521,11 @@ export function AutomationPage() {
               Filtros - {currentMarketplace && getMarketplaceName(currentMarketplace)}
             </DialogTitle>
             <DialogDescription>
-              Configure filtros específicos para este marketplace. Use os sliders ou digite o valor.
+              Configure filtros específicos para este marketplace.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6 py-4">
-            {/* Filtros Básicos */}
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -575,73 +566,46 @@ export function AutomationPage() {
               </div>
             </div>
 
-            {/* Filtros Avançados */}
             {marketplaceHasAdvancedFilters(currentMarketplace) && (
-              <>
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-                  <div className="space-y-2">
-                    <Label htmlFor="modal-categoria">Categoria</Label>
-                    <select
-                      id="modal-categoria"
-                      value={tempFilters.categoria || ''}
-                      onChange={(e) => handleCategoryChange(e.target.value)}
-                      className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      {getCategoriesForMarketplace(currentMarketplace).map(cat => (
-                        <option key={cat.value} value={cat.value}>
-                          {cat.icon} {cat.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="modal-palavra">Palavra-chave</Label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="modal-palavra"
-                        placeholder={currentMarketplace === 'magalu' ? 'Ex: panela...' : 'Ex: smartphone...'}
-                        value={tempFilters.palavraChave || ''}
-                        onChange={(e) => setTempFilters(prev => ({ ...prev, palavraChave: e.target.value }))}
-                        className="pl-9"
-                      />
-                    </div>
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                <div className="space-y-2">
+                  <Label htmlFor="modal-categoria">Categoria</Label>
+                  <select
+                    id="modal-categoria"
+                    value={tempFilters.categoria || ''}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {getCategoriesForMarketplace(currentMarketplace).map(cat => (
+                      <option key={cat.value} value={cat.value}>
+                        {cat.icon} {cat.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="modal-palavra">Palavra-chave</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="modal-palavra"
+                      placeholder="Ex: smartphone..."
+                      value={tempFilters.palavraChave || ''}
+                      onChange={(e) => setTempFilters(prev => ({ ...prev, palavraChave: e.target.value }))}
+                      className="pl-9"
+                    />
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="modal-frete"
-                    checked={tempFilters.frete_gratis || false}
-                    onCheckedChange={(checked) => setTempFilters(prev => ({ ...prev, frete_gratis: checked as boolean }))}
-                  />
-                  <Label htmlFor="modal-frete" className="cursor-pointer">
-                    🚚 Apenas produtos com frete grátis
-                  </Label>
-                </div>
-
-                {currentMarketplace === 'magalu' && tempFilters.categoryKey && (
-                  <div className="flex items-start gap-2 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
-                    <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5" />
-                    <div className="text-xs text-blue-700 dark:text-blue-400">
-                      <p className="font-medium mb-1">✅ Categoria selecionada</p>
-                      <p>Categoria: <strong>{tempFilters.categoria}</strong> → Backend: <strong>{tempFilters.categoryKey}</strong></p>
-                    </div>
-                  </div>
-                )}
-              </>
+              </div>
             )}
           </div>
 
           <div className="flex gap-3 pt-4 border-t">
             <Button variant="outline" onClick={clearFilters} className="gap-2">
-              <X className="w-4 h-4" />
-              Limpar
+              <X className="w-4 h-4" /> Limpar
             </Button>
             <Button onClick={saveFilters} className="flex-1 gap-2">
-              <CheckCircle className="w-4 h-4" />
-              Salvar Filtros
+              <CheckCircle className="w-4 h-4" /> Salvar Filtros
             </Button>
           </div>
         </DialogContent>
