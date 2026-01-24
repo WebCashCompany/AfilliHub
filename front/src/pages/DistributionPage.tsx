@@ -106,6 +106,28 @@ export function DistributionPage() {
     });
   };
 
+  // ✅ MOVER ESSAS FUNÇÕES PARA ANTES DE handleSend
+  const calculateOldPrice = (product: Product): number => {
+    if (product.discount > 0) {
+      // ✅ FÓRMULA CORRETA: preço atual * (1 + desconto/100) = preço antigo
+      return product.price * (1 + product.discount / 100);
+    }
+    return product.price;
+  };
+
+  const generateMessagePreview = (product: Product) => {
+    const oldPrice = calculateOldPrice(product);
+    const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!* 🔥`;
+    const link = product.affiliateLink || product.link_afiliado || 'Link indisponível';
+    
+    return `${message}\n\n` +
+           `📦 *${product.name}*\n\n` +
+           `💰 De: ~R$ ${oldPrice.toFixed(2).replace('.', ',')}~\n` +
+           `💵 Por: *${formatCurrency(product.price)}*\n` +
+           `📉 Desconto: *${product.discount}%*\n\n` +
+           `🔗 Link: ${link}`;
+  };
+
   const handleSend = async () => {
     if (selectedIds.length === 0) {
       toast({
@@ -141,21 +163,15 @@ export function DistributionPage() {
       // Enviar para WhatsApp
       if (whatsappEnabled) {
         for (const group of whatsappGroups) {
-          // ✅ CORRIGIDO: Incluir imagem nas ofertas
-          const ofertas = selectedProducts.map(p => {
-            // 🔍 DEBUG: Verificar qual link está sendo usado
-            console.log('🔗 Produto:', p.name);
-            console.log('🔗 affiliateLink:', p.affiliateLink);
-            console.log('🔗 link_afiliado:', p.link_afiliado);
-            
-            return {
-              nome: p.name,
-              preco: formatCurrency(p.price),
-              desconto: `-${p.discount}%`,
-              link: p.affiliateLink || p.link_afiliado || 'Link indisponível', // ✅ Tenta ambos os campos
-              imagem: p.image
-            };
-          });
+          // ✅ ENVIA A MENSAGEM COMPLETA DO PREVIEW
+          const ofertas = selectedProducts.map(p => ({
+            nome: p.name,
+            mensagem: generateMessagePreview(p), // ✅ ENVIA A MENSAGEM PRONTA
+            imagem: p.image,
+            link: p.affiliateLink || p.link_afiliado || 'Link indisponível'
+          }));
+
+          console.log('📤 Enviando ofertas:', ofertas);
 
           await whatsappService.sendOffers({
             grupoId: group.id,
@@ -217,26 +233,6 @@ export function DistributionPage() {
       description: "O bot foi desativado com sucesso.",
       variant: "destructive"
     });
-  };
-
-  const calculateOldPrice = (product: Product): number => {
-    if (product.discount > 0) {
-      // ✅ FÓRMULA CORRETA: preço atual * (1 + desconto/100) = preço antigo
-      return product.price * (1 + product.discount / 100);
-    }
-    return product.price;
-  };
-
-  const generateMessagePreview = (product: Product) => {
-    const oldPrice = calculateOldPrice(product);
-    const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!* 🔥`;
-    const link = product.affiliateLink || product.link_afiliado || 'Link indisponível';
-    
-    return `${message}\n\n` +
-           `📦 *${product.name}*\n\n` +
-           `💰 ~R$ ${oldPrice.toFixed(2).replace('.', ',')}~ ➔ *${formatCurrency(product.price)}*\n\n` +
-           `🔗 Link: ${link}\n\n` +
-           `⚡ Aproveite enquanto tem estoque!`;
   };
 
   return (

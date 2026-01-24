@@ -181,29 +181,12 @@ class WhatsAppService {
 
             for (const oferta of ofertas) {
                 try {
-                    console.log('📋 Dados da oferta recebida:', oferta);
+                    console.log('📋 Oferta recebida:', JSON.stringify(oferta, null, 2));
 
-                    // ✅ USA A MENSAGEM EXATAMENTE COMO VEM DO FRONTEND
-                    // Se vier o campo 'mensagem', usa ele. Caso contrário, monta
-                    let mensagem = oferta.mensagem;
-                    
-                    if (!mensagem) {
-                        // Só monta a mensagem se não vier pronta
-                        mensagem = `🔥 *OFERTA IMPERDÍVEL!* 🔥\n\n`;
-                        mensagem += `📦 *${oferta.nome}*\n\n`;
-                        
-                        if (oferta.precoAntigo) {
-                            mensagem += `💰 ~${oferta.precoAntigo}~ ➔ *${oferta.preco}*\n\n`;
-                        } else if (oferta.preco) {
-                            mensagem += `💰 *${oferta.preco}*\n\n`;
-                        }
-                        
-                        if (oferta.link) {
-                            mensagem += `🔗 Link: ${oferta.link}`;
-                        }
-                    }
+                    // ✅ USA A MENSAGEM QUE VEM DO FRONTEND - NÃO CRIA NADA
+                    const mensagem = oferta.mensagem || `Erro: Mensagem não encontrada`;
 
-                    console.log('📝 Mensagem final:', mensagem);
+                    console.log('📝 Mensagem que será enviada:', mensagem);
 
                     // ✅ ENVIAR COM IMAGEM
                     if (oferta.imagem || oferta.image || oferta.foto) {
@@ -217,14 +200,14 @@ class WhatsAppService {
                                 image: imagemBuffer,
                                 caption: mensagem
                             });
-                            console.log(`✅ Oferta enviada COM IMAGEM: ${oferta.nome}`);
+                            console.log(`✅ Oferta enviada COM IMAGEM`);
                         } else {
                             await this.sock.sendMessage(grupoId, { text: mensagem });
-                            console.log(`⚠️ Oferta enviada SEM IMAGEM (erro ao baixar): ${oferta.nome}`);
+                            console.log(`⚠️ Oferta enviada SEM IMAGEM (erro ao baixar)`);
                         }
                     } else {
                         await this.sock.sendMessage(grupoId, { text: mensagem });
-                        console.log(`✅ Oferta enviada (sem imagem): ${oferta.nome}`);
+                        console.log(`✅ Oferta enviada (sem imagem)`);
                     }
 
                     if (ofertas.length > 1) {
@@ -232,7 +215,7 @@ class WhatsAppService {
                     }
 
                 } catch (error) {
-                    console.error(`❌ Erro ao enviar oferta "${oferta.nome}":`, error.message);
+                    console.error(`❌ Erro ao enviar oferta:`, error.message);
                 }
             }
 
