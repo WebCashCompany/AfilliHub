@@ -1,6 +1,6 @@
-// src/pages/DistributionPage.tsx - COM ENVIO DE IMAGENS
+// src/pages/DistributionPage.tsx - COM PERSISTÊNCIA COMPLETA
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency, Product } from '@/lib/mockData';
 import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
+import { useWhatsApp } from '@/contexts/WhatsAppContext';
 
 interface AutomationConfig {
   intervalMinutes: number;
@@ -38,17 +39,40 @@ interface AutomationConfig {
 export function DistributionPage() {
   const { products } = useDashboard();
   const { toast } = useToast();
+  const { status } = useWhatsApp(); // ✅ USA O CONTEXTO
   
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
-  const [whatsappEnabled, setWhatsappEnabled] = useState(true);
-  const [telegramEnabled, setTelegramEnabled] = useState(false);
-  const [botConnected, setBotConnected] = useState(false);
-  const [customMessage, setCustomMessage] = useState('');
+  
+  // ✅ CARREGAR ESTADOS DO LOCALSTORAGE
+  const [whatsappEnabled, setWhatsappEnabled] = useState(() => {
+    const saved = localStorage.getItem('distribution_whatsapp_enabled');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [telegramEnabled, setTelegramEnabled] = useState(() => {
+    const saved = localStorage.getItem('distribution_telegram_enabled');
+    return saved !== null ? saved === 'true' : false;
+  });
+
+  const [customMessage, setCustomMessage] = useState(() => {
+    return localStorage.getItem('distribution_custom_message') || '';
+  });
+
   const [sending, setSending] = useState(false);
   
-  // WhatsApp groups
-  const [whatsappGroups, setWhatsappGroups] = useState<WhatsAppGroup[]>([]);
+  // WhatsApp groups - carregados do contexto
+  const [whatsappGroups, setWhatsappGroups] = useState<WhatsAppGroup[]>(() => {
+    const saved = localStorage.getItem('distribution_whatsapp_groups');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Erro ao carregar grupos salvos:', e);
+      }
+    }
+    return [];
+  });
   
   // Modals
   const [showConnectModal, setShowConnectModal] = useState(false);
@@ -59,6 +83,26 @@ export function DistributionPage() {
   const [automationActive, setAutomationActive] = useState(false);
   const [automationPaused, setAutomationPaused] = useState(false);
   const [automationConfig, setAutomationConfig] = useState<AutomationConfig | null>(null);
+
+  // ✅ SALVAR whatsappEnabled NO LOCALSTORAGE
+  useEffect(() => {
+    localStorage.setItem('distribution_whatsapp_enabled', String(whatsappEnabled));
+  }, [whatsappEnabled]);
+
+  // ✅ SALVAR telegramEnabled NO LOCALSTORAGE
+  useEffect(() => {
+    localStorage.setItem('distribution_telegram_enabled', String(telegramEnabled));
+  }, [telegramEnabled]);
+
+  // ✅ SALVAR customMessage NO LOCALSTORAGE
+  useEffect(() => {
+    localStorage.setItem('distribution_custom_message', customMessage);
+  }, [customMessage]);
+
+  // ✅ SALVAR whatsappGroups NO LOCALSTORAGE
+  useEffect(() => {
+    localStorage.setItem('distribution_whatsapp_groups', JSON.stringify(whatsappGroups));
+  }, [whatsappGroups]);
 
   const activeProducts = products.filter(p => p.status === 'active' || p.status === 'protected');
   
@@ -88,7 +132,6 @@ export function DistributionPage() {
   };
 
   const handleBotConnected = () => {
-    setBotConnected(true);
     setShowConnectModal(false);
     setShowGroupsModal(true);
     
@@ -106,10 +149,8 @@ export function DistributionPage() {
     });
   };
 
-  // ✅ MOVER ESSAS FUNÇÕES PARA ANTES DE handleSend
   const calculateOldPrice = (product: Product): number => {
     if (product.discount > 0) {
-      // ✅ FÓRMULA CORRETA: preço atual * (1 + desconto/100) = preço antigo
       return product.price * (1 + product.discount / 100);
     }
     return product.price;
@@ -160,13 +201,11 @@ export function DistributionPage() {
     setSending(true);
 
     try {
-      // Enviar para WhatsApp
       if (whatsappEnabled) {
         for (const group of whatsappGroups) {
-          // ✅ ENVIA A MENSAGEM COMPLETA DO PREVIEW
           const ofertas = selectedProducts.map(p => ({
             nome: p.name,
-            mensagem: generateMessagePreview(p), // ✅ ENVIA A MENSAGEM PRONTA
+            mensagem: generateMessagePreview(p),
             imagem: p.image,
             link: p.affiliateLink || p.link_afiliado || 'Link indisponível'
           }));
@@ -234,6 +273,9 @@ export function DistributionPage() {
       variant: "destructive"
     });
   };
+
+  // ✅ USAR O STATUS DO CONTEXTO
+  const botConnected = status.conectado;
 
   return (
     <div className="p-6 space-y-6">
@@ -464,14 +506,12 @@ export function DistributionPage() {
 
               {selectedProducts.length > 0 && (
                 <div className="space-y-3">
-                  {/* ✅ Tabs para navegar entre produtos */}
                   {selectedProducts.length > 1 && (
                     <div className="flex gap-2 overflow-x-auto pb-2">
                       {selectedProducts.map((p, idx) => (
                         <button
                           key={p.id}
                           onClick={() => {
-                            // Scroll para o preview deste produto
                             const previewElement = document.getElementById(`preview-${idx}`);
                             previewElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                           }}
@@ -483,11 +523,9 @@ export function DistributionPage() {
                     </div>
                   )}
 
-                  {/* ✅ Preview com scroll */}
                   <div className="max-h-[500px] overflow-y-auto space-y-4 pr-2">
                     {selectedProducts.map((product, idx) => (
                       <div key={product.id} id={`preview-${idx}`} className="space-y-3">
-                        {/* Imagem do produto */}
                         <div className="relative rounded-lg overflow-hidden border">
                           <img 
                             src={product.image} 
@@ -504,7 +542,6 @@ export function DistributionPage() {
                           )}
                         </div>
                         
-                        {/* Mensagem */}
                         <div className="p-4 bg-muted rounded-lg">
                           <pre className="text-xs whitespace-pre-wrap font-sans">
                             {generateMessagePreview(product)}
@@ -526,7 +563,6 @@ export function DistributionPage() {
                           </Button>
                         </div>
 
-                        {/* Divisor entre produtos */}
                         {idx < selectedProducts.length - 1 && (
                           <div className="border-t pt-4" />
                         )}

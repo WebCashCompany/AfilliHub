@@ -1,4 +1,4 @@
-// src/contexts/WhatsAppContext.tsx
+// src/contexts/WhatsAppContext.tsx - COM PERSISTÊNCIA
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { whatsappService, WhatsAppStatus, WhatsAppGroup } from '@/api/services/whatsapp.service';
 
@@ -19,16 +19,65 @@ interface WhatsAppContextData {
 const WhatsAppContext = createContext<WhatsAppContextData>({} as WhatsAppContextData);
 
 export function WhatsAppProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<WhatsAppStatus>({
-    conectado: false,
-    status: 'offline',
-    clientReady: false,
-    qrCode: undefined
+  // ✅ CARREGAR ESTADO INICIAL DO LOCALSTORAGE
+  const [status, setStatus] = useState<WhatsAppStatus>(() => {
+    const saved = localStorage.getItem('whatsapp_status');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Erro ao carregar status salvo:', e);
+      }
+    }
+    return {
+      conectado: false,
+      status: 'offline',
+      clientReady: false,
+      qrCode: undefined
+    };
   });
-  const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
-  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+
+  const [groups, setGroups] = useState<WhatsAppGroup[]>(() => {
+    const saved = localStorage.getItem('whatsapp_groups');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Erro ao carregar grupos salvos:', e);
+      }
+    }
+    return [];
+  });
+
+  const [selectedGroups, setSelectedGroups] = useState<string[]>(() => {
+    const saved = localStorage.getItem('whatsapp_selected_groups');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Erro ao carregar grupos selecionados:', e);
+      }
+    }
+    return [];
+  });
+
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // ✅ SALVAR STATUS NO LOCALSTORAGE SEMPRE QUE MUDAR
+  useEffect(() => {
+    localStorage.setItem('whatsapp_status', JSON.stringify(status));
+  }, [status]);
+
+  // ✅ SALVAR GRUPOS NO LOCALSTORAGE SEMPRE QUE MUDAR
+  useEffect(() => {
+    localStorage.setItem('whatsapp_groups', JSON.stringify(groups));
+  }, [groups]);
+
+  // ✅ SALVAR GRUPOS SELECIONADOS NO LOCALSTORAGE SEMPRE QUE MUDAR
+  useEffect(() => {
+    localStorage.setItem('whatsapp_selected_groups', JSON.stringify(selectedGroups));
+  }, [selectedGroups]);
 
   // Verificar status periodicamente (a cada 5 segundos)
   useEffect(() => {
@@ -48,16 +97,16 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    // Verificação inicial
-    checkStatus();
-
-    // Verificação periódica
-    interval = setInterval(checkStatus, 5000);
+    // ✅ SÓ INICIA VERIFICAÇÃO SE JÁ ESTAVA CONECTADO (carregado do localStorage)
+    if (status.conectado) {
+      checkStatus();
+      interval = setInterval(checkStatus, 5000);
+    }
 
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [groups.length]);
+  }, [status.conectado, groups.length]);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -99,14 +148,22 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   const disconnectBot = useCallback(async () => {
     try {
       await whatsappService.disconnectBot();
-      setStatus({
+      
+      // ✅ LIMPAR ESTADO E LOCALSTORAGE
+      const emptyStatus = {
         conectado: false,
-        status: 'offline',
+        status: 'offline' as const,
         clientReady: false,
         qrCode: undefined
-      });
+      };
+      
+      setStatus(emptyStatus);
       setGroups([]);
       setSelectedGroups([]);
+      
+      localStorage.removeItem('whatsapp_status');
+      localStorage.removeItem('whatsapp_groups');
+      localStorage.removeItem('whatsapp_selected_groups');
     } catch (error) {
       console.error('Erro ao desconectar bot:', error);
       throw error;
