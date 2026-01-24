@@ -113,6 +113,7 @@ export function DistributionPage() {
   });
 
   const sendingRef = useRef(false);
+  const [isAutoSending, setIsAutoSending] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('distribution_whatsapp_enabled', String(whatsappEnabled));
@@ -320,6 +321,7 @@ export function DistributionPage() {
     }
 
     sendingRef.current = true;
+    setIsAutoSending(true);
 
     try {
       // ✅ Pegar o produto atual
@@ -365,6 +367,7 @@ export function DistributionPage() {
       });
     } finally {
       sendingRef.current = false;
+      setIsAutoSending(false);
     }
   };
 
@@ -469,7 +472,9 @@ export function DistributionPage() {
           onResume={handleResumeAutomation}
           onCancel={handleCancelAutomation}
           onTimerComplete={sendNextProduct}
+          onSendNow={sendNextProduct}
           totalSent={totalSent}
+          isSending={isAutoSending}
         />
       )}
 

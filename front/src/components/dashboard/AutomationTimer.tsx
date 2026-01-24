@@ -9,7 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Bot, Pause, Play, X, Clock } from 'lucide-react';
+import { Bot, Pause, Play, X, Clock, Zap } from 'lucide-react';
 
 interface AutomationTimerProps {
   intervalMinutes: number;
@@ -17,8 +17,10 @@ interface AutomationTimerProps {
   onResume: () => void;
   onCancel: () => void;
   onTimerComplete: () => void; // ✅ CALLBACK PARA ENVIAR PRODUTO
+  onSendNow: () => void; // ✅ CALLBACK PARA ENVIAR IMEDIATAMENTE
   isPaused: boolean;
   totalSent: number; // ✅ TOTAL DE ENVIOS REALIZADOS
+  isSending?: boolean; // ✅ ESTADO DE ENVIO
 }
 
 export function AutomationTimer({
@@ -27,8 +29,10 @@ export function AutomationTimer({
   onResume,
   onCancel,
   onTimerComplete,
+  onSendNow,
   isPaused,
   totalSent,
+  isSending = false,
 }: AutomationTimerProps) {
   const [timeLeft, setTimeLeft] = useState(() => {
     const saved = localStorage.getItem('automation_timer_time_left');
@@ -62,6 +66,12 @@ export function AutomationTimer({
 
     return () => clearInterval(interval);
   }, [isPaused, intervalMinutes, onTimerComplete]);
+
+  const handleSendNow = () => {
+    // ✅ ENVIAR IMEDIATAMENTE E ZERAR O TIMER
+    onSendNow();
+    setTimeLeft(intervalMinutes * 60); // Zera o timer
+  };
 
   const handleCancel = () => {
     localStorage.removeItem('automation_timer_time_left');
@@ -119,6 +129,24 @@ export function AutomationTimer({
 
       <div className="flex items-center gap-1">
         <TooltipProvider>
+          {/* ✅ BOTÃO ENVIAR AGORA */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleSendNow}
+                disabled={isSending || isPaused}
+                className="h-9 w-9 hover:bg-green-100 dark:hover:bg-green-900/50"
+              >
+                <Zap className={`w-4 h-4 text-green-600 dark:text-green-400 ${isSending ? 'animate-pulse' : ''}`} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Enviar agora e zerar timer</p>
+            </TooltipContent>
+          </Tooltip>
+
           {isPaused ? (
             <Tooltip>
               <TooltipTrigger asChild>
