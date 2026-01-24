@@ -46,18 +46,13 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
   useEffect(() => {
     if (!open) return;
 
-    console.log('📊 Status mudou:', status);
-
     // Se recebeu QR Code
     if (status.qrCode && !status.conectado && step === 'connecting') {
-      console.log('✅ QR Code recebido!');
       setStep('qrcode');
     }
 
     // Se conectou
     if (status.conectado && (step === 'connecting' || step === 'qrcode')) {
-      console.log('✅ Bot conectado!');
-      
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
@@ -101,8 +96,6 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
       }, 120000);
 
     } catch (error: any) {
-      console.error('❌ Erro ao conectar:', error);
-      
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;

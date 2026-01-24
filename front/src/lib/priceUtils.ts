@@ -122,18 +122,29 @@ export function getOldPrice(product: any): number {
 }
 
 /**
- * Retorna desconto do produto (calcula se necessário)
+ * Retorna desconto do produto (prioriza o campo desconto do banco)
  */
 export function getDiscount(product: any): number {
-  // Se tem desconto direto
-  if (product.desconto || product.discount) {
-    const str = String(product.desconto || product.discount).replace('%', '').trim();
+  // ✅ PRIORIDADE 1: Usar desconto que veio do banco (SEMPRE)
+  if (product.desconto) {
+    const str = String(product.desconto).replace('%', '').trim();
     const parsed = parseInt(str);
-    if (!isNaN(parsed)) return parsed;
+    if (!isNaN(parsed) && parsed > 0) return parsed;
   }
   
-  // Senão, calcula baseado nos preços
+  if (product.discount) {
+    const str = String(product.discount).replace('%', '').trim();
+    const parsed = parseInt(str);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  
+  // ✅ PRIORIDADE 2: Só calcula se NÃO tem desconto no banco
   const currentPrice = getCurrentPrice(product);
   const oldPrice = getOldPrice(product);
-  return calculateDiscount(oldPrice, currentPrice);
+  
+  if (oldPrice > 0 && currentPrice > 0) {
+    return calculateDiscount(oldPrice, currentPrice);
+  }
+  
+  return 0;
 }

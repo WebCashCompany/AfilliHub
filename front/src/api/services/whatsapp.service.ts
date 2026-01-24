@@ -1,5 +1,4 @@
 // src/api/services/whatsapp.service.ts
-// VERSÃO SIMPLIFICADA COM FETCH DIRETO
 
 const API_BASE = 'http://localhost:3001';
 
@@ -20,8 +19,8 @@ export interface SendOffersPayload {
   grupoId: string;
   ofertas: {
     nome: string;
-    preco: string;
-    desconto: string;
+    mensagem: string;
+    imagem: string;
     link: string;
   }[];
 }
@@ -42,7 +41,6 @@ class WhatsAppService {
     });
     
     const data = await response.json();
-    console.log('🔌 Connect Response:', data);
     
     if (!data.success) {
       throw new Error(data.error || 'Erro ao conectar bot');
@@ -54,8 +52,6 @@ class WhatsAppService {
   async getStatus(): Promise<WhatsAppStatus> {
     const response = await fetch(`${API_BASE}${this.BASE_PATH}/status-bot`);
     const data = await response.json();
-    
-    console.log('📊 Status Response:', data);
     
     return {
       conectado: data.conectado || false,
