@@ -1,4 +1,4 @@
-// src/components/dashboard/AutomationTimer.tsx - COM PERSISTÊNCIA
+// src/components/dashboard/AutomationTimer.tsx - COM ENVIO AUTOMÁTICO
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,9 @@ interface AutomationTimerProps {
   onPause: () => void;
   onResume: () => void;
   onCancel: () => void;
+  onTimerComplete: () => void; // ✅ CALLBACK PARA ENVIAR PRODUTO
   isPaused: boolean;
+  totalSent: number; // ✅ TOTAL DE ENVIOS REALIZADOS
 }
 
 export function AutomationTimer({
@@ -24,9 +26,10 @@ export function AutomationTimer({
   onPause,
   onResume,
   onCancel,
+  onTimerComplete,
   isPaused,
+  totalSent,
 }: AutomationTimerProps) {
-  // ✅ CARREGAR timeLeft DO LOCALSTORAGE
   const [timeLeft, setTimeLeft] = useState(() => {
     const saved = localStorage.getItem('automation_timer_time_left');
     if (saved) {
@@ -38,49 +41,32 @@ export function AutomationTimer({
     return intervalMinutes * 60;
   });
 
-  // ✅ CARREGAR totalCycles DO LOCALSTORAGE
-  const [totalCycles, setTotalCycles] = useState(() => {
-    const saved = localStorage.getItem('automation_timer_total_cycles');
-    if (saved) {
-      const savedCycles = parseInt(saved);
-      if (!isNaN(savedCycles)) {
-        return savedCycles;
-      }
-    }
-    return 0;
-  });
-
-  // ✅ SALVAR timeLeft NO LOCALSTORAGE
   useEffect(() => {
     localStorage.setItem('automation_timer_time_left', String(timeLeft));
   }, [timeLeft]);
 
-  // ✅ SALVAR totalCycles NO LOCALSTORAGE
-  useEffect(() => {
-    localStorage.setItem('automation_timer_total_cycles', String(totalCycles));
-  }, [totalCycles]);
-
-  // Timer principal
+  // ✅ TIMER PRINCIPAL - QUANDO ZERA, ENVIA PRODUTO
   useEffect(() => {
     if (isPaused) return;
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          setTotalCycles((c) => c + 1);
-          return intervalMinutes * 60;
+          // ✅ TEMPO ZEROU - ENVIAR PRODUTO!
+          onTimerComplete();
+          return intervalMinutes * 60; // Reinicia o timer
         }
         return prev - 1;
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isPaused, intervalMinutes]);
+  }, [isPaused, intervalMinutes, onTimerComplete]);
 
-  // ✅ LIMPAR LOCALSTORAGE QUANDO CANCELAR
   const handleCancel = () => {
     localStorage.removeItem('automation_timer_time_left');
-    localStorage.removeItem('automation_timer_total_cycles');
+    localStorage.removeItem('automation_current_index');
+    localStorage.removeItem('automation_total_sent');
     onCancel();
   };
 
@@ -94,7 +80,6 @@ export function AutomationTimer({
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl border-2 border-violet-200 dark:border-violet-800 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/20 dark:to-purple-950/20 shadow-sm">
-      {/* Bot Icon with Animation */}
       <div className="relative">
         <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-md">
           <Bot className={`w-5 h-5 text-white ${!isPaused ? 'animate-pulse' : ''}`} />
@@ -104,7 +89,6 @@ export function AutomationTimer({
         )}
       </div>
 
-      {/* Timer Display */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-sm font-semibold text-foreground">Automação Ativa</span>
@@ -122,10 +106,9 @@ export function AutomationTimer({
             </span>
           </div>
           <div className="text-xs text-muted-foreground">
-            {totalCycles} envios realizados
+            {totalSent} envios realizados
           </div>
         </div>
-        {/* Progress Bar */}
         <div className="w-full h-1.5 bg-violet-200 dark:bg-violet-900 rounded-full overflow-hidden mt-1.5">
           <div
             className="h-full bg-gradient-to-r from-violet-500 to-purple-600 transition-all duration-1000 ease-linear rounded-full"
@@ -134,7 +117,6 @@ export function AutomationTimer({
         </div>
       </div>
 
-      {/* Controls */}
       <div className="flex items-center gap-1">
         <TooltipProvider>
           {isPaused ? (

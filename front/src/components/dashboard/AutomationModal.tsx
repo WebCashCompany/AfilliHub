@@ -1,4 +1,4 @@
-// src/components/dashboard/AutomationModal.tsx - COM PERSISTÊNCIA
+// src/components/dashboard/AutomationModal.tsx - TIMER MÍNIMO 1 MINUTO
 
 import { useState, useEffect } from 'react';
 import {
@@ -37,7 +37,7 @@ export function AutomationModal({
   availableCategories,
   availableMarketplaces,
 }: AutomationModalProps) {
-  // ✅ CARREGAR ESTADOS DO LOCALSTORAGE
+  // ✅ TIMER MÍNIMO AGORA É 1 MINUTO
   const [intervalMinutes, setIntervalMinutes] = useState(() => {
     const saved = localStorage.getItem('automation_modal_interval');
     return saved ? parseInt(saved) : 30;
@@ -77,7 +77,6 @@ export function AutomationModal({
     return saved === 'false' ? false : true;
   });
 
-  // ✅ SALVAR NO LOCALSTORAGE SEMPRE QUE MUDAR
   useEffect(() => {
     localStorage.setItem('automation_modal_interval', String(intervalMinutes));
   }, [intervalMinutes]);
@@ -152,7 +151,7 @@ export function AutomationModal({
                 <div className="relative">
                   <Input
                     type="number"
-                    min={5}
+                    min={1}
                     max={1440}
                     value={intervalMinutes}
                     onChange={(e) => setIntervalMinutes(Number(e.target.value))}
@@ -163,10 +162,26 @@ export function AutomationModal({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1.5">
-                  Envios a cada {intervalMinutes} minutos ({Math.floor(1440 / intervalMinutes)} por dia)
+                  Envios a cada {intervalMinutes} minuto{intervalMinutes > 1 ? 's' : ''} ({Math.floor(1440 / intervalMinutes)} por dia)
                 </p>
               </div>
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIntervalMinutes(1)}
+                  className={intervalMinutes === 1 ? 'border-primary' : ''}
+                >
+                  1min
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIntervalMinutes(5)}
+                  className={intervalMinutes === 5 ? 'border-primary' : ''}
+                >
+                  5min
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -182,14 +197,6 @@ export function AutomationModal({
                   className={intervalMinutes === 30 ? 'border-primary' : ''}
                 >
                   30min
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIntervalMinutes(60)}
-                  className={intervalMinutes === 60 ? 'border-primary' : ''}
-                >
-                  1h
                 </Button>
               </div>
             </div>
@@ -337,6 +344,9 @@ export function AutomationModal({
                     {allMarketplaces ? 'Todos marketplaces' : `${selectedMarketplaces.length} marketplaces`}
                   </Badge>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  ⚡ Os produtos serão enviados em ordem sequencial, sem repetir até o final da lista
+                </p>
               </div>
             </div>
           </div>
@@ -350,7 +360,7 @@ export function AutomationModal({
             onClick={handleStart}
             className="flex-1 gap-2 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
             disabled={
-              intervalMinutes < 5 ||
+              intervalMinutes < 1 ||
               (!allCategories && selectedCategories.length === 0) ||
               (!allMarketplaces && selectedMarketplaces.length === 0)
             }

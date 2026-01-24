@@ -1,8 +1,8 @@
-// src/pages/DistributionPage.tsx - COM PERSISTÊNCIA COMPLETA
+// src/pages/DistributionPage.tsx - COM AUTOMAÇÃO FUNCIONAL
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
-import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount, calculateDiscount } from '@/lib/priceUtils';
+import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib/priceUtils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,12 +40,11 @@ interface AutomationConfig {
 export function DistributionPage() {
   const { products } = useDashboard();
   const { toast } = useToast();
-  const { status } = useWhatsApp(); // ✅ USA O CONTEXTO
+  const { status } = useWhatsApp();
   
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   
-  // ✅ CARREGAR ESTADOS DO LOCALSTORAGE
   const [whatsappEnabled, setWhatsappEnabled] = useState(() => {
     const saved = localStorage.getItem('distribution_whatsapp_enabled');
     return saved !== null ? saved === 'true' : true;
@@ -62,7 +61,6 @@ export function DistributionPage() {
 
   const [sending, setSending] = useState(false);
   
-  // WhatsApp groups - carregados do contexto
   const [whatsappGroups, setWhatsappGroups] = useState<WhatsAppGroup[]>(() => {
     const saved = localStorage.getItem('distribution_whatsapp_groups');
     if (saved) {
@@ -75,13 +73,11 @@ export function DistributionPage() {
     return [];
   });
   
-  // Modals
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showGroupsModal, setShowGroupsModal] = useState(false);
-  
-  // Automation states - ✅ COM PERSISTÊNCIA
   const [showAutomationModal, setShowAutomationModal] = useState(false);
   
+  // ✅ ESTADOS DA AUTOMAÇÃO
   const [automationActive, setAutomationActive] = useState(() => {
     const saved = localStorage.getItem('distribution_automation_active');
     return saved === 'true';
@@ -104,37 +100,44 @@ export function DistributionPage() {
     return null;
   });
 
-  // ✅ SALVAR whatsappEnabled NO LOCALSTORAGE
+  // ✅ ÍNDICE DO PRODUTO ATUAL NA AUTOMAÇÃO
+  const [currentProductIndex, setCurrentProductIndex] = useState(() => {
+    const saved = localStorage.getItem('automation_current_index');
+    return saved ? parseInt(saved) : 0;
+  });
+
+  // ✅ TOTAL DE ENVIOS REALIZADOS
+  const [totalSent, setTotalSent] = useState(() => {
+    const saved = localStorage.getItem('automation_total_sent');
+    return saved ? parseInt(saved) : 0;
+  });
+
+  const sendingRef = useRef(false);
+
   useEffect(() => {
     localStorage.setItem('distribution_whatsapp_enabled', String(whatsappEnabled));
   }, [whatsappEnabled]);
 
-  // ✅ SALVAR telegramEnabled NO LOCALSTORAGE
   useEffect(() => {
     localStorage.setItem('distribution_telegram_enabled', String(telegramEnabled));
   }, [telegramEnabled]);
 
-  // ✅ SALVAR customMessage NO LOCALSTORAGE
   useEffect(() => {
     localStorage.setItem('distribution_custom_message', customMessage);
   }, [customMessage]);
 
-  // ✅ SALVAR whatsappGroups NO LOCALSTORAGE
   useEffect(() => {
     localStorage.setItem('distribution_whatsapp_groups', JSON.stringify(whatsappGroups));
   }, [whatsappGroups]);
 
-  // ✅ SALVAR automationActive NO LOCALSTORAGE
   useEffect(() => {
     localStorage.setItem('distribution_automation_active', String(automationActive));
   }, [automationActive]);
 
-  // ✅ SALVAR automationPaused NO LOCALSTORAGE
   useEffect(() => {
     localStorage.setItem('distribution_automation_paused', String(automationPaused));
   }, [automationPaused]);
 
-  // ✅ SALVAR automationConfig NO LOCALSTORAGE
   useEffect(() => {
     if (automationConfig) {
       localStorage.setItem('distribution_automation_config', JSON.stringify(automationConfig));
@@ -142,6 +145,14 @@ export function DistributionPage() {
       localStorage.removeItem('distribution_automation_config');
     }
   }, [automationConfig]);
+
+  useEffect(() => {
+    localStorage.setItem('automation_current_index', String(currentProductIndex));
+  }, [currentProductIndex]);
+
+  useEffect(() => {
+    localStorage.setItem('automation_total_sent', String(totalSent));
+  }, [totalSent]);
 
   const activeProducts = products.filter(p => p.status === 'active' || p.status === 'protected');
   
@@ -153,7 +164,6 @@ export function DistributionPage() {
 
   const selectedProducts = products.filter(p => selectedIds.includes(p.id));
 
-  // Extract unique categories and marketplaces
   const availableCategories = useMemo(() => {
     const categories = new Set(products.map(p => p.category));
     return Array.from(categories).sort();
@@ -163,6 +173,29 @@ export function DistributionPage() {
     const marketplaces = new Set(products.map(p => p.marketplace));
     return Array.from(marketplaces).sort();
   }, [products]);
+
+  // ✅ FILTRAR PRODUTOS ELEGÍVEIS PARA AUTOMAÇÃO
+  const getEligibleProducts = () => {
+    if (!automationConfig) return [];
+
+    let eligible = activeProducts;
+
+    // Filtrar por categorias
+    if (!automationConfig.categories.includes('all')) {
+      eligible = eligible.filter(p => 
+        automationConfig.categories.includes(p.category)
+      );
+    }
+
+    // Filtrar por marketplaces
+    if (!automationConfig.marketplaces.includes('all')) {
+      eligible = eligible.filter(p => 
+        automationConfig.marketplaces.includes(p.marketplace)
+      );
+    }
+
+    return eligible;
+  };
 
   const handleSelect = (id: string) => {
     setSelectedIds(prev => 
@@ -243,10 +276,8 @@ export function DistributionPage() {
             nome: p.name,
             mensagem: generateMessagePreview(p),
             imagem: p.image,
-            link: p.affiliateLink || p.link_afiliado || 'Link indisponível'
+            link: p.affiliateLink || (p as any).link_afiliado || 'Link indisponível'
           }));
-
-          console.log('📤 Enviando ofertas:', ofertas);
 
           await whatsappService.sendOffers({
             grupoId: group.id,
@@ -272,10 +303,76 @@ export function DistributionPage() {
     }
   };
 
+  // ✅ FUNÇÃO QUE ENVIA AUTOMATICAMENTE UM PRODUTO
+  const sendNextProduct = async () => {
+    if (sendingRef.current || automationPaused || !automationActive) return;
+    
+    const eligibleProducts = getEligibleProducts();
+    
+    if (eligibleProducts.length === 0) {
+      console.warn('Nenhum produto elegível para automação');
+      return;
+    }
+
+    if (whatsappGroups.length === 0) {
+      console.warn('Nenhum grupo configurado');
+      return;
+    }
+
+    sendingRef.current = true;
+
+    try {
+      // ✅ Pegar o produto atual
+      const productToSend = eligibleProducts[currentProductIndex];
+      
+      console.log(`🤖 Enviando produto ${currentProductIndex + 1}/${eligibleProducts.length}:`, productToSend.name);
+
+      // ✅ Enviar para todos os grupos
+      for (const group of whatsappGroups) {
+        const ofertas = [{
+          nome: productToSend.name,
+          mensagem: generateMessagePreview(productToSend),
+          imagem: productToSend.image,
+          link: productToSend.affiliateLink || (productToSend as any).link_afiliado || 'Link indisponível'
+        }];
+
+        await whatsappService.sendOffers({
+          grupoId: group.id,
+          ofertas
+        });
+      }
+
+      // ✅ Incrementar contador
+      setTotalSent(prev => prev + 1);
+
+      toast({
+        title: "✅ Oferta enviada pela automação",
+        description: `${productToSend.name} enviado para ${whatsappGroups.length} grupo${whatsappGroups.length > 1 ? 's' : ''}`,
+      });
+
+      // ✅ Avançar para o próximo produto (sequencial, sem repetir)
+      setCurrentProductIndex(prevIndex => {
+        const nextIndex = (prevIndex + 1) % eligibleProducts.length;
+        return nextIndex;
+      });
+
+    } catch (error: any) {
+      console.error('Erro ao enviar produto automaticamente:', error);
+      toast({
+        title: "Erro na automação",
+        description: error.message || "Não foi possível enviar a oferta.",
+        variant: "destructive"
+      });
+    } finally {
+      sendingRef.current = false;
+    }
+  };
+
   const handleStartAutomation = (config: AutomationConfig) => {
     setAutomationConfig(config);
     setAutomationActive(true);
     setAutomationPaused(false);
+    setCurrentProductIndex(0); // Reinicia do zero
     
     toast({
       title: "Automação iniciada!",
@@ -303,13 +400,16 @@ export function DistributionPage() {
     setAutomationActive(false);
     setAutomationPaused(false);
     setAutomationConfig(null);
+    setCurrentProductIndex(0);
+    setTotalSent(0);
     
-    // ✅ LIMPAR LOCALSTORAGE
     localStorage.removeItem('distribution_automation_active');
     localStorage.removeItem('distribution_automation_paused');
     localStorage.removeItem('distribution_automation_config');
     localStorage.removeItem('automation_timer_time_left');
     localStorage.removeItem('automation_timer_total_cycles');
+    localStorage.removeItem('automation_current_index');
+    localStorage.removeItem('automation_total_sent');
     
     toast({
       title: "Automação cancelada",
@@ -318,12 +418,10 @@ export function DistributionPage() {
     });
   };
 
-  // ✅ USAR O STATUS DO CONTEXTO
   const botConnected = status.conectado;
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Hub de Divulgação</h1>
@@ -332,7 +430,6 @@ export function DistributionPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Automation Button */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -364,7 +461,6 @@ export function DistributionPage() {
         </div>
       </div>
 
-      {/* Automation Timer */}
       {automationActive && automationConfig && (
         <AutomationTimer
           intervalMinutes={automationConfig.intervalMinutes}
@@ -372,11 +468,12 @@ export function DistributionPage() {
           onPause={handlePauseAutomation}
           onResume={handleResumeAutomation}
           onCancel={handleCancelAutomation}
+          onTimerComplete={sendNextProduct}
+          totalSent={totalSent}
         />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Product Selection */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -388,7 +485,6 @@ export function DistributionPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -399,7 +495,6 @@ export function DistributionPage() {
               />
             </div>
 
-            {/* Product List */}
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {filteredProducts.map((product) => {
                 const productAny = product as any;
@@ -451,9 +546,7 @@ export function DistributionPage() {
           </CardContent>
         </Card>
 
-        {/* Bot & Channels */}
         <div className="space-y-6">
-          {/* Bot Connection */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -485,7 +578,6 @@ export function DistributionPage() {
                     <Badge variant="outline">Ativo</Badge>
                   </div>
 
-                  {/* Channels */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between p-3 border rounded-lg">
                       <div className="flex items-center gap-3">
@@ -535,7 +627,6 @@ export function DistributionPage() {
             </CardContent>
           </Card>
 
-          {/* Message Preview */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -645,7 +736,6 @@ export function DistributionPage() {
         </div>
       </div>
 
-      {/* Modals */}
       <ConnectBotModal
         open={showConnectModal}
         onClose={() => setShowConnectModal(false)}
