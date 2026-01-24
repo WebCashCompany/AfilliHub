@@ -1,3 +1,5 @@
+// src/pages/AutomationPage.tsx - COM PERSISTÊNCIA COMPLETA
+
 import { useState, useEffect } from 'react';
 import { useDashboard, ScrapingConfig } from '@/contexts/DashboardContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -15,7 +17,7 @@ import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
 
 interface MarketplaceFilters {
   categoria?: string;
-  categoryKey?: string; // 🆕 Para Magalu
+  categoryKey?: string;
   palavraChave?: string;
   frete_gratis?: boolean;
   minDiscount?: number;
@@ -28,9 +30,6 @@ interface MarketplaceConfig {
   filters?: MarketplaceFilters;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🆕 CATEGORIAS DO MAGAZINE LUIZA (lowercase para exibição, UPPERCASE para backend)
-// ═══════════════════════════════════════════════════════════
 const MAGALU_CATEGORIES = [
   { value: '', label: 'Todas as categorias', key: '', icon: '📦' },
   { value: 'ofertas-do-dia', label: 'Ofertas do Dia', key: 'OFERTAS_DIA', icon: '🔥' },
@@ -64,36 +63,52 @@ export function AutomationPage() {
   const { runScraping, scrapingStatus, products } = useDashboard();
   const { toast } = useToast();
 
+  // ✅ CARREGAR CONFIG DO LOCALSTORAGE
   const [config, setConfig] = useState<{
     marketplaces: Record<Marketplace, MarketplaceConfig>;
-  }>({
-    marketplaces: {
-      mercadolivre: { 
-        enabled: true, 
-        quantity: 50,
-        filters: { minDiscount: 20, maxPrice: 20000 }
+  }>(() => {
+    const saved = localStorage.getItem('automation_config');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Erro ao carregar config salva:', e);
+      }
+    }
+    return {
+      marketplaces: {
+        mercadolivre: { 
+          enabled: true, 
+          quantity: 50,
+          filters: { minDiscount: 20, maxPrice: 20000 }
+        },
+        amazon: { 
+          enabled: true, 
+          quantity: 50,
+          filters: { minDiscount: 20, maxPrice: 20000 }
+        },
+        magalu: { 
+          enabled: false, 
+          quantity: 30,
+          filters: { minDiscount: 20, maxPrice: 20000 }
+        },
+        shopee: { 
+          enabled: true, 
+          quantity: 40,
+          filters: { minDiscount: 20, maxPrice: 20000 }
+        },
       },
-      amazon: { 
-        enabled: true, 
-        quantity: 50,
-        filters: { minDiscount: 20, maxPrice: 20000 }
-      },
-      magalu: { 
-        enabled: false, 
-        quantity: 30,
-        filters: { minDiscount: 20, maxPrice: 20000 }
-      },
-      shopee: { 
-        enabled: true, 
-        quantity: 40,
-        filters: { minDiscount: 20, maxPrice: 20000 }
-      },
-    },
+    };
   });
 
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
   const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
+
+  // ✅ SALVAR CONFIG NO LOCALSTORAGE SEMPRE QUE MUDAR
+  useEffect(() => {
+    localStorage.setItem('automation_config', JSON.stringify(config));
+  }, [config]);
 
   useEffect(() => {
     if (!scrapingStatus.isRunning && scrapingStatus.progress === 100 && scrapingStatus.itemsCollected > 0) {
@@ -209,9 +224,6 @@ export function AutomationPage() {
     return !!(filters.categoria || filters.categoryKey || filters.palavraChave || filters.frete_gratis);
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // 🆕 FUNÇÃO PARA OBTER CATEGORIAS BASEADO NO MARKETPLACE
-  // ═══════════════════════════════════════════════════════════
   const getCategoriesForMarketplace = (mp: Marketplace | null) => {
     if (mp === 'magalu') {
       return MAGALU_CATEGORIES;
@@ -221,27 +233,19 @@ export function AutomationPage() {
     return [];
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // 🆕 VERIFICAR SE MARKETPLACE TEM FILTROS AVANÇADOS
-  // ═══════════════════════════════════════════════════════════
   const marketplaceHasAdvancedFilters = (mp: Marketplace | null) => {
     return mp === 'mercadolivre' || mp === 'magalu';
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // 🆕 HANDLER PARA MUDANÇA DE CATEGORIA (MAGALU USA categoryKey)
-  // ═══════════════════════════════════════════════════════════
   const handleCategoryChange = (value: string) => {
     if (currentMarketplace === 'magalu') {
-      // Encontra a categoria pelo value e extrai o key
       const category = MAGALU_CATEGORIES.find(cat => cat.value === value);
       setTempFilters(prev => ({ 
         ...prev, 
-        categoryKey: category?.key || '', // UPPERCASE para backend
-        categoria: value // lowercase para exibição
+        categoryKey: category?.key || '',
+        categoria: value
       }));
     } else {
-      // Mercado Livre usa apenas categoria
       setTempFilters(prev => ({ ...prev, categoria: value }));
     }
   };
@@ -516,9 +520,7 @@ export function AutomationPage() {
         </Card>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════
-          🆕 MODAL DE FILTROS - COM SUPORTE A MAGALU (categoryKey) E MERCADO LIVRE
-          ═══════════════════════════════════════════════════════════ */}
+      {/* Modal de Filtros */}
       <Dialog open={configModalOpen} onOpenChange={setConfigModalOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -532,7 +534,7 @@ export function AutomationPage() {
           </DialogHeader>
 
           <div className="space-y-6 py-4">
-            {/* Filtros Básicos (Todos os marketplaces) */}
+            {/* Filtros Básicos */}
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -573,7 +575,7 @@ export function AutomationPage() {
               </div>
             </div>
 
-            {/* 🆕 Filtros Avançados (Mercado Livre e Magalu) */}
+            {/* Filtros Avançados */}
             {marketplaceHasAdvancedFilters(currentMarketplace) && (
               <>
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t">
@@ -608,7 +610,6 @@ export function AutomationPage() {
                   </div>
                 </div>
 
-                {/* Checkbox de frete grátis */}
                 <div className="flex items-center gap-2">
                   <Checkbox
                     id="modal-frete"
@@ -620,7 +621,6 @@ export function AutomationPage() {
                   </Label>
                 </div>
 
-                {/* 🆕 Preview do filtro (Debug) */}
                 {currentMarketplace === 'magalu' && tempFilters.categoryKey && (
                   <div className="flex items-start gap-2 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
                     <AlertCircle className="w-4 h-4 text-blue-600 mt-0.5" />
