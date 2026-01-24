@@ -52,11 +52,21 @@ export function parsePriceToCents(value: any): number {
   // ----------------------------------------
   // CASO 1: SEM SEPARADOR (ML/Scrapers)
   // ----------------------------------------
-  // "1296" → 1296 REAIS → 129600 centavos
-  // "503" → 503 REAIS → 50300 centavos
+  // Detecta automaticamente:
+  // - Números GRANDES (>=10000): estão em centavos
+  //   "20359" → 20359 centavos → R$ 203,59
+  // - Números PEQUENOS (<10000): estão em reais
+  //   "1296" → 1296 reais → R$ 1.296,00
+  //   "503" → 503 reais → R$ 503,00
   if (!hasComma && !hasDot) {
     const num = parseInt(str) || 0;
-    // Sempre multiplica por 100 (está em reais)
+    
+    // Se for >= 10000, já está em centavos (Magalu)
+    if (num >= 10000) {
+      return num;
+    }
+    
+    // Se for < 10000, está em reais (Mercado Livre)
     return num * 100;
   }
   
