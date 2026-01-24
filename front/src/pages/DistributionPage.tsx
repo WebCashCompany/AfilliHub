@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
+import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount, calculateDiscount } from '@/lib/priceUtils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,7 +27,7 @@ import {
   Smartphone, Zap, Bot, Settings, Loader2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { formatCurrency, Product } from '@/lib/mockData';
+import { Product } from '@/lib/mockData';
 import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
 
@@ -187,23 +188,20 @@ export function DistributionPage() {
     });
   };
 
-  const calculateOldPrice = (product: Product): number => {
-    if (product.discount > 0) {
-      return product.price * (1 + product.discount / 100);
-    }
-    return product.price;
-  };
-
   const generateMessagePreview = (product: Product) => {
-    const oldPrice = calculateOldPrice(product);
+    const productAny = product as any;
+    const currentPriceCents = getCurrentPrice(productAny);
+    const oldPriceCents = getOldPrice(productAny);
+    const discount = getDiscount(productAny);
+    
     const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!* 🔥`;
-    const link = product.affiliateLink || product.link_afiliado || 'Link indisponível';
+    const link = productAny.link_afiliado || productAny.affiliateLink || 'Link indisponível';
     
     return `${message}\n\n` +
-           `📦 *${product.name}*\n\n` +
-           `💰 De: ~R$ ${oldPrice.toFixed(2).replace('.', ',')}~\n` +
-           `💵 Por: *${formatCurrency(product.price)}*\n` +
-           `📉 Desconto: *${product.discount}%*\n\n` +
+           `📦 *${productAny.nome || product.name}*\n\n` +
+           `💰 De: ~${formatCurrency(oldPriceCents)}~\n` +
+           `💵 Por: *${formatCurrency(currentPriceCents)}*\n` +
+           `📉 Desconto: *${discount}%*\n\n` +
            `🔗 Link: ${link}`;
   };
 
@@ -403,39 +401,45 @@ export function DistributionPage() {
 
             {/* Product List */}
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {filteredProducts.map((product) => (
-                <div 
-                  key={product.id}
-                  className={`flex items-center gap-4 p-3 rounded-lg border transition-all cursor-pointer ${
-                    selectedIds.includes(product.id) 
-                      ? 'border-primary bg-primary/5' 
-                      : 'border-border hover:border-muted-foreground/30'
-                  }`}
-                  onClick={() => handleSelect(product.id)}
-                >
-                  <Checkbox
-                    checked={selectedIds.includes(product.id)}
-                    onCheckedChange={() => handleSelect(product.id)}
-                  />
-                  <img 
-                    src={product.image} 
-                    alt={product.name}
-                    className="w-12 h-12 rounded-lg object-cover"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{product.name}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <MarketplaceBadge marketplace={product.marketplace} size="sm" showLabel={false} />
-                      <span className="text-sm text-status-active font-medium">
-                        {formatCurrency(product.price)}
-                      </span>
-                      <Badge variant="secondary" className="text-xs">
-                        -{product.discount}%
-                      </Badge>
+              {filteredProducts.map((product) => {
+                const productAny = product as any;
+                const currentPriceCents = getCurrentPrice(productAny);
+                const discount = getDiscount(productAny);
+                
+                return (
+                  <div 
+                    key={product.id}
+                    className={`flex items-center gap-4 p-3 rounded-lg border transition-all cursor-pointer ${
+                      selectedIds.includes(product.id) 
+                        ? 'border-primary bg-primary/5' 
+                        : 'border-border hover:border-muted-foreground/30'
+                    }`}
+                    onClick={() => handleSelect(product.id)}
+                  >
+                    <Checkbox
+                      checked={selectedIds.includes(product.id)}
+                      onCheckedChange={() => handleSelect(product.id)}
+                    />
+                    <img 
+                      src={productAny.imagem || product.image} 
+                      alt={productAny.nome || product.name}
+                      className="w-12 h-12 rounded-lg object-cover"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{productAny.nome || product.name}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <MarketplaceBadge marketplace={product.marketplace} size="sm" showLabel={false} />
+                        <span className="text-sm text-status-active font-medium">
+                          {formatCurrency(currentPriceCents)}
+                        </span>
+                        <Badge variant="secondary" className="text-xs">
+                          -{discount}%
+                        </Badge>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {selectedIds.length > 0 && (

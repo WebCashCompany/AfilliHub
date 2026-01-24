@@ -20,6 +20,7 @@ import {
   Marketplace
 } from '@/lib/mockData';
 
+import { parsePriceToCents, getDiscount } from '@/lib/priceUtils';
 import { scrapingService } from '@/api/services/scraping.service';
 import type { ScrapingRequestPayload } from '@/types/api.types';
 import { useToast } from '@/hooks/use-toast';
@@ -142,7 +143,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     const url = `${API_BASE_URL}/api/products`;
-    console.log('📡 Buscando produtos em:', url);
 
     try {
       const res = await fetch(url);
@@ -150,7 +150,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const json = await res.json();
-      console.log('📦 Resposta API:', json);
 
       const items = Array.isArray(json?.items)
         ? json.items
@@ -158,32 +157,35 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         ? json.data.items
         : [];
 
-      const formatted: Product[] = items.map((p: any) => ({
-        id: p._id || p.id,
-        name: p.nome || p.title || 'Produto',
-        image: p.imagem || p.thumbnail || '',
-        category: p.categoria || 'Geral',
-        marketplace: normalizeMarketplace(p.marketplace),
-        price: parseFloat(p.preco_para?.replace('R$', '').replace('.', '').replace(',', '.').trim() || p.price || '0'),
-        oldPrice: parseFloat(p.preco_de?.replace('R$', '').replace('.', '').replace(',', '.').trim() || p.oldPrice || '0'),
-        discount: parseInt(p.desconto?.replace('%', '').trim() || p.discount || '0'),
-        affiliateLink: p.link_afiliado || '',
-        clicks: 0,
-        conversions: 0,
-        revenue: 0,
-        stock: 100,
-        status: 'active',
-        addedAt: new Date(p.createdAt || Date.now())
-      }));
+      const formatted: Product[] = items.map((p: any) => {
+        const priceCents = parsePriceToCents(p.preco_para || p.price || 0);
+        const oldPriceCents = parsePriceToCents(p.preco_de || p.oldPrice || 0);
+        const discount = getDiscount(p);
+
+        return {
+          id: p._id || p.id,
+          name: p.nome || p.title || 'Produto',
+          image: p.imagem || p.thumbnail || '',
+          category: p.categoria || 'Geral',
+          marketplace: normalizeMarketplace(p.marketplace),
+          price: priceCents,
+          oldPrice: oldPriceCents,
+          discount: discount,
+          affiliateLink: p.link_afiliado || '',
+          clicks: 0,
+          conversions: 0,
+          revenue: 0,
+          stock: 100,
+          status: 'active',
+          addedAt: new Date(p.createdAt || Date.now())
+        };
+      });
 
       setProducts(formatted);
       setDailyMetrics(generateDailyMetrics(30));
       setCategoryMetrics(generateCategoryMetrics(formatted));
       setMarketplaceMetrics(generateMarketplaceMetrics(formatted));
-
-      console.log(`✅ ${formatted.length} produtos carregados`);
     } catch (err) {
-      console.error('❌ Erro ao carregar produtos:', err);
       toast({
         title: 'Erro ao carregar produtos',
         description: 'Falha ao buscar /api/products',
@@ -231,9 +233,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   ================================ */
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
-    console.log('🚀 runScraping iniciado');
-    console.log('📋 Config recebida:', JSON.stringify(config, null, 2));
-    
     const totalItems = Object.values(config.marketplaces)
       .filter(mp => mp.enabled)
       .reduce((sum, mp) => sum + mp.quantity, 0);
@@ -242,7 +241,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       .filter(([_, mp]) => mp.enabled)
       .map(([key]) => key as Marketplace);
 
-    console.log('📊 Setando isRunning = true');
     setScrapingStatus({
       isRunning: true,
       progress: 5,
@@ -257,7 +255,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       const payload: ScrapingRequestPayload = {
         marketplaces: Object.fromEntries(
           Object.entries(config.marketplaces).map(([key, mp]) => {
-            console.log(`🔍 Montando payload para ${key}:`, mp.filters);
             return [
               key,
               {
@@ -273,9 +270,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         filters: config.filters || {}
       };
 
-      console.log('📤 Payload FINAL enviado para API:', JSON.stringify(payload, null, 2));
-
-      console.log('⏳ Iniciando simulação de progresso');
       let currentProgress = 5;
       let currentMpIndex = 0;
       
@@ -305,9 +299,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         });
       }, 2000);
 
-      console.log('🔄 Chamando API de scraping...');
       const res = await scrapingService.start(payload);
-      console.log('✅ Scraping concluído:', res);
 
       clearInterval(progressInterval);
 
@@ -325,7 +317,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         try {
           await refreshProducts();
         } catch (refreshError) {
-          console.warn('⚠️ Falha ao atualizar produtos, mas scraping foi concluído');
+          // Silencioso - scraping foi concluído com sucesso
         }
 
         setScrapingStatus({
@@ -352,8 +344,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       throw new Error('Scraping falhou');
     } catch (error) {
-      console.error('❌ Erro no scraping:', error);
-      
       setScrapingStatus({
         isRunning: false,
         progress: 0,
