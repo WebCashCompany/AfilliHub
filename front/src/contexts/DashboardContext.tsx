@@ -1,4 +1,4 @@
-// src/contexts/DashboardContext.tsx - COM PERSISTÊNCIA DO SCRAPING STATUS
+// src/contexts/DashboardContext.tsx - COM POLLING REAL DO BACKEND
 
 import React, {
   createContext,
@@ -25,16 +25,7 @@ import { scrapingService } from '@/api/services/scraping.service';
 import type { ScrapingRequestPayload } from '@/types/api.types';
 import { useToast } from '@/hooks/use-toast';
 
-/* ===============================
-   CONFIG
-================================ */
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
-
-/* ===============================
-   TYPES
-================================ */
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 interface DashboardContextType {
   products: Product[];
@@ -43,7 +34,6 @@ interface DashboardContextType {
   marketplaceMetrics: MarketplaceMetrics[];
   trashedProducts: Product[];
   isLoading: boolean;
-
   deleteProducts: (ids: string[]) => Promise<void>;
   runCleanup: () => Promise<number>;
   refreshProducts: () => Promise<void>;
@@ -71,28 +61,16 @@ export interface ScrapingStatus {
   totalItems: number;
 }
 
-/* ===============================
-   CONTEXT
-================================ */
-
-const DashboardContext = createContext<DashboardContextType | undefined>(
-  undefined
-);
-
-/* ===============================
-   PROVIDER
-================================ */
+const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [trashedProducts] = useState<Product[]>([]);
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetrics[]>([]);
   const [categoryMetrics, setCategoryMetrics] = useState<CategoryMetrics[]>([]);
-  const [marketplaceMetrics, setMarketplaceMetrics] =
-    useState<MarketplaceMetrics[]>([]);
+  const [marketplaceMetrics, setMarketplaceMetrics] = useState<MarketplaceMetrics[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // ✅ CARREGAR scrapingStatus DO LOCALSTORAGE
   const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>(() => {
     const saved = localStorage.getItem('scraping_status');
     if (saved) {
@@ -112,16 +90,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   });
 
   const { toast } = useToast();
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ✅ SALVAR scrapingStatus NO LOCALSTORAGE SEMPRE QUE MUDAR
   useEffect(() => {
     localStorage.setItem('scraping_status', JSON.stringify(scrapingStatus));
   }, [scrapingStatus]);
-
-  /* ===============================
-     HELPERS
-  ================================ */
 
   function normalizeMarketplace(mp: string): Marketplace {
     const map: Record<string, Marketplace> = {
@@ -131,24 +104,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       amazon: 'amazon',
       magalu: 'magalu'
     };
-
     return map[mp] || 'mercadolivre';
   }
 
-  /* ===============================
-     LOAD PRODUCTS
-  ================================ */
-
   const refreshProducts = async () => {
     setIsLoading(true);
-
     const url = `${API_BASE_URL}/api/products`;
 
     try {
       const res = await fetch(url);
-
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
       const json = await res.json();
 
       const items = Array.isArray(json?.items)
@@ -198,12 +163,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshProducts();
-    return () => eventSourceRef.current?.close();
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, []);
-
-  /* ===============================
-     DELETE
-  ================================ */
 
   const deleteProducts = async (ids: string[]) => {
     await fetch(`${API_BASE_URL}/api/products/bulk-delete`, {
@@ -211,26 +176,81 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids })
     });
-
     await refreshProducts();
   };
 
-  /* ===============================
-     CLEANUP
-  ================================ */
-
   const runCleanup = async (): Promise<number> => {
-    await fetch(`${API_BASE_URL}/api/products/cleanup/all`, {
-      method: 'DELETE'
-    });
-
+    await fetch(`${API_BASE_URL}/api/products/cleanup/all`, { method: 'DELETE' });
     await refreshProducts();
     return 0;
   };
 
-  /* ===============================
-     SCRAPING COM STATUS PERSISTENTE
-  ================================ */
+  // ═══════════════════════════════════════════════════════════
+  // POLLING EM TEMPO REAL DO STATUS DO BACKEND
+  // ═══════════════════════════════════════════════════════════
+  const startStatusPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    console.log('🔄 Iniciando polling de status do scraping...');
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await scrapingService.getStatus();
+        
+        if (response.success && response.data) {
+          const backendStatus = response.data as any;
+          
+          // ✅ MAPEAR STATUS DO BACKEND CORRETAMENTE
+          const isRunning = backendStatus.status === 'running';
+          const isCompleted = backendStatus.status === 'completed';
+          
+          setScrapingStatus(prev => ({
+            isRunning: isRunning,
+            progress: backendStatus.progress || 0,
+            currentMarketplace: backendStatus.currentMarketplace 
+              ? normalizeMarketplace(backendStatus.currentMarketplace)
+              : null,
+            itemsCollected: backendStatus.itemsCollected || 0,
+            totalItems: backendStatus.totalItems || prev.totalItems
+          }));
+
+          // Para o polling se o scraping terminou
+          if (isCompleted && prev.isRunning) {
+            console.log('✅ Scraping finalizado pelo backend, parando polling');
+            stopStatusPolling();
+            
+            // Atualiza produtos após conclusão
+            setTimeout(() => {
+              refreshProducts();
+              
+              // Limpa o status após 3 segundos
+              setTimeout(() => {
+                setScrapingStatus({
+                  isRunning: false,
+                  progress: 0,
+                  currentMarketplace: null,
+                  itemsCollected: 0,
+                  totalItems: 0
+                });
+              }, 3000);
+            }, 1000);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Erro ao buscar status do backend:', error);
+      }
+    }, 2000); // Poll a cada 2 segundos
+  };
+
+  const stopStatusPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      console.log('⏹️ Polling parado');
+    }
+  };
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
     const totalItems = Object.values(config.marketplaces)
@@ -241,15 +261,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       .filter(([_, mp]) => mp.enabled)
       .map(([key]) => key as Marketplace);
 
+    // Inicia status local
     setScrapingStatus({
       isRunning: true,
-      progress: 5,
+      progress: 0,
       currentMarketplace: enabledMarketplaces[0] || null,
       itemsCollected: 0,
       totalItems
     });
-
-    await new Promise(resolve => setTimeout(resolve, 200));
 
     try {
       const payload: ScrapingRequestPayload = {
@@ -270,80 +289,20 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         filters: config.filters || {}
       };
 
-      let currentProgress = 5;
-      let currentMpIndex = 0;
-      
-      const progressInterval = setInterval(() => {
-        setScrapingStatus(prev => {
-          if (!prev.isRunning) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-
-          const increment = Math.random() * 2 + 1;
-          currentProgress = Math.min(90, currentProgress + increment);
-
-          const progressPerMarketplace = 90 / enabledMarketplaces.length;
-          const expectedMpIndex = Math.floor(currentProgress / progressPerMarketplace);
-          
-          if (expectedMpIndex !== currentMpIndex && expectedMpIndex < enabledMarketplaces.length) {
-            currentMpIndex = expectedMpIndex;
-          }
-
-          return {
-            ...prev,
-            progress: currentProgress,
-            currentMarketplace: enabledMarketplaces[currentMpIndex] || prev.currentMarketplace,
-            itemsCollected: Math.floor((currentProgress / 100) * prev.totalItems)
-          };
-        });
-      }, 2000);
-
+      // Inicia o scraping no backend
       const res = await scrapingService.start(payload);
 
-      clearInterval(progressInterval);
-
       if (res.success) {
-        setScrapingStatus({
-          isRunning: true,
-          progress: 100,
-          currentMarketplace: null,
-          itemsCollected: res.data?.total || 0,
-          totalItems
-        });
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        try {
-          await refreshProducts();
-        } catch (refreshError) {
-          // Silencioso - scraping foi concluído com sucesso
-        }
-
-        setScrapingStatus({
-          isRunning: false,
-          progress: 100,
-          currentMarketplace: null,
-          itemsCollected: res.data?.total || 0,
-          totalItems
-        });
-
-        // ✅ LIMPAR STATUS APÓS 3 SEGUNDOS
-        setTimeout(() => {
-          setScrapingStatus({
-            isRunning: false,
-            progress: 0,
-            currentMarketplace: null,
-            itemsCollected: 0,
-            totalItems: 0
-          });
-        }, 3000);
-
+        // ✅ INICIA POLLING EM TEMPO REAL
+        startStatusPolling();
+        
         return res.data?.total || 0;
       }
 
       throw new Error('Scraping falhou');
     } catch (error) {
+      stopStatusPolling();
+      
       setScrapingStatus({
         isRunning: false,
         progress: 0,
@@ -376,10 +335,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     </DashboardContext.Provider>
   );
 }
-
-/* ===============================
-   HOOK
-================================ */
 
 export const useDashboard = () => {
   const ctx = useContext(DashboardContext);
