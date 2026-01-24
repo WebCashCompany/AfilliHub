@@ -78,11 +78,30 @@ export function DistributionPage() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showGroupsModal, setShowGroupsModal] = useState(false);
   
-  // Automation states
+  // Automation states - ✅ COM PERSISTÊNCIA
   const [showAutomationModal, setShowAutomationModal] = useState(false);
-  const [automationActive, setAutomationActive] = useState(false);
-  const [automationPaused, setAutomationPaused] = useState(false);
-  const [automationConfig, setAutomationConfig] = useState<AutomationConfig | null>(null);
+  
+  const [automationActive, setAutomationActive] = useState(() => {
+    const saved = localStorage.getItem('distribution_automation_active');
+    return saved === 'true';
+  });
+  
+  const [automationPaused, setAutomationPaused] = useState(() => {
+    const saved = localStorage.getItem('distribution_automation_paused');
+    return saved === 'true';
+  });
+  
+  const [automationConfig, setAutomationConfig] = useState<AutomationConfig | null>(() => {
+    const saved = localStorage.getItem('distribution_automation_config');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Erro ao carregar automation config:', e);
+      }
+    }
+    return null;
+  });
 
   // ✅ SALVAR whatsappEnabled NO LOCALSTORAGE
   useEffect(() => {
@@ -103,6 +122,25 @@ export function DistributionPage() {
   useEffect(() => {
     localStorage.setItem('distribution_whatsapp_groups', JSON.stringify(whatsappGroups));
   }, [whatsappGroups]);
+
+  // ✅ SALVAR automationActive NO LOCALSTORAGE
+  useEffect(() => {
+    localStorage.setItem('distribution_automation_active', String(automationActive));
+  }, [automationActive]);
+
+  // ✅ SALVAR automationPaused NO LOCALSTORAGE
+  useEffect(() => {
+    localStorage.setItem('distribution_automation_paused', String(automationPaused));
+  }, [automationPaused]);
+
+  // ✅ SALVAR automationConfig NO LOCALSTORAGE
+  useEffect(() => {
+    if (automationConfig) {
+      localStorage.setItem('distribution_automation_config', JSON.stringify(automationConfig));
+    } else {
+      localStorage.removeItem('distribution_automation_config');
+    }
+  }, [automationConfig]);
 
   const activeProducts = products.filter(p => p.status === 'active' || p.status === 'protected');
   
@@ -267,6 +305,14 @@ export function DistributionPage() {
     setAutomationActive(false);
     setAutomationPaused(false);
     setAutomationConfig(null);
+    
+    // ✅ LIMPAR LOCALSTORAGE
+    localStorage.removeItem('distribution_automation_active');
+    localStorage.removeItem('distribution_automation_paused');
+    localStorage.removeItem('distribution_automation_config');
+    localStorage.removeItem('automation_timer_time_left');
+    localStorage.removeItem('automation_timer_total_cycles');
+    
     toast({
       title: "Automação cancelada",
       description: "O bot foi desativado com sucesso.",

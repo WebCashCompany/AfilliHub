@@ -1,3 +1,5 @@
+// src/components/dashboard/AutomationTimer.tsx - COM PERSISTÊNCIA
+
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -7,7 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Bot, Pause, Play, X, Clock, Zap } from 'lucide-react';
+import { Bot, Pause, Play, X, Clock } from 'lucide-react';
 
 interface AutomationTimerProps {
   intervalMinutes: number;
@@ -24,9 +26,41 @@ export function AutomationTimer({
   onCancel,
   isPaused,
 }: AutomationTimerProps) {
-  const [timeLeft, setTimeLeft] = useState(intervalMinutes * 60);
-  const [totalCycles, setTotalCycles] = useState(0);
+  // ✅ CARREGAR timeLeft DO LOCALSTORAGE
+  const [timeLeft, setTimeLeft] = useState(() => {
+    const saved = localStorage.getItem('automation_timer_time_left');
+    if (saved) {
+      const savedTime = parseInt(saved);
+      if (!isNaN(savedTime) && savedTime > 0) {
+        return savedTime;
+      }
+    }
+    return intervalMinutes * 60;
+  });
 
+  // ✅ CARREGAR totalCycles DO LOCALSTORAGE
+  const [totalCycles, setTotalCycles] = useState(() => {
+    const saved = localStorage.getItem('automation_timer_total_cycles');
+    if (saved) {
+      const savedCycles = parseInt(saved);
+      if (!isNaN(savedCycles)) {
+        return savedCycles;
+      }
+    }
+    return 0;
+  });
+
+  // ✅ SALVAR timeLeft NO LOCALSTORAGE
+  useEffect(() => {
+    localStorage.setItem('automation_timer_time_left', String(timeLeft));
+  }, [timeLeft]);
+
+  // ✅ SALVAR totalCycles NO LOCALSTORAGE
+  useEffect(() => {
+    localStorage.setItem('automation_timer_total_cycles', String(totalCycles));
+  }, [totalCycles]);
+
+  // Timer principal
   useEffect(() => {
     if (isPaused) return;
 
@@ -42,6 +76,13 @@ export function AutomationTimer({
 
     return () => clearInterval(interval);
   }, [isPaused, intervalMinutes]);
+
+  // ✅ LIMPAR LOCALSTORAGE QUANDO CANCELAR
+  const handleCancel = () => {
+    localStorage.removeItem('automation_timer_time_left');
+    localStorage.removeItem('automation_timer_total_cycles');
+    onCancel();
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -135,7 +176,7 @@ export function AutomationTimer({
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={onCancel}
+                onClick={handleCancel}
                 className="h-9 w-9 hover:bg-red-100 dark:hover:bg-red-900/50"
               >
                 <X className="w-4 h-4 text-red-600 dark:text-red-400" />

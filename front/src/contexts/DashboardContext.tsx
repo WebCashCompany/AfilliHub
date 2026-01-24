@@ -1,4 +1,4 @@
-// src/contexts/DashboardContext.tsx - CORRIGIDO
+// src/contexts/DashboardContext.tsx - COM PERSISTÊNCIA DO SCRAPING STATUS
 
 import React, {
   createContext,
@@ -91,16 +91,32 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     useState<MarketplaceMetrics[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>({
-    isRunning: false,
-    progress: 0,
-    currentMarketplace: null,
-    itemsCollected: 0,
-    totalItems: 0
+  // ✅ CARREGAR scrapingStatus DO LOCALSTORAGE
+  const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>(() => {
+    const saved = localStorage.getItem('scraping_status');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Erro ao carregar scraping status:', e);
+      }
+    }
+    return {
+      isRunning: false,
+      progress: 0,
+      currentMarketplace: null,
+      itemsCollected: 0,
+      totalItems: 0
+    };
   });
 
   const { toast } = useToast();
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  // ✅ SALVAR scrapingStatus NO LOCALSTORAGE SEMPRE QUE MUDAR
+  useEffect(() => {
+    localStorage.setItem('scraping_status', JSON.stringify(scrapingStatus));
+  }, [scrapingStatus]);
 
   /* ===============================
      HELPERS
@@ -151,7 +167,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         price: parseFloat(p.preco_para?.replace('R$', '').replace('.', '').replace(',', '.').trim() || p.price || '0'),
         oldPrice: parseFloat(p.preco_de?.replace('R$', '').replace('.', '').replace(',', '.').trim() || p.oldPrice || '0'),
         discount: parseInt(p.desconto?.replace('%', '').trim() || p.discount || '0'),
-        affiliateLink: p.link_afiliado || '', // ✅ ÚNICA MUDANÇA AQUI
+        affiliateLink: p.link_afiliado || '',
         clicks: 0,
         conversions: 0,
         revenue: 0,
@@ -211,7 +227,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   /* ===============================
-     SCRAPING COM STATUS
+     SCRAPING COM STATUS PERSISTENTE
   ================================ */
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
@@ -320,6 +336,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           totalItems
         });
 
+        // ✅ LIMPAR STATUS APÓS 3 SEGUNDOS
         setTimeout(() => {
           setScrapingStatus({
             isRunning: false,

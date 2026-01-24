@@ -1,4 +1,6 @@
-import { useState } from 'react';
+// src/components/dashboard/AutomationModal.tsx - COM PERSISTÊNCIA
+
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -35,11 +37,66 @@ export function AutomationModal({
   availableCategories,
   availableMarketplaces,
 }: AutomationModalProps) {
-  const [intervalMinutes, setIntervalMinutes] = useState(30);
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [selectedMarketplaces, setSelectedMarketplaces] = useState<string[]>([]);
-  const [allCategories, setAllCategories] = useState(true);
-  const [allMarketplaces, setAllMarketplaces] = useState(true);
+  // ✅ CARREGAR ESTADOS DO LOCALSTORAGE
+  const [intervalMinutes, setIntervalMinutes] = useState(() => {
+    const saved = localStorage.getItem('automation_modal_interval');
+    return saved ? parseInt(saved) : 30;
+  });
+
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(() => {
+    const saved = localStorage.getItem('automation_modal_categories');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  const [selectedMarketplaces, setSelectedMarketplaces] = useState<string[]>(() => {
+    const saved = localStorage.getItem('automation_modal_marketplaces');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  const [allCategories, setAllCategories] = useState(() => {
+    const saved = localStorage.getItem('automation_modal_all_categories');
+    return saved === 'false' ? false : true;
+  });
+
+  const [allMarketplaces, setAllMarketplaces] = useState(() => {
+    const saved = localStorage.getItem('automation_modal_all_marketplaces');
+    return saved === 'false' ? false : true;
+  });
+
+  // ✅ SALVAR NO LOCALSTORAGE SEMPRE QUE MUDAR
+  useEffect(() => {
+    localStorage.setItem('automation_modal_interval', String(intervalMinutes));
+  }, [intervalMinutes]);
+
+  useEffect(() => {
+    localStorage.setItem('automation_modal_categories', JSON.stringify(selectedCategories));
+  }, [selectedCategories]);
+
+  useEffect(() => {
+    localStorage.setItem('automation_modal_marketplaces', JSON.stringify(selectedMarketplaces));
+  }, [selectedMarketplaces]);
+
+  useEffect(() => {
+    localStorage.setItem('automation_modal_all_categories', String(allCategories));
+  }, [allCategories]);
+
+  useEffect(() => {
+    localStorage.setItem('automation_modal_all_marketplaces', String(allMarketplaces));
+  }, [allMarketplaces]);
 
   const handleStart = () => {
     onStart({
