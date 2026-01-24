@@ -1,4 +1,4 @@
-// src/pages/DistributionPage.tsx - CORRIGIDO
+// src/pages/DistributionPage.tsx - COM ENVIO DE IMAGENS
 
 import { useState, useMemo } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -23,7 +23,7 @@ import { ConnectBotModal } from '@/components/modals/ConnectBotModal';
 import { SelectGroupsModal } from '@/components/modals/SelectGroupsModal';
 import { 
   Send, MessageCircle, Search, CheckCircle, Eye, Copy,
-  Smartphone, Zap, Bot, Settings, Loader2 // ✅ ADICIONADO LOADER2
+  Smartphone, Zap, Bot, Settings, Loader2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatCurrency, Product } from '@/lib/mockData';
@@ -141,12 +141,21 @@ export function DistributionPage() {
       // Enviar para WhatsApp
       if (whatsappEnabled) {
         for (const group of whatsappGroups) {
-          const ofertas = selectedProducts.map(p => ({
-            nome: p.name,
-            preco: formatCurrency(p.price),
-            desconto: `-${p.discount}%`,
-            link: p.affiliateLink || `https://mercadolivre.com.br/produto/${p.id}`
-          }));
+          // ✅ CORRIGIDO: Incluir imagem nas ofertas
+          const ofertas = selectedProducts.map(p => {
+            // 🔍 DEBUG: Verificar qual link está sendo usado
+            console.log('🔗 Produto:', p.name);
+            console.log('🔗 affiliateLink:', p.affiliateLink);
+            console.log('🔗 link_afiliado:', p.link_afiliado);
+            
+            return {
+              nome: p.name,
+              preco: formatCurrency(p.price),
+              desconto: `-${p.discount}%`,
+              link: p.affiliateLink || p.link_afiliado || 'Link indisponível', // ✅ Tenta ambos os campos
+              imagem: p.image
+            };
+          });
 
           await whatsappService.sendOffers({
             grupoId: group.id,
@@ -210,26 +219,24 @@ export function DistributionPage() {
     });
   };
 
-  // ✅ CORRIGIDO: Calcular oldPrice baseado no desconto
   const calculateOldPrice = (product: Product): number => {
-    // Se o produto tem desconto, calcula o preço anterior
     if (product.discount > 0) {
-      return product.price / (1 - product.discount / 100);
+      // ✅ FÓRMULA CORRETA: preço atual * (1 + desconto/100) = preço antigo
+      return product.price * (1 + product.discount / 100);
     }
-    // Caso contrário, usa o próprio preço como base
     return product.price;
   };
 
   const generateMessagePreview = (product: Product) => {
-    const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!*\n\n`;
-    const oldPrice = calculateOldPrice(product); // ✅ USANDO A FUNÇÃO
+    const oldPrice = calculateOldPrice(product);
+    const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!* 🔥`;
+    const link = product.affiliateLink || product.link_afiliado || 'Link indisponível';
     
-    return `${message}📦 *${product.name}*\n\n` +
-           `💰 De: ~R$ ${oldPrice.toFixed(2)}~\n` +
-           `🏷️ Por: *${formatCurrency(product.price)}*\n` +
-           `📉 Desconto: *${product.discount}% OFF*\n\n` +
-           `🛒 Compre agora: ${product.affiliateLink || 'Link indisponível'}\n\n` +
-           `⚡ Corra! Estoque limitado!`;
+    return `${message}\n\n` +
+           `📦 *${product.name}*\n\n` +
+           `💰 ~R$ ${oldPrice.toFixed(2).replace('.', ',')}~ ➔ *${formatCurrency(product.price)}*\n\n` +
+           `🔗 Link: ${link}\n\n` +
+           `⚡ Aproveite enquanto tem estoque!`;
   };
 
   return (
@@ -460,22 +467,76 @@ export function DistributionPage() {
               </div>
 
               {selectedProducts.length > 0 && (
-                <div className="p-4 bg-muted rounded-lg">
-                  <pre className="text-xs whitespace-pre-wrap font-sans">
-                    {generateMessagePreview(selectedProducts[0])}
-                  </pre>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="mt-2 gap-1"
-                    onClick={() => {
-                      navigator.clipboard.writeText(generateMessagePreview(selectedProducts[0]));
-                      toast({ title: "Copiado!", description: "Mensagem copiada para a área de transferência." });
-                    }}
-                  >
-                    <Copy className="w-3 h-3" />
-                    Copiar
-                  </Button>
+                <div className="space-y-3">
+                  {/* ✅ Tabs para navegar entre produtos */}
+                  {selectedProducts.length > 1 && (
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                      {selectedProducts.map((p, idx) => (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            // Scroll para o preview deste produto
+                            const previewElement = document.getElementById(`preview-${idx}`);
+                            previewElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                          }}
+                          className="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-md bg-muted hover:bg-muted/80 transition-colors"
+                        >
+                          Produto {idx + 1}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ✅ Preview com scroll */}
+                  <div className="max-h-[500px] overflow-y-auto space-y-4 pr-2">
+                    {selectedProducts.map((product, idx) => (
+                      <div key={product.id} id={`preview-${idx}`} className="space-y-3">
+                        {/* Imagem do produto */}
+                        <div className="relative rounded-lg overflow-hidden border">
+                          <img 
+                            src={product.image} 
+                            alt={product.name}
+                            className="w-full h-48 object-cover"
+                          />
+                          <div className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1">
+                            <span className="text-xs font-medium">📸 Imagem será enviada</span>
+                          </div>
+                          {selectedProducts.length > 1 && (
+                            <div className="absolute top-2 left-2 bg-primary text-primary-foreground rounded px-2 py-1">
+                              <span className="text-xs font-bold">{idx + 1}/{selectedProducts.length}</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Mensagem */}
+                        <div className="p-4 bg-muted rounded-lg">
+                          <pre className="text-xs whitespace-pre-wrap font-sans">
+                            {generateMessagePreview(product)}
+                          </pre>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="mt-2 gap-1"
+                            onClick={() => {
+                              navigator.clipboard.writeText(generateMessagePreview(product));
+                              toast({ 
+                                title: "Copiado!", 
+                                description: `Mensagem do produto ${idx + 1} copiada.` 
+                              });
+                            }}
+                          >
+                            <Copy className="w-3 h-3" />
+                            Copiar
+                          </Button>
+                        </div>
+
+                        {/* Divisor entre produtos */}
+                        {idx < selectedProducts.length - 1 && (
+                          <div className="border-t pt-4" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

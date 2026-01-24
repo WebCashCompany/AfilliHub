@@ -1,9 +1,7 @@
 // src/components/modals/ConnectBotModal.tsx
-// ⚠️ ESTE ARQUIVO É DO FRONTEND (REACT) - NÃO COLOQUE NO BACKEND!
-
 import { useState, useEffect, useRef } from 'react';
 import { Loader2, MessageCircle, Send, CheckCircle, X } from 'lucide-react';
-import { whatsappService } from '@/api/services/whatsapp.service';
+import { useWhatsApp } from '@/contexts/WhatsAppContext';
 import { useToast } from '@/hooks/use-toast';
 import QRCode from 'react-qr-code';
 
@@ -18,17 +16,13 @@ type ConnectionStep = 'choose' | 'connecting' | 'qrcode' | 'connected';
 export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalProps) {
   const [step, setStep] = useState<ConnectionStep>('choose');
   const [selectedPlatform, setSelectedPlatform] = useState<'whatsapp' | 'telegram' | null>(null);
-  const [qrCode, setQrCode] = useState<string | null>(null);
+  const { status, connectBot } = useWhatsApp();
   const { toast } = useToast();
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Limpar intervalos ao desmontar
+  // Limpar timeout ao desmontar
   useEffect(() => {
     return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
@@ -40,18 +34,43 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
     if (open) {
       setStep('choose');
       setSelectedPlatform(null);
-      setQrCode(null);
       
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
     }
   }, [open]);
+
+  // Monitorar mudanças no status do contexto
+  useEffect(() => {
+    if (!open) return;
+
+    console.log('📊 Status mudou:', status);
+
+    // Se recebeu QR Code
+    if (status.qrCode && !status.conectado && step === 'connecting') {
+      console.log('✅ QR Code recebido!');
+      setStep('qrcode');
+    }
+
+    // Se conectou
+    if (status.conectado && (step === 'connecting' || step === 'qrcode')) {
+      console.log('✅ Bot conectado!');
+      
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      
+      setStep('connected');
+      
+      setTimeout(() => {
+        onConnected();
+        onClose();
+      }, 1500);
+    }
+  }, [status, open, step, onConnected, onClose]);
 
   const handleSelectPlatform = async (platform: 'whatsapp' | 'telegram') => {
     setSelectedPlatform(platform);
@@ -67,53 +86,10 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
     setStep('connecting');
     
     try {
-      await whatsappService.connectBot();
-      
-      const checkStatus = async () => {
-        try {
-          const status = await whatsappService.getStatus();
-          
-          console.log('📊 Status polling:', status);
-          
-          if (status.qrCode && !status.conectado) {
-            console.log('✅ QR Code recebido!');
-            setQrCode(status.qrCode);
-            setStep('qrcode');
-          }
-          
-          if (status.conectado) {
-            console.log('✅ Bot conectado!');
-            
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-            if (timeoutRef.current) {
-              clearTimeout(timeoutRef.current);
-              timeoutRef.current = null;
-            }
-            
-            setStep('connected');
-            
-            setTimeout(() => {
-              onConnected();
-              onClose();
-            }, 1500);
-          }
-        } catch (error) {
-          console.error('❌ Erro no polling:', error);
-        }
-      };
+      await connectBot();
 
-      await checkStatus();
-      pollIntervalRef.current = setInterval(checkStatus, 2000);
-
+      // Timeout de 2 minutos
       timeoutRef.current = setTimeout(() => {
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
-        
         if (step !== 'connected') {
           toast({
             title: "Tempo esgotado",
@@ -121,17 +97,12 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
             variant: "destructive"
           });
           setStep('choose');
-          setQrCode(null);
         }
       }, 120000);
 
     } catch (error: any) {
       console.error('❌ Erro ao conectar:', error);
       
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
@@ -147,10 +118,6 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
   };
 
   const handleClose = () => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
@@ -226,10 +193,10 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
           </div>
         )}
 
-        {step === 'qrcode' && qrCode && (
+        {step === 'qrcode' && status.qrCode && (
           <div className="py-6 flex flex-col items-center gap-4">
             <div className="bg-white p-4 rounded-lg">
-              <QRCode value={qrCode} size={256} />
+              <QRCode value={status.qrCode} size={256} />
             </div>
             <div className="text-center">
               <p className="font-medium">Escaneie com seu WhatsApp</p>

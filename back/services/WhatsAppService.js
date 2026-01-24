@@ -1,8 +1,8 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 class WhatsAppService {
     constructor() {
@@ -16,12 +16,10 @@ class WhatsAppService {
         this.connectedCallback = null;
     }
 
-    // Callback para QR Code
     onQRCode(callback) {
         this.qrCodeCallback = callback;
     }
 
-    // Callback para conexão estabelecida
     onConnected(callback) {
         this.connectedCallback = callback;
     }
@@ -52,7 +50,7 @@ class WhatsAppService {
 
             this.sock = makeWASocket({
                 auth: state,
-                printQRInTerminal: false, // NÃO printar no terminal
+                printQRInTerminal: false,
                 logger: pino({ level: 'silent' }),
                 browser: ['DivulgaLinks Bot', 'Chrome', '10.0.0'],
                 defaultQueryTimeoutMs: 60000,
@@ -66,17 +64,13 @@ class WhatsAppService {
             this.sock.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, qr } = update;
 
-                // QR CODE - Enviar para callback
                 if (qr) {
                     console.log('📱 QR Code gerado!');
-                    
-                    // Enviar QR Code para o callback (frontend)
                     if (this.qrCodeCallback) {
                         this.qrCodeCallback(qr);
                     }
                 }
 
-                // CONECTADO
                 if (connection === 'open') {
                     console.log('\n╔════════════════════════════════════════════════════╗');
                     console.log('║  🤖 BOT WHATSAPP CONECTADO E PRONTO! 🚀          ║');
@@ -86,13 +80,11 @@ class WhatsAppService {
                     this.isConnecting = false;
                     this.reconnectAttempts = 0;
 
-                    // Chamar callback de conexão
                     if (this.connectedCallback) {
                         this.connectedCallback();
                     }
                 }
 
-                // DESCONECTADO
                 if (connection === 'close') {
                     this.isReady = false;
                     this.isConnecting = false;
@@ -156,38 +148,99 @@ class WhatsAppService {
         }
     }
 
+    async baixarImagem(url) {
+        try {
+            console.log('📥 Baixando imagem:', url);
+            
+            const response = await axios({
+                method: 'GET',
+                url: url,
+                responseType: 'arraybuffer',
+                timeout: 30000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+
+            console.log('✅ Imagem baixada com sucesso!');
+            return Buffer.from(response.data, 'binary');
+        } catch (error) {
+            console.error('❌ Erro ao baixar imagem:', error.message);
+            return null;
+        }
+    }
+
     async enviarOfertas(grupoId, ofertas) {
         if (!this.isReady || !this.sock) {
             throw new Error('Bot não está conectado');
         }
 
         try {
-            let mensagem = '🔥 *OFERTAS IMPERDÍVEIS!* 🔥\n\n';
-            
-            ofertas.forEach((oferta, index) => {
-                mensagem += `*${index + 1}. ${oferta.nome}*\n`;
-                mensagem += `💰 Preço: *${oferta.preco}*\n`;
-                
-                if (oferta.desconto) {
-                    mensagem += `📉 Desconto: *${oferta.desconto}*\n`;
+            console.log(`\n📤 Enviando ofertas para: ${grupoId}`);
+            console.log(`📦 Total de ofertas: ${ofertas.length}`);
+
+            for (const oferta of ofertas) {
+                try {
+                    console.log('📋 Dados da oferta recebida:', oferta);
+
+                    // ✅ USA A MENSAGEM EXATAMENTE COMO VEM DO FRONTEND
+                    // Se vier o campo 'mensagem', usa ele. Caso contrário, monta
+                    let mensagem = oferta.mensagem;
+                    
+                    if (!mensagem) {
+                        // Só monta a mensagem se não vier pronta
+                        mensagem = `🔥 *OFERTA IMPERDÍVEL!* 🔥\n\n`;
+                        mensagem += `📦 *${oferta.nome}*\n\n`;
+                        
+                        if (oferta.precoAntigo) {
+                            mensagem += `💰 ~${oferta.precoAntigo}~ ➔ *${oferta.preco}*\n\n`;
+                        } else if (oferta.preco) {
+                            mensagem += `💰 *${oferta.preco}*\n\n`;
+                        }
+                        
+                        if (oferta.link) {
+                            mensagem += `🔗 Link: ${oferta.link}`;
+                        }
+                    }
+
+                    console.log('📝 Mensagem final:', mensagem);
+
+                    // ✅ ENVIAR COM IMAGEM
+                    if (oferta.imagem || oferta.image || oferta.foto) {
+                        const imagemUrl = oferta.imagem || oferta.image || oferta.foto;
+                        console.log(`📸 Tentando enviar com imagem: ${imagemUrl}`);
+
+                        const imagemBuffer = await this.baixarImagem(imagemUrl);
+
+                        if (imagemBuffer) {
+                            await this.sock.sendMessage(grupoId, {
+                                image: imagemBuffer,
+                                caption: mensagem
+                            });
+                            console.log(`✅ Oferta enviada COM IMAGEM: ${oferta.nome}`);
+                        } else {
+                            await this.sock.sendMessage(grupoId, { text: mensagem });
+                            console.log(`⚠️ Oferta enviada SEM IMAGEM (erro ao baixar): ${oferta.nome}`);
+                        }
+                    } else {
+                        await this.sock.sendMessage(grupoId, { text: mensagem });
+                        console.log(`✅ Oferta enviada (sem imagem): ${oferta.nome}`);
+                    }
+
+                    if (ofertas.length > 1) {
+                        await delay(2000);
+                    }
+
+                } catch (error) {
+                    console.error(`❌ Erro ao enviar oferta "${oferta.nome}":`, error.message);
                 }
-                
-                if (oferta.link) {
-                    mensagem += `🔗 Link: ${oferta.link}\n`;
-                }
-                
-                mensagem += '\n';
-            });
+            }
 
-            mensagem += '⚡ *Aproveite enquanto tem estoque!*';
-
-            await this.sock.sendMessage(grupoId, { text: mensagem });
-
-            console.log(`✅ Ofertas enviadas para: ${grupoId}`);
+            console.log(`\n✅ Processo concluído! Ofertas enviadas para: ${grupoId}\n`);
 
             return {
                 success: true,
-                mensagem: 'Ofertas enviadas com sucesso!'
+                mensagem: `${ofertas.length} oferta(s) enviada(s) com sucesso!`
             };
 
         } catch (error) {

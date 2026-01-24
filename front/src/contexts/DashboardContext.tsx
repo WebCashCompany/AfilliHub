@@ -151,6 +151,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         price: parseFloat(p.preco_para?.replace('R$', '').replace('.', '').replace(',', '.').trim() || p.price || '0'),
         oldPrice: parseFloat(p.preco_de?.replace('R$', '').replace('.', '').replace(',', '.').trim() || p.oldPrice || '0'),
         discount: parseInt(p.desconto?.replace('%', '').trim() || p.discount || '0'),
+        affiliateLink: p.link_afiliado || '', // ✅ ÚNICA MUDANÇA AQUI
         clicks: 0,
         conversions: 0,
         revenue: 0,
@@ -217,17 +218,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     console.log('🚀 runScraping iniciado');
     console.log('📋 Config recebida:', JSON.stringify(config, null, 2));
     
-    // Calcula total esperado
     const totalItems = Object.values(config.marketplaces)
       .filter(mp => mp.enabled)
       .reduce((sum, mp) => sum + mp.quantity, 0);
 
-    // Marketplaces habilitados
     const enabledMarketplaces = Object.entries(config.marketplaces)
       .filter(([_, mp]) => mp.enabled)
       .map(([key]) => key as Marketplace);
 
-    // ✅ PASSO 1: Define isRunning como TRUE IMEDIATAMENTE
     console.log('📊 Setando isRunning = true');
     setScrapingStatus({
       isRunning: true,
@@ -237,11 +235,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       totalItems
     });
 
-    // ✅ PASSO 2: Aguarda React re-renderizar
     await new Promise(resolve => setTimeout(resolve, 200));
 
     try {
-      // ✅ CORREÇÃO: Monta payload com filtros específicos por marketplace
       const payload: ScrapingRequestPayload = {
         marketplaces: Object.fromEntries(
           Object.entries(config.marketplaces).map(([key, mp]) => {
@@ -251,7 +247,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
               {
                 enabled: mp.enabled,
                 quantity: mp.quantity,
-                // 🔥 ENVIA OS FILTROS ESPECÍFICOS DE CADA MARKETPLACE
                 filters: mp.filters || {}
               }
             ];
@@ -264,7 +259,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       console.log('📤 Payload FINAL enviado para API:', JSON.stringify(payload, null, 2));
 
-      // ✅ PASSO 3: Inicia simulação de progresso
       console.log('⏳ Iniciando simulação de progresso');
       let currentProgress = 5;
       let currentMpIndex = 0;
@@ -295,7 +289,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         });
       }, 2000);
 
-      // ✅ PASSO 4: Executa scraping real
       console.log('🔄 Chamando API de scraping...');
       const res = await scrapingService.start(payload);
       console.log('✅ Scraping concluído:', res);
