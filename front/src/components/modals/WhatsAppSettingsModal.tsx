@@ -1,4 +1,4 @@
-// src/components/modals/WhatsAppSettingsModal.tsx - MODAL COMPLETO DE GERENCIAMENTO
+// src/components/modals/WhatsAppSettingsModal.tsx - COM SELEÇÃO DE USUÁRIO
 import { useState, useEffect } from 'react';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
 import { useToast } from '@/hooks/use-toast';
@@ -17,7 +17,8 @@ import {
   Loader2,
   Users,
   Search,
-  Settings
+  Settings,
+  ChevronRight
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
@@ -42,8 +43,7 @@ export function WhatsAppSettingsModal({
     isConnecting,
     setCurrentSession,
     connectNewSession,
-    disconnectSession,
-    loadGroups
+    disconnectSession
   } = useWhatsApp();
 
   const { toast } = useToast();
@@ -53,25 +53,25 @@ export function WhatsAppSettingsModal({
   const [showNewSessionForm, setShowNewSessionForm] = useState(false);
   
   // Estado para grupos
+  const [selectedSessionForGroups, setSelectedSessionForGroups] = useState<string | null>(null);
   const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [searchGroups, setSearchGroups] = useState('');
   const [loadingGroups, setLoadingGroups] = useState(false);
 
-  // Carregar grupos quando abrir ou mudar sessão
+  // Resetar seleção de sessão ao abrir
   useEffect(() => {
-    if (open && currentSessionId) {
-      loadGroupsForCurrentSession();
+    if (open) {
+      setSelectedSessionForGroups(null);
+      setGroups([]);
       setSelectedGroupIds(initialSelectedGroups.map(g => g.id));
     }
-  }, [open, currentSessionId]);
+  }, [open]);
 
-  const loadGroupsForCurrentSession = async () => {
-    if (!currentSessionId) return;
-    
+  const loadGroupsForSession = async (sessionId: string) => {
     setLoadingGroups(true);
     try {
-      const data = await whatsappService.listGroups(currentSessionId);
+      const data = await whatsappService.listGroups(sessionId);
       setGroups(data);
     } catch (error) {
       toast({
@@ -82,6 +82,17 @@ export function WhatsAppSettingsModal({
     } finally {
       setLoadingGroups(false);
     }
+  };
+
+  const handleSelectSessionForGroups = async (sessionId: string) => {
+    setSelectedSessionForGroups(sessionId);
+    await loadGroupsForSession(sessionId);
+  };
+
+  const handleBackToSessionSelection = () => {
+    setSelectedSessionForGroups(null);
+    setGroups([]);
+    setSearchGroups('');
   };
 
   const handleConnectNew = async () => {
@@ -137,9 +148,6 @@ export function WhatsAppSettingsModal({
       title: "Sessão alterada",
       description: `Agora usando "${sessionId}"`
     });
-    
-    // Recarregar grupos
-    await loadGroupsForCurrentSession();
   };
 
   const handleToggleGroup = (groupId: string) => {
@@ -165,6 +173,8 @@ export function WhatsAppSettingsModal({
   const filteredGroups = groups.filter(g =>
     g.nome.toLowerCase().includes(searchGroups.toLowerCase())
   );
+
+  const onlineSessions = sessions.filter(s => s.conectado);
 
   if (!open) return null;
 
@@ -219,7 +229,7 @@ export function WhatsAppSettingsModal({
               <Smartphone className="w-4 h-4 mr-2" />
               Sessões
             </TabsTrigger>
-            <TabsTrigger value="groups" disabled={!currentSessionId}>
+            <TabsTrigger value="groups">
               <Users className="w-4 h-4 mr-2" />
               Grupos
             </TabsTrigger>
@@ -349,71 +359,136 @@ export function WhatsAppSettingsModal({
 
           {/* TAB: GRUPOS */}
           <TabsContent value="groups" className="space-y-4 mt-4">
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar grupo..."
-                value={searchGroups}
-                onChange={(e) => setSearchGroups(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+            {!selectedSessionForGroups ? (
+              // Seleção de Usuário
+              <div className="space-y-3">
+                <div className="text-center py-4">
+                  <Users className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+                  <p className="font-medium mb-2">Selecione um número</p>
+                  <p className="text-sm text-muted-foreground">
+                    Escolha qual número deseja gerenciar os grupos
+                  </p>
+                </div>
 
-            {/* Lista de Grupos */}
-            {loadingGroups ? (
-              <div className="py-12 flex flex-col items-center gap-4">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Carregando grupos...</p>
-              </div>
-            ) : (
-              <div className="h-[300px] overflow-y-auto space-y-2">
-                {filteredGroups.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground">
-                    <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p>Nenhum grupo encontrado</p>
+                {onlineSessions.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>Nenhuma sessão online</p>
+                    <p className="text-xs mt-2">Conecte um número primeiro</p>
                   </div>
                 ) : (
-                  filteredGroups.map((group) => (
-                    <div
-                      key={group.id}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                        selectedGroupIds.includes(group.id)
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-muted-foreground/30'
-                      }`}
-                      onClick={() => handleToggleGroup(group.id)}
+                  onlineSessions.map((session) => (
+                    <button
+                      key={session.sessionId}
+                      onClick={() => handleSelectSessionForGroups(session.sessionId)}
+                      className="w-full flex items-center justify-between p-4 border rounded-lg hover:border-primary hover:bg-primary/5 transition-all"
                     >
-                      <Checkbox
-                        checked={selectedGroupIds.includes(group.id)}
-                        onCheckedChange={() => handleToggleGroup(group.id)}
-                      />
-                      <div className="flex-1">
-                        <p className="font-medium">{group.nome}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {group.participantes} participantes
-                        </p>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-950 flex items-center justify-center">
+                          <Smartphone className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div className="text-left">
+                          <p className="font-medium">{session.sessionId}</p>
+                          {session.phoneNumber && (
+                            <p className="text-sm text-muted-foreground">
+                              {session.phoneNumber}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                    </button>
                   ))
                 )}
               </div>
-            )}
+            ) : (
+              // Lista de Grupos
+              <>
+                {/* Header com botão voltar */}
+                <div className="flex items-center gap-2 pb-3 border-b">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleBackToSessionSelection}
+                  >
+                    ← Voltar
+                  </Button>
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      {sessions.find(s => s.sessionId === selectedSessionForGroups)?.sessionId}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Selecione os grupos
+                    </p>
+                  </div>
+                </div>
 
-            {/* Selected Count */}
-            {selectedGroupIds.length > 0 && (
-              <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg">
-                <span className="text-sm font-medium">
-                  {selectedGroupIds.length} grupo{selectedGroupIds.length > 1 ? 's' : ''} selecionado{selectedGroupIds.length > 1 ? 's' : ''}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedGroupIds([])}
-                >
-                  Limpar
-                </Button>
-              </div>
+                {/* Search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar grupo..."
+                    value={searchGroups}
+                    onChange={(e) => setSearchGroups(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                {/* Lista de Grupos */}
+                {loadingGroups ? (
+                  <div className="py-12 flex flex-col items-center gap-4">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Carregando grupos...</p>
+                  </div>
+                ) : (
+                  <div className="h-[300px] overflow-y-auto space-y-2">
+                    {filteredGroups.length === 0 ? (
+                      <div className="py-8 text-center text-muted-foreground">
+                        <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                        <p>Nenhum grupo encontrado</p>
+                      </div>
+                    ) : (
+                      filteredGroups.map((group) => (
+                        <div
+                          key={group.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                            selectedGroupIds.includes(group.id)
+                              ? 'border-primary bg-primary/5'
+                              : 'border-border hover:border-muted-foreground/30'
+                          }`}
+                          onClick={() => handleToggleGroup(group.id)}
+                        >
+                          <Checkbox
+                            checked={selectedGroupIds.includes(group.id)}
+                            onCheckedChange={() => handleToggleGroup(group.id)}
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium">{group.nome}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {group.participantes} participantes
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* Selected Count */}
+                {selectedGroupIds.length > 0 && (
+                  <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg">
+                    <span className="text-sm font-medium">
+                      {selectedGroupIds.length} grupo{selectedGroupIds.length > 1 ? 's' : ''} selecionado{selectedGroupIds.length > 1 ? 's' : ''}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedGroupIds([])}
+                    >
+                      Limpar
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </TabsContent>
         </Tabs>
