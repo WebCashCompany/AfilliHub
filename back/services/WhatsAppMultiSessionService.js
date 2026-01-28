@@ -361,20 +361,16 @@ class WhatsAppMultiSessionService {
             console.log(`📋 Encontradas ${savedSessions.length} sessões salvas`);
 
             for (const savedSession of savedSessions) {
-                if (!savedSession.conectado) {
-                    console.log(`🗑️ Removendo sessão offline: ${savedSession.sessionId}`);
-                    await this.sessionModel.deleteOne({ sessionId: savedSession.sessionId });
-                    continue;
-                }
-
                 if (savedSession.conectado) {
-                    console.log(`♻️ Restaurando sessão online: ${savedSession.sessionId}`);
+                    console.log(`♻️ Tentando reconectar sessão: ${savedSession.sessionId}`);
                     
                     const session = this.createSession(savedSession.sessionId);
                     
                     session.initialize().catch(err => {
-                        console.error(`Erro ao reconectar ${savedSession.sessionId}:`, err);
+                        console.error(`❌ Erro ao reconectar ${savedSession.sessionId}:`, err);
                     });
+                } else {
+                    console.log(`📝 Sessão offline no banco: ${savedSession.sessionId} (não reconectará automaticamente)`);
                 }
             }
 
