@@ -1,4 +1,4 @@
-// src/pages/DistributionPage.tsx - COM AUTOMAÇÃO FUNCIONAL E PREÇOS CORRETOS
+// src/pages/DistributionPage.tsx - INTEGRADO COM MODAL COMPLETO
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -20,8 +20,7 @@ import {
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { AutomationModal } from '@/components/dashboard/AutomationModal';
 import { AutomationTimer } from '@/components/dashboard/AutomationTimer';
-import { ConnectBotModal } from '@/components/modals/ConnectBotModal';
-import { SelectGroupsModal } from '@/components/modals/SelectGroupsModal';
+import { WhatsAppSettingsModal } from '@/components/modals/WhatsAppSettingsModal';
 import { 
   Send, MessageCircle, Search, CheckCircle, Eye, Copy,
   Smartphone, Zap, Bot, Settings, Loader2
@@ -40,7 +39,7 @@ interface AutomationConfig {
 export function DistributionPage() {
   const { products } = useDashboard();
   const { toast } = useToast();
-  const { status } = useWhatsApp();
+  const { getActiveSession, currentSessionId } = useWhatsApp();
   
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -73,8 +72,7 @@ export function DistributionPage() {
     return [];
   });
   
-  const [showConnectModal, setShowConnectModal] = useState(false);
-  const [showGroupsModal, setShowGroupsModal] = useState(false);
+  const [showWhatsAppSettings, setShowWhatsAppSettings] = useState(false);
   const [showAutomationModal, setShowAutomationModal] = useState(false);
   
   const [automationActive, setAutomationActive] = useState(() => {
@@ -198,22 +196,8 @@ export function DistributionPage() {
     );
   };
 
-  const handleBotConnected = () => {
-    setShowConnectModal(false);
-    setShowGroupsModal(true);
-    
-    toast({
-      title: "Bot conectado!",
-      description: "Agora selecione os grupos para enviar ofertas.",
-    });
-  };
-
   const handleGroupsSaved = (groups: WhatsAppGroup[]) => {
     setWhatsappGroups(groups);
-    toast({
-      title: "Grupos salvos!",
-      description: `${groups.length} grupo${groups.length > 1 ? 's' : ''} selecionado${groups.length > 1 ? 's' : ''}.`,
-    });
   };
 
   const generateMessagePreview = (product: Product) => {
@@ -251,13 +235,23 @@ export function DistributionPage() {
       return;
     }
 
+    if (!currentSessionId) {
+      toast({
+        title: "Conecte uma sessão",
+        description: "Conecte uma sessão do WhatsApp antes de enviar.",
+        variant: "destructive"
+      });
+      setShowWhatsAppSettings(true);
+      return;
+    }
+
     if (whatsappEnabled && whatsappGroups.length === 0) {
       toast({
         title: "Selecione grupos",
         description: "Configure os grupos do WhatsApp antes de enviar.",
         variant: "destructive"
       });
-      setShowGroupsModal(true);
+      setShowWhatsAppSettings(true);
       return;
     }
 
@@ -274,6 +268,7 @@ export function DistributionPage() {
           }));
 
           await whatsappService.sendOffers({
+            sessionId: currentSessionId,
             grupoId: group.id,
             ofertas
           });
@@ -307,6 +302,11 @@ export function DistributionPage() {
       return;
     }
 
+    if (!currentSessionId) {
+      console.warn('Nenhuma sessão conectada');
+      return;
+    }
+
     if (whatsappGroups.length === 0) {
       console.warn('Nenhum grupo configurado');
       return;
@@ -329,6 +329,7 @@ export function DistributionPage() {
         }];
 
         await whatsappService.sendOffers({
+          sessionId: currentSessionId,
           grupoId: group.id,
           ofertas
         });
@@ -409,7 +410,8 @@ export function DistributionPage() {
     });
   };
 
-  const botConnected = status.conectado;
+  const activeSession = getActiveSession();
+  const botConnected = activeSession?.conectado || false;
 
   return (
     <div className="p-6 space-y-6">
@@ -565,7 +567,7 @@ export function DistributionPage() {
                   <p className="text-sm text-muted-foreground mb-4">
                     Conecte o DivulgaLinks para automatizar seus envios
                   </p>
-                  <Button onClick={() => setShowConnectModal(true)} className="w-full gap-2">
+                  <Button onClick={() => setShowWhatsAppSettings(true)} className="w-full gap-2">
                     <Zap className="w-4 h-4" />
                     Conectar DivulgaLinks
                   </Button>
@@ -597,7 +599,7 @@ export function DistributionPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setShowGroupsModal(true)}
+                          onClick={() => setShowWhatsAppSettings(true)}
                         >
                           <Settings className="w-4 h-4" />
                         </Button>
@@ -738,17 +740,11 @@ export function DistributionPage() {
         </div>
       </div>
 
-      <ConnectBotModal
-        open={showConnectModal}
-        onClose={() => setShowConnectModal(false)}
-        onConnected={handleBotConnected}
-      />
-
-      <SelectGroupsModal
-        open={showGroupsModal}
-        onClose={() => setShowGroupsModal(false)}
-        onSave={handleGroupsSaved}
-        initialSelected={whatsappGroups}
+      <WhatsAppSettingsModal
+        open={showWhatsAppSettings}
+        onClose={() => setShowWhatsAppSettings(false)}
+        initialSelectedGroups={whatsappGroups}
+        onSaveGroups={handleGroupsSaved}
       />
 
       <AutomationModal

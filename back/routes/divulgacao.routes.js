@@ -1,163 +1,243 @@
+// back/routes/divulgacao.routes.js - ATUALIZADO PARA MULTI-SESSÃO
 const express = require('express');
 const router = express.Router();
-const whatsappService = require('../services/WhatsAppService');
 
-let currentQRCode = null; // Armazena o QR Code atual
+module.exports = (whatsappService) => {
+  // ═══════════════════════════════════════════════════════════
+  // GERENCIAMENTO DE SESSÕES
+  // ═══════════════════════════════════════════════════════════
 
-router.get('/status-bot', (req, res) => {
-  try {
-    const status = whatsappService.getStatus();
-    res.json({
-      ...status,
-      qrCode: currentQRCode // Inclui QR Code se existir
-    });
-  } catch (error) {
-    console.error('Erro ao verificar status:', error);
-    res.status(500).json({
-      conectado: false,
-      status: 'offline',
-      clientReady: false,
-      error: error.message
-    });
-  }
-});
-
-router.post('/conectar-bot', async (req, res) => {
-  try {
-    console.log('\n🔌 Solicitação de conexão recebida do frontend...\n');
-    
-    const status = whatsappService.getStatus();
-    if (status.conectado) {
-      currentQRCode = null;
-      return res.json({
+  // Listar todas as sessões ativas
+  router.get('/sessions', (req, res) => {
+    try {
+      const sessions = whatsappService.getAllSessions();
+      res.json({
         success: true,
-        message: 'Bot já está conectado!',
-        status: status
+        sessions: sessions
       });
-    }
-
-    // Limpar QR Code anterior
-    currentQRCode = null;
-
-    // Configurar callback para capturar QR Code
-    whatsappService.onQRCode((qr) => {
-      currentQRCode = qr;
-      console.log('📱 QR Code gerado e armazenado');
-    });
-
-    // Configurar callback quando conectar
-    whatsappService.onConnected(() => {
-      currentQRCode = null;
-      console.log('✅ Bot conectado, QR Code limpo');
-    });
-
-    await whatsappService.initialize();
-
-    res.json({
-      success: true,
-      message: 'Bot inicializado! Aguardando QR Code...',
-      status: whatsappService.getStatus()
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao conectar bot:', error);
-    currentQRCode = null;
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-router.post('/desconectar-bot', async (req, res) => {
-  try {
-    await whatsappService.disconnect();
-    currentQRCode = null;
-    
-    res.json({
-      success: true,
-      message: 'Bot desconectado com sucesso!'
-    });
-  } catch (error) {
-    console.error('Erro ao desconectar:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-router.get('/listar-grupos', async (req, res) => {
-  try {
-    const grupos = await whatsappService.listarGrupos();
-    
-    res.json({
-      success: true,
-      grupos: grupos
-    });
-  } catch (error) {
-    console.error('Erro ao listar grupos:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      grupos: []
-    });
-  }
-});
-
-router.post('/enviar-ofertas', async (req, res) => {
-  try {
-    const { grupoId, ofertas } = req.body;
-
-    if (!grupoId || !ofertas || ofertas.length === 0) {
-      return res.status(400).json({
+    } catch (error) {
+      console.error('Erro ao listar sessões:', error);
+      res.status(500).json({
         success: false,
-        error: 'grupoId e ofertas são obrigatórios'
+        error: error.message,
+        sessions: []
       });
     }
+  });
 
-    const result = await whatsappService.enviarOfertas(grupoId, ofertas);
-
-    res.json(result);
-  } catch (error) {
-    console.error('Erro ao enviar ofertas:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-router.post('/enviar-teste', async (req, res) => {
-  try {
-    const { grupoId } = req.body;
-
-    if (!grupoId) {
-      return res.status(400).json({
-        success: false,
-        error: 'grupoId é obrigatório'
-      });
-    }
-
-    const ofertas = [
-      {
-        nome: 'Produto Teste',
-        preco: 'R$ 99,90',
-        desconto: '-50%',
-        link: 'https://exemplo.com'
+  // Criar/Conectar nova sessão
+  router.post('/connect', async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+      
+      if (!sessionId) {
+        return res.status(400).json({
+          success: false,
+          error: 'sessionId é obrigatório'
+        });
       }
-    ];
 
-    const result = await whatsappService.enviarOfertas(grupoId, ofertas);
+      console.log(`\n🔌 Conectando sessão: ${sessionId}`);
 
-    res.json(result);
-  } catch (error) {
-    console.error('Erro ao enviar teste:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+      let session = whatsappService.getSession(sessionId);
+      
+      if (session && session.isReady) {
+        return res.json({
+          success: true,
+          message: 'Sessão já está conectada!',
+          session: session.getStatus()
+        });
+      }
 
-module.exports = router;
+      if (!session) {
+        session = whatsappService.createSession(sessionId);
+      }
+
+      // Não esperar a conexão completa, apenas iniciar
+      session.initialize().catch(err => {
+        console.error(`Erro ao inicializar sessão ${sessionId}:`, err);
+      });
+
+      res.json({
+        success: true,
+        message: 'Sessão inicializada! Aguarde o QR Code...',
+        session: session.getStatus()
+      });
+
+    } catch (error) {
+      console.error('❌ Erro ao conectar sessão:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Desconectar sessão específica
+  router.post('/disconnect', async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+      
+      if (!sessionId) {
+        return res.status(400).json({
+          success: false,
+          error: 'sessionId é obrigatório'
+        });
+      }
+
+      await whatsappService.deleteSession(sessionId);
+      
+      res.json({
+        success: true,
+        message: `Sessão ${sessionId} desconectada com sucesso!`
+      });
+    } catch (error) {
+      console.error('Erro ao desconectar sessão:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Status de sessão específica
+  router.get('/status/:sessionId', (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const session = whatsappService.getSession(sessionId);
+      
+      if (!session) {
+        return res.json({
+          success: true,
+          session: {
+            sessionId: sessionId,
+            conectado: false,
+            status: 'offline',
+            clientReady: false
+          }
+        });
+      }
+
+      res.json({
+        success: true,
+        session: session.getStatus()
+      });
+    } catch (error) {
+      console.error('Erro ao verificar status:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // GRUPOS E MENSAGENS
+  // ═══════════════════════════════════════════════════════════
+
+  // Listar grupos de uma sessão
+  router.get('/groups/:sessionId', async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const session = whatsappService.getSession(sessionId);
+      
+      if (!session || !session.isReady) {
+        return res.status(400).json({
+          success: false,
+          error: 'Sessão não está conectada',
+          grupos: []
+        });
+      }
+
+      const grupos = await session.listarGrupos();
+      
+      res.json({
+        success: true,
+        grupos: grupos
+      });
+    } catch (error) {
+      console.error('Erro ao listar grupos:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        grupos: []
+      });
+    }
+  });
+
+  // Enviar ofertas (usando sessão específica)
+  router.post('/send-offers', async (req, res) => {
+    try {
+      const { sessionId, grupoId, ofertas } = req.body;
+
+      if (!sessionId || !grupoId || !ofertas || ofertas.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'sessionId, grupoId e ofertas são obrigatórios'
+        });
+      }
+
+      const session = whatsappService.getSession(sessionId);
+      
+      if (!session || !session.isReady) {
+        return res.status(400).json({
+          success: false,
+          error: 'Sessão não está conectada'
+        });
+      }
+
+      const result = await session.enviarOfertas(grupoId, ofertas);
+
+      res.json(result);
+    } catch (error) {
+      console.error('Erro ao enviar ofertas:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Enviar teste
+  router.post('/send-test', async (req, res) => {
+    try {
+      const { sessionId, grupoId } = req.body;
+
+      if (!sessionId || !grupoId) {
+        return res.status(400).json({
+          success: false,
+          error: 'sessionId e grupoId são obrigatórios'
+        });
+      }
+
+      const session = whatsappService.getSession(sessionId);
+      
+      if (!session || !session.isReady) {
+        return res.status(400).json({
+          success: false,
+          error: 'Sessão não está conectada'
+        });
+      }
+
+      const ofertas = [
+        {
+          nome: 'Produto Teste',
+          mensagem: '🎯 *TESTE DE ENVIO*\n\nProduto: Produto Teste\nPreço: R$ 99,90\nDesconto: -50%\n\n🔗 Link: https://exemplo.com',
+          imagem: null
+        }
+      ];
+
+      const result = await session.enviarOfertas(grupoId, ofertas);
+
+      res.json(result);
+    } catch (error) {
+      console.error('Erro ao enviar teste:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  return router;
+};

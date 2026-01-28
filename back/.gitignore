@@ -10,17 +10,30 @@ ml-session.backup.json
 chrome-perfil-ml/
 
 # ═══════════════════════════════════════════════════════════════
+# 📱 WHATSAPP BOT - AUTENTICAÇÃO (BAILEYS) - CRÍTICO!
+# ═══════════════════════════════════════════════════════════════
+
+# NUNCA COMMITAR SESSÕES DO WHATSAPP!
+baileys_sessions/
+baileys_auth/
+.baileys_auth/
+
+# Sessões antigas do whatsapp-web.js (se existirem)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# ═══════════════════════════════════════════════════════════════
 # 🌍 VARIÁVEIS DE AMBIENTE
 # ═══════════════════════════════════════════════════════════════
 
 # Arquivos .env (IMPORTANTE: Nunca suba o .env para o GitHub)
 .env
-*env
-.env.test
-.env.production
 .env.local
 .env.development
+.env.test
+.env.production
 .env.staging
+*.env
 
 # ═══════════════════════════════════════════════════════════════
 # 📦 DEPENDÊNCIAS
@@ -49,9 +62,6 @@ pnpm-debug.log*
 dist/
 build/
 out/
-.next/
-.nuxt/
-.cache/
 
 # ═══════════════════════════════════════════════════════════════
 # 🧪 TESTES
@@ -182,22 +192,3 @@ pnpm-lock.yaml
 *.gz
 *.rar
 *.7z
-
-# Arquivos grandes (pode descomentar se necessário)
-# *.mp4
-# *.mov
-# *.avi
-# *.pdf
-# *.psd
-
-# ═══════════════════════════════════════════════════════════════
-# 📱 WHATSAPP BOT - AUTENTICAÇÃO (BAILEYS)
-# ═══════════════════════════════════════════════════════════════
-
-# Pasta de autenticação do Baileys
-baileys_auth/
-.baileys_auth/
-
-# Sessões antigas do whatsapp-web.js (se existirem)
-.wwebjs_auth/
-.wwebjs_cache/
