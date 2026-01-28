@@ -1,4 +1,4 @@
-// src/pages/DistributionPage.tsx - CORRIGIDO PARA MULTI-SESSÃO
+// src/pages/DistributionPage.tsx - INTEGRADO COM MODAL COMPLETO
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -20,8 +20,7 @@ import {
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { AutomationModal } from '@/components/dashboard/AutomationModal';
 import { AutomationTimer } from '@/components/dashboard/AutomationTimer';
-import { ConnectBotModal } from '@/components/modals/ConnectBotModal';
-import { SelectGroupsModal } from '@/components/modals/SelectGroupsModal';
+import { WhatsAppSettingsModal } from '@/components/modals/WhatsAppSettingsModal';
 import { 
   Send, MessageCircle, Search, CheckCircle, Eye, Copy,
   Smartphone, Zap, Bot, Settings, Loader2
@@ -73,8 +72,7 @@ export function DistributionPage() {
     return [];
   });
   
-  const [showConnectModal, setShowConnectModal] = useState(false);
-  const [showGroupsModal, setShowGroupsModal] = useState(false);
+  const [showWhatsAppSettings, setShowWhatsAppSettings] = useState(false);
   const [showAutomationModal, setShowAutomationModal] = useState(false);
   
   const [automationActive, setAutomationActive] = useState(() => {
@@ -198,22 +196,8 @@ export function DistributionPage() {
     );
   };
 
-  const handleBotConnected = () => {
-    setShowConnectModal(false);
-    setShowGroupsModal(true);
-    
-    toast({
-      title: "Bot conectado!",
-      description: "Agora selecione os grupos para enviar ofertas.",
-    });
-  };
-
   const handleGroupsSaved = (groups: WhatsAppGroup[]) => {
     setWhatsappGroups(groups);
-    toast({
-      title: "Grupos salvos!",
-      description: `${groups.length} grupo${groups.length > 1 ? 's' : ''} selecionado${groups.length > 1 ? 's' : ''}.`,
-    });
   };
 
   const generateMessagePreview = (product: Product) => {
@@ -257,7 +241,7 @@ export function DistributionPage() {
         description: "Conecte uma sessão do WhatsApp antes de enviar.",
         variant: "destructive"
       });
-      setShowConnectModal(true);
+      setShowWhatsAppSettings(true);
       return;
     }
 
@@ -267,7 +251,7 @@ export function DistributionPage() {
         description: "Configure os grupos do WhatsApp antes de enviar.",
         variant: "destructive"
       });
-      setShowGroupsModal(true);
+      setShowWhatsAppSettings(true);
       return;
     }
 
@@ -583,7 +567,7 @@ export function DistributionPage() {
                   <p className="text-sm text-muted-foreground mb-4">
                     Conecte o DivulgaLinks para automatizar seus envios
                   </p>
-                  <Button onClick={() => setShowConnectModal(true)} className="w-full gap-2">
+                  <Button onClick={() => setShowWhatsAppSettings(true)} className="w-full gap-2">
                     <Zap className="w-4 h-4" />
                     Conectar DivulgaLinks
                   </Button>
@@ -615,7 +599,7 @@ export function DistributionPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setShowGroupsModal(true)}
+                          onClick={() => setShowWhatsAppSettings(true)}
                         >
                           <Settings className="w-4 h-4" />
                         </Button>
@@ -756,17 +740,11 @@ export function DistributionPage() {
         </div>
       </div>
 
-      <ConnectBotModal
-        open={showConnectModal}
-        onClose={() => setShowConnectModal(false)}
-        onConnected={handleBotConnected}
-      />
-
-      <SelectGroupsModal
-        open={showGroupsModal}
-        onClose={() => setShowGroupsModal(false)}
-        onSave={handleGroupsSaved}
-        initialSelected={whatsappGroups}
+      <WhatsAppSettingsModal
+        open={showWhatsAppSettings}
+        onClose={() => setShowWhatsAppSettings(false)}
+        initialSelectedGroups={whatsappGroups}
+        onSaveGroups={handleGroupsSaved}
       />
 
       <AutomationModal
