@@ -1,254 +1,475 @@
-// front/src/components/WhatsAppSessionManager.tsx
-import { useState } from 'react';
-import { useWhatsApp } from '@/contexts/WhatsAppContext';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { AlertCircle, CheckCircle, Loader2, Plus, Trash2, Smartphone } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import QRCode from 'react-qr-code';
+// back/services/WhatsAppMultiSessionService.js - COM MONGODB E SINCRONIZAÇÃO
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay } = require('@whiskeysockets/baileys');
+const pino = require('pino');
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
 
-export function WhatsAppSessionManager() {
-  const {
-    sessions,
-    currentSessionId,
-    isConnecting,
-    qrCode,
-    setCurrentSession,
-    connectNewSession,
-    disconnectSession,
-    getActiveSession
-  } = useWhatsApp();
-
-  const [newSessionId, setNewSessionId] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  const handleConnectNewSession = async () => {
-    if (!newSessionId.trim()) {
-      setError('Digite um nome para a sessão');
-      return;
+class WhatsAppSession {
+    constructor(sessionId, io, sessionModel) {
+        this.sessionId = sessionId;
+        this.io = io;
+        this.sessionModel = sessionModel;
+        this.sock = null;
+        this.isReady = false;
+        this.authFolder = path.join(__dirname, '..', 'baileys_sessions', sessionId);
+        this.isConnecting = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 3;
+        this.phoneNumber = null;
+        this.connectedAt = null;
     }
 
-    setError(null);
-    setSuccess(null);
+    // ═══════════════════════════════════════════════════════════
+    // SALVAR NO BANCO DE DADOS
+    // ═══════════════════════════════════════════════════════════
+    async saveToDatabase(updates = {}) {
+        try {
+            const data = {
+                sessionId: this.sessionId,
+                phoneNumber: this.phoneNumber,
+                conectado: this.isReady,
+                status: this.isReady ? 'online' : 'offline',
+                connectedAt: this.connectedAt,
+                lastActivity: new Date(),
+                ...updates
+            };
 
-    try {
-      await connectNewSession(newSessionId.trim());
-      setSuccess('Aguarde o QR Code para escanear...');
-      setNewSessionId('');
-    } catch (err: any) {
-      setError(err.message || 'Erro ao conectar sessão');
+            await this.sessionModel.findOneAndUpdate(
+                { sessionId: this.sessionId },
+                data,
+                { upsert: true, new: true }
+            );
+
+            console.log(`💾 Sessão ${this.sessionId} salva no banco`);
+        } catch (error) {
+            console.error(`❌ Erro ao salvar sessão no banco:`, error);
+        }
     }
-  };
 
-  const handleDisconnect = async (sessionId: string) => {
-    if (!confirm(`Deseja realmente desconectar a sessão "${sessionId}"?`)) {
-      return;
+    // ═══════════════════════════════════════════════════════════
+    // BROADCAST PARA TODOS OS CLIENTES CONECTADOS
+    // ═══════════════════════════════════════════════════════════
+    async broadcastSessionsUpdate() {
+        try {
+            const allSessions = await this.sessionModel.getAllSessions();
+            const sessionsData = allSessions.map(s => s.toPublic());
+
+            // Emitir para TODOS os clientes conectados
+            this.io.emit('whatsapp:sessions-update', {
+                sessions: sessionsData
+            });
+
+            console.log(`📡 [BROADCAST] Atualização de sessões enviada para todos os clientes`);
+        } catch (error) {
+            console.error(`❌ Erro ao fazer broadcast:`, error);
+        }
     }
 
-    setError(null);
-    setSuccess(null);
+    async initialize() {
+        if (this.isConnecting) {
+            console.log(`⚠️ Sessão ${this.sessionId} já está conectando...`);
+            return;
+        }
 
-    try {
-      await disconnectSession(sessionId);
-      setSuccess('Sessão desconectada com sucesso!');
-    } catch (err: any) {
-      setError(err.message || 'Erro ao desconectar sessão');
+        if (this.isReady) {
+            console.log(`✅ Sessão ${this.sessionId} já está conectada!`);
+            return;
+        }
+
+        this.isConnecting = true;
+
+        // Salvar estado "connecting" no banco
+        await this.saveToDatabase({ status: 'connecting' });
+        await this.broadcastSessionsUpdate();
+
+        try {
+            console.log(`\n🤖 Inicializando sessão: ${this.sessionId}`);
+
+            if (!fs.existsSync(this.authFolder)) {
+                fs.mkdirSync(this.authFolder, { recursive: true });
+            }
+
+            const { state, saveCreds } = await useMultiFileAuthState(this.authFolder);
+
+            this.sock = makeWASocket({
+                auth: state,
+                printQRInTerminal: false,
+                logger: pino({ level: 'silent' }),
+                browser: [`Bot ${this.sessionId}`, 'Chrome', '10.0.0'],
+                defaultQueryTimeoutMs: 60000,
+                connectTimeoutMs: 60000,
+                keepAliveIntervalMs: 30000,
+                markOnlineOnConnect: true
+            });
+
+            this.sock.ev.on('creds.update', saveCreds);
+
+            this.sock.ev.on('connection.update', async (update) => {
+                const { connection, lastDisconnect, qr } = update;
+
+                if (qr) {
+                    console.log(`📱 QR Code gerado para sessão: ${this.sessionId}`);
+                    
+                    // ⭐ BROADCAST QR Code para TODOS os clientes
+                    this.io.emit('whatsapp:qr', {
+                        sessionId: this.sessionId,
+                        qrCode: qr
+                    });
+                }
+
+                if (connection === 'open') {
+                    console.log(`✅ Sessão ${this.sessionId} conectada!`);
+                    
+                    this.isReady = true;
+                    this.isConnecting = false;
+                    this.reconnectAttempts = 0;
+                    this.connectedAt = new Date();
+
+                    // Pegar número conectado
+                    try {
+                        const me = this.sock.user;
+                        this.phoneNumber = me?.id?.split(':')[0] || 'Desconhecido';
+                    } catch (e) {
+                        this.phoneNumber = 'Desconhecido';
+                    }
+
+                    // ⭐ Salvar no banco
+                    await this.saveToDatabase({
+                        conectado: true,
+                        status: 'online',
+                        connectedAt: this.connectedAt,
+                        phoneNumber: this.phoneNumber
+                    });
+
+                    // ⭐ BROADCAST para TODOS os clientes
+                    this.io.emit('whatsapp:connected', {
+                        sessionId: this.sessionId,
+                        phoneNumber: this.phoneNumber,
+                        connectedAt: this.connectedAt
+                    });
+
+                    // ⭐ Enviar lista atualizada para todos
+                    await this.broadcastSessionsUpdate();
+                }
+
+                if (connection === 'close') {
+                    this.isReady = false;
+                    this.isConnecting = false;
+
+                    const statusCode = lastDisconnect?.error?.output?.statusCode;
+                    const reason = lastDisconnect?.error?.output?.payload?.message || 'Desconhecido';
+
+                    console.log(`⚠️ Sessão ${this.sessionId} fechada. Status: ${statusCode}`);
+
+                    // ⭐ Salvar no banco
+                    await this.saveToDatabase({
+                        conectado: false,
+                        status: 'offline',
+                        disconnectedAt: new Date()
+                    });
+
+                    // ⭐ BROADCAST para TODOS os clientes
+                    this.io.emit('whatsapp:disconnected', {
+                        sessionId: this.sessionId,
+                        reason: reason
+                    });
+
+                    // ⭐ Enviar lista atualizada para todos
+                    await this.broadcastSessionsUpdate();
+
+                    const dontReconnect = [
+                        DisconnectReason.loggedOut,
+                        DisconnectReason.badSession,
+                        DisconnectReason.connectionReplaced,
+                        440
+                    ];
+
+                    if (dontReconnect.includes(statusCode)) {
+                        console.log(`❌ Sessão ${this.sessionId} desconectada permanentemente.`);
+                        return;
+                    }
+
+                    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                        this.reconnectAttempts++;
+                        const delayMs = this.reconnectAttempts * 5000;
+                        
+                        console.log(`🔄 Reconectando sessão ${this.sessionId} (${this.reconnectAttempts}/${this.maxReconnectAttempts}) em ${delayMs/1000}s...`);
+                        
+                        await delay(delayMs);
+                        await this.initialize();
+                    } else {
+                        console.error(`❌ Sessão ${this.sessionId}: Máximo de tentativas atingido.`);
+                    }
+                }
+            });
+
+        } catch (error) {
+            console.error(`❌ Erro ao inicializar sessão ${this.sessionId}:`, error);
+            this.isConnecting = false;
+            
+            await this.saveToDatabase({ status: 'offline', conectado: false });
+            await this.broadcastSessionsUpdate();
+            
+            throw error;
+        }
     }
-  };
 
-  const handleSelectSession = (sessionId: string) => {
-    setCurrentSession(sessionId);
-    setError(null);
-    setSuccess(null);
-  };
+    async listarGrupos() {
+        if (!this.isReady || !this.sock) {
+            throw new Error('Sessão não está conectada');
+        }
 
-  const activeSession = getActiveSession();
+        try {
+            const chats = await this.sock.groupFetchAllParticipating();
+            const grupos = Object.values(chats);
 
-  return (
-    <div className="space-y-6">
-      {/* Card de Nova Sessão */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Plus className="w-5 h-5" />
-            Conectar Novo Número
-          </CardTitle>
-          <CardDescription>
-            Conecte múltiplos números WhatsApp simultaneamente
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="sessionId">Nome da Sessão</Label>
-            <div className="flex gap-2">
-              <Input
-                id="sessionId"
-                placeholder="Ex: numero-principal, numero-vendas"
-                value={newSessionId}
-                onChange={(e) => setNewSessionId(e.target.value)}
-                disabled={isConnecting}
-              />
-              <Button
-                onClick={handleConnectNewSession}
-                disabled={isConnecting || !newSessionId.trim()}
-              >
-                {isConnecting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Conectando
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Conectar
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
+            return grupos.map(grupo => ({
+                id: grupo.id,
+                nome: grupo.subject,
+                participantes: grupo.participants.length
+            }));
+        } catch (error) {
+            console.error(`Erro ao listar grupos (sessão ${this.sessionId}):`, error);
+            throw error;
+        }
+    }
 
-          {error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+    async baixarImagem(url) {
+        try {
+            const response = await axios({
+                method: 'GET',
+                url: url,
+                responseType: 'arraybuffer',
+                timeout: 30000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
 
-          {success && (
-            <Alert>
-              <CheckCircle className="h-4 w-4" />
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
+            return Buffer.from(response.data, 'binary');
+        } catch (error) {
+            console.error(`❌ Erro ao baixar imagem (sessão ${this.sessionId}):`, error.message);
+            return null;
+        }
+    }
 
-          {qrCode && (
-            <div className="flex flex-col items-center justify-center p-6 bg-white rounded-lg border-2 border-green-500">
-              <p className="text-sm font-medium mb-4 text-gray-700">
-                Escaneie o QR Code com o WhatsApp
-              </p>
-              <QRCode value={qrCode} size={256} />
-              <p className="text-xs text-gray-500 mt-4 text-center">
-                Abra o WhatsApp → Mais Opções → Aparelhos Conectados → Conectar
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+    async enviarOfertas(grupoId, ofertas) {
+        if (!this.isReady || !this.sock) {
+            throw new Error('Sessão não está conectada');
+        }
 
-      {/* Lista de Sessões Ativas */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Smartphone className="w-5 h-5" />
-            Sessões Ativas ({sessions.length})
-          </CardTitle>
-          <CardDescription>
-            Gerencie todos os números conectados
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {sessions.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Smartphone className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>Nenhuma sessão conectada</p>
-              <p className="text-sm">Conecte um número para começar</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {sessions.map((session) => (
-                <div
-                  key={session.sessionId}
-                  className={`flex items-center justify-between p-4 border rounded-lg transition-all ${
-                    currentSessionId === session.sessionId
-                      ? 'border-green-500 bg-green-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-3 h-3 rounded-full ${
-                        session.conectado ? 'bg-green-500' : 'bg-gray-300'
-                      }`}
-                    />
-                    <div>
-                      <p className="font-medium">{session.sessionId}</p>
-                      {session.phoneNumber && (
-                        <p className="text-sm text-gray-500">
-                          {session.phoneNumber}
-                        </p>
-                      )}
-                    </div>
-                  </div>
+        try {
+            console.log(`\n📤 Enviando ${ofertas.length} ofertas para grupo (sessão ${this.sessionId})`);
 
-                  <div className="flex items-center gap-2">
-                    <Badge variant={session.conectado ? 'default' : 'secondary'}>
-                      {session.conectado ? 'Online' : 'Offline'}
-                    </Badge>
+            for (const oferta of ofertas) {
+                try {
+                    const mensagem = oferta.mensagem || `Erro: Mensagem não encontrada`;
 
-                    {currentSessionId !== session.sessionId && session.conectado && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleSelectSession(session.sessionId)}
-                      >
-                        Selecionar
-                      </Button>
-                    )}
+                    if (oferta.imagem || oferta.image || oferta.foto) {
+                        const imagemUrl = oferta.imagem || oferta.image || oferta.foto;
+                        const imagemBuffer = await this.baixarImagem(imagemUrl);
 
-                    {currentSessionId === session.sessionId && (
-                      <Badge variant="outline" className="border-green-500 text-green-700">
-                        Em uso
-                      </Badge>
-                    )}
+                        if (imagemBuffer) {
+                            await this.sock.sendMessage(grupoId, {
+                                image: imagemBuffer,
+                                caption: mensagem
+                            });
+                            console.log(`✅ Oferta enviada COM IMAGEM`);
+                        } else {
+                            await this.sock.sendMessage(grupoId, { text: mensagem });
+                            console.log(`⚠️ Oferta enviada SEM IMAGEM (erro ao baixar)`);
+                        }
+                    } else {
+                        await this.sock.sendMessage(grupoId, { text: mensagem });
+                        console.log(`✅ Oferta enviada (sem imagem)`);
+                    }
 
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => handleDisconnect(session.sessionId)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                    if (ofertas.length > 1) {
+                        await delay(2000);
+                    }
 
-      {/* Sessão Ativa Atual */}
-      {activeSession && (
-        <Card className="border-green-500">
-          <CardHeader>
-            <CardTitle className="text-green-700">Sessão Ativa</CardTitle>
-            <CardDescription>
-              Esta é a sessão que será usada para enviar mensagens
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <CheckCircle className="w-6 h-6 text-green-500" />
-              <div>
-                <p className="font-medium">{activeSession.sessionId}</p>
-                {activeSession.phoneNumber && (
-                  <p className="text-sm text-gray-500">
-                    Número: {activeSession.phoneNumber}
-                  </p>
-                )}
-                {activeSession.connectedAt && (
-                  <p className="text-xs text-gray-400">
-                    Conectado em: {new Date(activeSession.connectedAt).toLocaleString()}
-                  </p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
+                    // ⭐ BROADCAST para todos que oferta foi enviada
+                    this.io.emit('whatsapp:offer-sent', {
+                        sessionId: this.sessionId,
+                        groupId: grupoId,
+                        offerName: oferta.nome || 'Oferta'
+                    });
+
+                } catch (error) {
+                    console.error(`❌ Erro ao enviar oferta (sessão ${this.sessionId}):`, error.message);
+                }
+            }
+
+            // Atualizar última atividade
+            await this.saveToDatabase({ lastActivity: new Date() });
+
+            return {
+                success: true,
+                mensagem: `${ofertas.length} oferta(s) enviada(s) com sucesso!`
+            };
+
+        } catch (error) {
+            console.error(`❌ Erro ao enviar ofertas (sessão ${this.sessionId}):`, error);
+            throw error;
+        }
+    }
+
+    async disconnect() {
+        if (this.sock) {
+            try {
+                await this.sock.logout();
+            } catch (error) {
+                console.log(`Erro ao fazer logout (sessão ${this.sessionId}):`, error.message);
+            }
+            
+            this.sock = null;
+            this.isReady = false;
+            this.isConnecting = false;
+            this.reconnectAttempts = 0;
+            
+            // Deletar pasta de autenticação
+            if (fs.existsSync(this.authFolder)) {
+                fs.rmSync(this.authFolder, { recursive: true, force: true });
+            }
+
+            // ⭐ Remover do banco
+            await this.sessionModel.deleteOne({ sessionId: this.sessionId });
+            
+            console.log(`🔌 Sessão ${this.sessionId} desconectada e dados removidos.`);
+
+            // ⭐ BROADCAST IMEDIATO para todos
+            this.io.emit('whatsapp:disconnected', {
+                sessionId: this.sessionId,
+                reason: 'Sessão excluída pelo usuário'
+            });
+            
+            await this.broadcastSessionsUpdate();
+        }
+    }
+
+    getStatus() {
+        return {
+            sessionId: this.sessionId,
+            conectado: this.isReady,
+            status: this.isReady ? 'online' : 'offline',
+            clientReady: this.sock !== null,
+            phoneNumber: this.phoneNumber,
+            connectedAt: this.connectedAt
+        };
+    }
 }
+
+class WhatsAppMultiSessionService {
+    constructor(io, sessionModel) {
+        this.sessions = new Map();
+        this.io = io;
+        this.sessionModel = sessionModel;
+        
+        // Restaurar sessões do banco ao iniciar
+        this.restoreSessionsFromDatabase();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // RESTAURAR SESSÕES DO BANCO
+    // ═══════════════════════════════════════════════════════════
+    async restoreSessionsFromDatabase() {
+        try {
+            console.log('\n🔄 Restaurando sessões do banco de dados...');
+            
+            const savedSessions = await this.sessionModel.find();
+            
+            console.log(`📋 Encontradas ${savedSessions.length} sessões salvas`);
+
+            for (const savedSession of savedSessions) {
+                // Apenas recriar sessões que estavam online
+                if (savedSession.conectado) {
+                    console.log(`♻️ Restaurando sessão: ${savedSession.sessionId}`);
+                    
+                    const session = this.createSession(savedSession.sessionId);
+                    
+                    // Tentar reconectar automaticamente
+                    session.initialize().catch(err => {
+                        console.error(`Erro ao reconectar ${savedSession.sessionId}:`, err);
+                    });
+                } else {
+                    // Sessões offline: apenas criar referência mas não conectar
+                    console.log(`📝 Sessão offline restaurada: ${savedSession.sessionId}`);
+                }
+            }
+
+            console.log('✅ Restauração de sessões concluída\n');
+        } catch (error) {
+            console.error('❌ Erro ao restaurar sessões:', error);
+        }
+    }
+
+    createSession(sessionId) {
+        if (this.sessions.has(sessionId)) {
+            return this.sessions.get(sessionId);
+        }
+
+        const session = new WhatsAppSession(sessionId, this.io, this.sessionModel);
+        this.sessions.set(sessionId, session);
+        return session;
+    }
+
+    getSession(sessionId) {
+        return this.sessions.get(sessionId);
+    }
+
+    async getAllSessions() {
+        // Buscar do banco para garantir dados atualizados
+        try {
+            const dbSessions = await this.sessionModel.getAllSessions();
+            return dbSessions.map(s => s.toPublic());
+        } catch (error) {
+            console.error('Erro ao buscar sessões do banco:', error);
+            // Fallback para memória
+            return Array.from(this.sessions.values()).map(s => s.getStatus());
+        }
+    }
+
+    async deleteSession(sessionId) {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+            await session.disconnect();
+            this.sessions.delete(sessionId);
+            
+            // ⭐ Broadcast imediato após deletar
+            try {
+                const dbSessions = await this.sessionModel.getAllSessions();
+                const sessionsData = dbSessions.map(s => s.toPublic());
+                
+                this.io.emit('whatsapp:sessions-update', {
+                    sessions: sessionsData
+                });
+                
+                console.log(`📡 [BROADCAST] Sessão ${sessionId} removida - atualização enviada`);
+            } catch (error) {
+                console.error('Erro ao fazer broadcast após deletar:', error);
+            }
+        }
+    }
+
+    hasActiveSession() {
+        for (const session of this.sessions.values()) {
+            if (session.isReady) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async getActiveSessions() {
+        try {
+            const activeSessions = await this.sessionModel.getActiveSessions();
+            return activeSessions.map(s => s.toPublic());
+        } catch (error) {
+            console.error('Erro ao buscar sessões ativas:', error);
+            return [];
+        }
+    }
+}
+
+module.exports = WhatsAppMultiSessionService;

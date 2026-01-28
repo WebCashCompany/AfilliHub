@@ -1,4 +1,4 @@
-// src/components/modals/WhatsAppSettingsModal.tsx - COM SELEÇÃO DE USUÁRIO
+// src/components/modals/WhatsAppSettingsModal.tsx - CORRIGIDO: LIXEIRA = EXCLUIR / RADIO = CONECTAR/DESCONECTAR
 import { useState, useEffect } from 'react';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
 import { useToast } from '@/hooks/use-toast';
@@ -18,7 +18,9 @@ import {
   Users,
   Search,
   Settings,
-  ChevronRight
+  ChevronRight,
+  Power,
+  PowerOff
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
@@ -48,18 +50,15 @@ export function WhatsAppSettingsModal({
 
   const { toast } = useToast();
   
-  // Estado para nova sessão
   const [newSessionName, setNewSessionName] = useState('');
   const [showNewSessionForm, setShowNewSessionForm] = useState(false);
   
-  // Estado para grupos
   const [selectedSessionForGroups, setSelectedSessionForGroups] = useState<string | null>(null);
   const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [searchGroups, setSearchGroups] = useState('');
   const [loadingGroups, setLoadingGroups] = useState(false);
 
-  // Resetar seleção de sessão ao abrir
   useEffect(() => {
     if (open) {
       setSelectedSessionForGroups(null);
@@ -122,23 +121,63 @@ export function WhatsAppSettingsModal({
     }
   };
 
-  const handleDisconnect = async (sessionId: string) => {
-    if (!confirm(`Deseja realmente desconectar a sessão "${sessionId}"?`)) {
+  // ⭐ EXCLUIR SESSÃO (Botão Lixeira)
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!confirm(`Deseja realmente EXCLUIR a sessão "${sessionId}"?`)) {
       return;
     }
 
     try {
       await disconnectSession(sessionId);
       toast({
-        title: "Sessão desconectada",
-        description: `Sessão "${sessionId}" foi desconectada.`
+        title: "Sessão excluída",
+        description: `Sessão "${sessionId}" foi removida.`
       });
     } catch (error: any) {
       toast({
-        title: "Erro ao desconectar",
+        title: "Erro ao excluir",
         description: error.message,
         variant: "destructive"
       });
+    }
+  };
+
+  // ⭐ CONECTAR/DESCONECTAR SESSÃO (Botão Radio Verde)
+  const handleToggleSession = async (session: any) => {
+    if (session.conectado) {
+      // Desconectar
+      if (!confirm(`Deseja DESCONECTAR a sessão "${session.sessionId}"?`)) {
+        return;
+      }
+      
+      try {
+        await disconnectSession(session.sessionId);
+        toast({
+          title: "Sessão desconectada",
+          description: `Sessão "${session.sessionId}" foi desconectada.`
+        });
+      } catch (error: any) {
+        toast({
+          title: "Erro ao desconectar",
+          description: error.message,
+          variant: "destructive"
+        });
+      }
+    } else {
+      // Reconectar
+      try {
+        await connectNewSession(session.sessionId);
+        toast({
+          title: "Reconectando...",
+          description: "Aguarde o QR Code aparecer"
+        });
+      } catch (error: any) {
+        toast({
+          title: "Erro ao reconectar",
+          description: error.message,
+          variant: "destructive"
+        });
+      }
     }
   };
 
@@ -174,7 +213,7 @@ export function WhatsAppSettingsModal({
     g.nome.toLowerCase().includes(searchGroups.toLowerCase())
   );
 
-  const onlineSessions = sessions.filter(s => s.conectado);
+  const onlineSessions = Array.isArray(sessions) ? sessions.filter(s => s.conectado) : [];
 
   if (!open) return null;
 
@@ -237,7 +276,6 @@ export function WhatsAppSettingsModal({
 
           {/* TAB: SESSÕES */}
           <TabsContent value="sessions" className="space-y-4 mt-4">
-            {/* Botão Nova Sessão */}
             {!showNewSessionForm && (
               <Button 
                 onClick={() => setShowNewSessionForm(true)}
@@ -248,7 +286,6 @@ export function WhatsAppSettingsModal({
               </Button>
             )}
 
-            {/* Formulário Nova Sessão */}
             {showNewSessionForm && (
               <div className="p-4 border rounded-lg space-y-3">
                 <Label htmlFor="newSession">Nome da Sessão</Label>
@@ -293,7 +330,7 @@ export function WhatsAppSettingsModal({
 
             {/* Lista de Sessões */}
             <div className="space-y-2">
-              {sessions.length === 0 ? (
+              {!Array.isArray(sessions) || sessions.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Smartphone className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p>Nenhuma sessão conectada</p>
@@ -309,11 +346,18 @@ export function WhatsAppSettingsModal({
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          session.conectado ? 'bg-green-500 animate-pulse' : 'bg-gray-300'
-                        }`}
-                      />
+                      {/* ⭐ BOTÃO RADIO - CONECTAR/DESCONECTAR */}
+                      <button
+                        onClick={() => handleToggleSession(session)}
+                        className="flex items-center justify-center"
+                      >
+                        {session.conectado ? (
+                          <Power className="w-5 h-5 text-green-500 cursor-pointer hover:text-green-600" />
+                        ) : (
+                          <PowerOff className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+                        )}
+                      </button>
+                      
                       <div>
                         <p className="font-medium">{session.sessionId}</p>
                         {session.phoneNumber && (
@@ -343,10 +387,11 @@ export function WhatsAppSettingsModal({
                         </Button>
                       ) : null}
 
+                      {/* ⭐ BOTÃO LIXEIRA - EXCLUIR */}
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={() => handleDisconnect(session.sessionId)}
+                        onClick={() => handleDeleteSession(session.sessionId)}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -360,7 +405,6 @@ export function WhatsAppSettingsModal({
           {/* TAB: GRUPOS */}
           <TabsContent value="groups" className="space-y-4 mt-4">
             {!selectedSessionForGroups ? (
-              // Seleção de Usuário
               <div className="space-y-3">
                 <div className="text-center py-4">
                   <Users className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
@@ -401,9 +445,7 @@ export function WhatsAppSettingsModal({
                 )}
               </div>
             ) : (
-              // Lista de Grupos
               <>
-                {/* Header com botão voltar */}
                 <div className="flex items-center gap-2 pb-3 border-b">
                   <Button
                     variant="ghost"
@@ -422,7 +464,6 @@ export function WhatsAppSettingsModal({
                   </div>
                 </div>
 
-                {/* Search */}
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
@@ -433,7 +474,6 @@ export function WhatsAppSettingsModal({
                   />
                 </div>
 
-                {/* Lista de Grupos */}
                 {loadingGroups ? (
                   <div className="py-12 flex flex-col items-center gap-4">
                     <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -473,7 +513,6 @@ export function WhatsAppSettingsModal({
                   </div>
                 )}
 
-                {/* Selected Count */}
                 {selectedGroupIds.length > 0 && (
                   <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg">
                     <span className="text-sm font-medium">

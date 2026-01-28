@@ -38,7 +38,7 @@ const App = () => (
                   <Route path="/automation" element={<AutomationPage />} />
                   <Route path="/products" element={<ProductsPage />} />
                   <Route path="/distribution" element={<DistributionPage />} />
-                  <Route path="/whatsapp" element={<WhatsAppManagementPage />} /> {/* ⭐ NOVO */}
+
                   <Route path="/reports" element={<ReportsPage />} />
                   <Route path="/goals" element={<GoalsPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
