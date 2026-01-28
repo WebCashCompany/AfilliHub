@@ -1,4 +1,4 @@
-// src/components/modals/SelectGroupsModal.tsx
+// src/components/modals/SelectGroupsModal.tsx - CORRIGIDO PARA MULTI-SESSÃO
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Loader2, Users, Search, X } from 'lucide-react';
 import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
+import { useWhatsApp } from '@/contexts/WhatsAppContext';
 import { useToast } from '@/hooks/use-toast';
 
 interface SelectGroupsModalProps {
@@ -25,20 +26,31 @@ export function SelectGroupsModal({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const { currentSessionId } = useWhatsApp();
   const { toast } = useToast();
 
   // Carregar grupos ao abrir
   useEffect(() => {
-    if (open) {
+    if (open && currentSessionId) {
       loadGroups();
       setSelectedIds(initialSelected.map(g => g.id));
     }
-  }, [open]);
+  }, [open, currentSessionId]);
 
   const loadGroups = async () => {
+    if (!currentSessionId) {
+      toast({
+        title: "Sessão não conectada",
+        description: "Conecte uma sessão do WhatsApp primeiro.",
+        variant: "destructive"
+      });
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const data = await whatsappService.listGroups();
+      const data = await whatsappService.listGroups(currentSessionId);
       setGroups(data);
     } catch (error) {
       toast({
@@ -121,6 +133,11 @@ export function SelectGroupsModal({
               {filteredGroups.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">
                   <p>Nenhum grupo encontrado</p>
+                  {groups.length === 0 && (
+                    <p className="text-xs mt-2">
+                      Verifique se o bot está em algum grupo do WhatsApp
+                    </p>
+                  )}
                 </div>
               ) : (
                 filteredGroups.map((group) => (

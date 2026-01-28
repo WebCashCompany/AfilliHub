@@ -1,4 +1,4 @@
-// src/pages/DistributionPage.tsx - COM AUTOMAÇÃO FUNCIONAL E PREÇOS CORRETOS
+// src/pages/DistributionPage.tsx - CORRIGIDO PARA MULTI-SESSÃO
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -40,7 +40,7 @@ interface AutomationConfig {
 export function DistributionPage() {
   const { products } = useDashboard();
   const { toast } = useToast();
-  const { status } = useWhatsApp();
+  const { getActiveSession, currentSessionId } = useWhatsApp();
   
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -251,6 +251,16 @@ export function DistributionPage() {
       return;
     }
 
+    if (!currentSessionId) {
+      toast({
+        title: "Conecte uma sessão",
+        description: "Conecte uma sessão do WhatsApp antes de enviar.",
+        variant: "destructive"
+      });
+      setShowConnectModal(true);
+      return;
+    }
+
     if (whatsappEnabled && whatsappGroups.length === 0) {
       toast({
         title: "Selecione grupos",
@@ -274,6 +284,7 @@ export function DistributionPage() {
           }));
 
           await whatsappService.sendOffers({
+            sessionId: currentSessionId,
             grupoId: group.id,
             ofertas
           });
@@ -307,6 +318,11 @@ export function DistributionPage() {
       return;
     }
 
+    if (!currentSessionId) {
+      console.warn('Nenhuma sessão conectada');
+      return;
+    }
+
     if (whatsappGroups.length === 0) {
       console.warn('Nenhum grupo configurado');
       return;
@@ -329,6 +345,7 @@ export function DistributionPage() {
         }];
 
         await whatsappService.sendOffers({
+          sessionId: currentSessionId,
           grupoId: group.id,
           ofertas
         });
@@ -409,7 +426,8 @@ export function DistributionPage() {
     });
   };
 
-  const botConnected = status.conectado;
+  const activeSession = getActiveSession();
+  const botConnected = activeSession?.conectado || false;
 
   return (
     <div className="p-6 space-y-6">

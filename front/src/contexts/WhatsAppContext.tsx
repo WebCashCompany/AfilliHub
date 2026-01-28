@@ -1,128 +1,169 @@
-// src/contexts/WhatsAppContext.tsx - COM PERSISTÊNCIA
+// front/src/contexts/WhatsAppContext.tsx
+// ⚠️ SUBSTITUIR TODO O CONTEÚDO DO ARQUIVO POR ESTE
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { whatsappService, WhatsAppStatus, WhatsAppGroup } from '@/api/services/whatsapp.service';
+import { whatsappService, WhatsAppSession, WhatsAppGroup } from '@/api/services/whatsapp.service';
 
 interface WhatsAppContextData {
-  status: WhatsAppStatus;
+  sessions: WhatsAppSession[];
+  currentSessionId: string | null;
   groups: WhatsAppGroup[];
   selectedGroups: string[];
   isConnecting: boolean;
   isLoading: boolean;
+  qrCode: string | null;
   
-  connectBot: () => Promise<void>;
-  disconnectBot: () => Promise<void>;
-  refreshStatus: () => Promise<void>;
-  loadGroups: () => Promise<void>;
+  setCurrentSession: (sessionId: string | null) => void;
+  connectNewSession: (sessionId: string) => Promise<void>;
+  disconnectSession: (sessionId: string) => Promise<void>;
+  refreshSessions: () => Promise<void>;
+  loadGroups: (sessionId: string) => Promise<void>;
   setSelectedGroups: (groups: string[]) => void;
+  getActiveSession: () => WhatsAppSession | null;
 }
 
 const WhatsAppContext = createContext<WhatsAppContextData>({} as WhatsAppContextData);
 
 export function WhatsAppProvider({ children }: { children: ReactNode }) {
-  // ✅ CARREGAR ESTADO INICIAL DO LOCALSTORAGE
-  const [status, setStatus] = useState<WhatsAppStatus>(() => {
-    const saved = localStorage.getItem('whatsapp_status');
-    if (saved) {
+  const [sessions, setSessions] = useState<WhatsAppSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [qrCode, setQrCode] = useState<string | null>(null);
+
+  // Carregar sessões salvas do localStorage
+  useEffect(() => {
+    const savedSessions = localStorage.getItem('whatsapp_sessions');
+    const savedCurrentSession = localStorage.getItem('whatsapp_current_session');
+    const savedGroups = localStorage.getItem('whatsapp_groups');
+    const savedSelectedGroups = localStorage.getItem('whatsapp_selected_groups');
+
+    if (savedSessions) {
       try {
-        return JSON.parse(saved);
+        setSessions(JSON.parse(savedSessions));
       } catch (e) {
-        console.error('Erro ao carregar status salvo:', e);
+        console.error('Erro ao carregar sessões:', e);
       }
     }
-    return {
-      conectado: false,
-      status: 'offline',
-      clientReady: false,
-      qrCode: undefined
-    };
-  });
 
-  const [groups, setGroups] = useState<WhatsAppGroup[]>(() => {
-    const saved = localStorage.getItem('whatsapp_groups');
-    if (saved) {
+    if (savedCurrentSession) {
+      setCurrentSessionId(savedCurrentSession);
+    }
+
+    if (savedGroups) {
       try {
-        return JSON.parse(saved);
+        setGroups(JSON.parse(savedGroups));
       } catch (e) {
-        console.error('Erro ao carregar grupos salvos:', e);
+        console.error('Erro ao carregar grupos:', e);
       }
     }
-    return [];
-  });
 
-  const [selectedGroups, setSelectedGroups] = useState<string[]>(() => {
-    const saved = localStorage.getItem('whatsapp_selected_groups');
-    if (saved) {
+    if (savedSelectedGroups) {
       try {
-        return JSON.parse(saved);
+        setSelectedGroups(JSON.parse(savedSelectedGroups));
       } catch (e) {
         console.error('Erro ao carregar grupos selecionados:', e);
       }
     }
-    return [];
-  });
 
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+    // Solicitar lista atual de sessões
+    refreshSessions();
+  }, []);
 
-  // ✅ SALVAR STATUS NO LOCALSTORAGE SEMPRE QUE MUDAR
+  // Salvar no localStorage quando mudar
   useEffect(() => {
-    localStorage.setItem('whatsapp_status', JSON.stringify(status));
-  }, [status]);
+    localStorage.setItem('whatsapp_sessions', JSON.stringify(sessions));
+  }, [sessions]);
 
-  // ✅ SALVAR GRUPOS NO LOCALSTORAGE SEMPRE QUE MUDAR
+  useEffect(() => {
+    if (currentSessionId) {
+      localStorage.setItem('whatsapp_current_session', currentSessionId);
+    } else {
+      localStorage.removeItem('whatsapp_current_session');
+    }
+  }, [currentSessionId]);
+
   useEffect(() => {
     localStorage.setItem('whatsapp_groups', JSON.stringify(groups));
   }, [groups]);
 
-  // ✅ SALVAR GRUPOS SELECIONADOS NO LOCALSTORAGE SEMPRE QUE MUDAR
   useEffect(() => {
     localStorage.setItem('whatsapp_selected_groups', JSON.stringify(selectedGroups));
   }, [selectedGroups]);
 
-  // Verificar status periodicamente (a cada 5 segundos)
+  // Configurar callbacks do Socket.IO
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-
-    const checkStatus = async () => {
-      try {
-        const currentStatus = await whatsappService.getStatus();
-        setStatus(currentStatus);
-
-        // Se conectou e temos grupos vazios, carregar grupos
-        if (currentStatus.conectado && groups.length === 0) {
-          await loadGroups();
-        }
-      } catch (error) {
-        console.error('Erro ao verificar status:', error);
+    // Callback para QR Code
+    whatsappService.onQRCode((sessionId, qr) => {
+      console.log('📱 QR Code recebido no Context:', sessionId);
+      if (sessionId === currentSessionId) {
+        setQrCode(qr);
+        setIsConnecting(false);
       }
-    };
+    });
 
-    // ✅ SÓ INICIA VERIFICAÇÃO SE JÁ ESTAVA CONECTADO (carregado do localStorage)
-    if (status.conectado) {
-      checkStatus();
-      interval = setInterval(checkStatus, 5000);
-    }
+    // Callback para conexão bem-sucedida
+    whatsappService.onConnected((sessionId, phoneNumber) => {
+      console.log('✅ Sessão conectada no Context:', sessionId, phoneNumber);
+      setQrCode(null);
+      setIsConnecting(false);
+      
+      // Atualizar lista de sessões
+      refreshSessions();
+      
+      // Se for a sessão atual, carregar grupos
+      if (sessionId === currentSessionId) {
+        loadGroups(sessionId);
+      }
+    });
+
+    // Callback para desconexão
+    whatsappService.onDisconnected((sessionId, reason) => {
+      console.log('❌ Sessão desconectada no Context:', sessionId, reason);
+      
+      // Atualizar lista de sessões
+      refreshSessions();
+      
+      // Limpar grupos se for a sessão atual
+      if (sessionId === currentSessionId) {
+        setGroups([]);
+        setSelectedGroups([]);
+      }
+    });
+
+    // Callback para atualização de sessões
+    whatsappService.onSessionsUpdate((updatedSessions) => {
+      console.log('📋 Sessões atualizadas no Context:', updatedSessions);
+      setSessions(updatedSessions);
+    });
 
     return () => {
-      if (interval) clearInterval(interval);
+      // Cleanup se necessário
     };
-  }, [status.conectado, groups.length]);
+  }, [currentSessionId]);
 
-  const refreshStatus = useCallback(async () => {
+  const refreshSessions = useCallback(async () => {
     try {
-      const currentStatus = await whatsappService.getStatus();
-      setStatus(currentStatus);
+      const allSessions = await whatsappService.listSessions();
+      setSessions(allSessions);
+      
+      // Se não há sessão atual mas há sessões ativas, selecionar a primeira
+      if (!currentSessionId && allSessions.length > 0) {
+        const activeSession = allSessions.find(s => s.conectado);
+        if (activeSession) {
+          setCurrentSessionId(activeSession.sessionId);
+        }
+      }
     } catch (error) {
-      console.error('Erro ao atualizar status:', error);
+      console.error('Erro ao atualizar sessões:', error);
     }
-  }, []);
+  }, [currentSessionId]);
 
-  const loadGroups = useCallback(async () => {
-    if (!status.conectado) return;
-
+  const loadGroups = useCallback(async (sessionId: string) => {
     setIsLoading(true);
     try {
-      const loadedGroups = await whatsappService.listGroups();
+      const loadedGroups = await whatsappService.listGroups(sessionId);
       setGroups(loadedGroups);
     } catch (error) {
       console.error('Erro ao carregar grupos:', error);
@@ -130,59 +171,78 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [status.conectado]);
+  }, []);
 
-  const connectBot = useCallback(async () => {
+  const connectNewSession = useCallback(async (sessionId: string) => {
     setIsConnecting(true);
+    setQrCode(null);
+    
     try {
-      await whatsappService.connectBot();
-      await refreshStatus();
+      await whatsappService.connectSession(sessionId);
+      setCurrentSessionId(sessionId);
+      
+      // A atualização virá via Socket.IO
     } catch (error) {
-      console.error('Erro ao conectar bot:', error);
-      throw error;
-    } finally {
+      console.error('Erro ao conectar sessão:', error);
       setIsConnecting(false);
-    }
-  }, [refreshStatus]);
-
-  const disconnectBot = useCallback(async () => {
-    try {
-      await whatsappService.disconnectBot();
-      
-      // ✅ LIMPAR ESTADO E LOCALSTORAGE
-      const emptyStatus = {
-        conectado: false,
-        status: 'offline' as const,
-        clientReady: false,
-        qrCode: undefined
-      };
-      
-      setStatus(emptyStatus);
-      setGroups([]);
-      setSelectedGroups([]);
-      
-      localStorage.removeItem('whatsapp_status');
-      localStorage.removeItem('whatsapp_groups');
-      localStorage.removeItem('whatsapp_selected_groups');
-    } catch (error) {
-      console.error('Erro ao desconectar bot:', error);
       throw error;
     }
   }, []);
 
+  const disconnectSession = useCallback(async (sessionId: string) => {
+    try {
+      await whatsappService.disconnectSession(sessionId);
+      
+      // Se for a sessão atual, limpar
+      if (sessionId === currentSessionId) {
+        setCurrentSessionId(null);
+        setGroups([]);
+        setSelectedGroups([]);
+        setQrCode(null);
+      }
+      
+      // Atualizar lista de sessões
+      await refreshSessions();
+    } catch (error) {
+      console.error('Erro ao desconectar sessão:', error);
+      throw error;
+    }
+  }, [currentSessionId, refreshSessions]);
+
+  const setCurrentSession = useCallback((sessionId: string | null) => {
+    setCurrentSessionId(sessionId);
+    
+    if (sessionId) {
+      // Carregar grupos da nova sessão
+      loadGroups(sessionId);
+    } else {
+      setGroups([]);
+      setSelectedGroups([]);
+    }
+  }, [loadGroups]);
+
+  const getActiveSession = useCallback(() => {
+    if (!currentSessionId) return null;
+    return sessions.find(s => s.sessionId === currentSessionId) || null;
+  }, [currentSessionId, sessions]);
+
   return (
     <WhatsAppContext.Provider
       value={{
-        status,
+        sessions,
+        currentSessionId,
         groups,
         selectedGroups,
         isConnecting,
         isLoading,
-        connectBot,
-        disconnectBot,
-        refreshStatus,
+        qrCode,
+        setCurrentSession,
+        connectNewSession,
+        disconnectSession,
+        refreshSessions,
         loadGroups,
-        setSelectedGroups
+        setSelectedGroups,
+        getActiveSession
       }}
     >
       {children}

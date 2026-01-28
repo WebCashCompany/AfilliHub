@@ -1,8 +1,10 @@
-// src/components/modals/ConnectBotModal.tsx
+// src/components/modals/ConnectBotModal.tsx - CORRIGIDO PARA MULTI-SESSÃO
 import { useState, useEffect, useRef } from 'react';
 import { Loader2, MessageCircle, Send, CheckCircle, X } from 'lucide-react';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
 import { useToast } from '@/hooks/use-toast';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import QRCode from 'react-qr-code';
 
 interface ConnectBotModalProps {
@@ -11,12 +13,13 @@ interface ConnectBotModalProps {
   onConnected: () => void;
 }
 
-type ConnectionStep = 'choose' | 'connecting' | 'qrcode' | 'connected';
+type ConnectionStep = 'choose' | 'name' | 'connecting' | 'qrcode' | 'connected';
 
 export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalProps) {
   const [step, setStep] = useState<ConnectionStep>('choose');
   const [selectedPlatform, setSelectedPlatform] = useState<'whatsapp' | 'telegram' | null>(null);
-  const { status, connectBot } = useWhatsApp();
+  const [sessionName, setSessionName] = useState('');
+  const { qrCode, isConnecting, connectNewSession } = useWhatsApp();
   const { toast } = useToast();
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -34,6 +37,7 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
     if (open) {
       setStep('choose');
       setSelectedPlatform(null);
+      setSessionName('');
       
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -42,17 +46,22 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
     }
   }, [open]);
 
-  // Monitorar mudanças no status do contexto
+  // Monitorar QR Code
   useEffect(() => {
     if (!open) return;
 
     // Se recebeu QR Code
-    if (status.qrCode && !status.conectado && step === 'connecting') {
+    if (qrCode && step === 'connecting') {
       setStep('qrcode');
     }
+  }, [qrCode, open, step]);
 
-    // Se conectou
-    if (status.conectado && (step === 'connecting' || step === 'qrcode')) {
+  // Monitorar se conectou (qrCode fica null quando conecta)
+  useEffect(() => {
+    if (!open) return;
+
+    // Se estava mostrando QR Code e ele sumiu, significa que conectou
+    if (step === 'qrcode' && !qrCode && !isConnecting) {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
@@ -65,9 +74,9 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
         onClose();
       }, 1500);
     }
-  }, [status, open, step, onConnected, onClose]);
+  }, [qrCode, isConnecting, open, step, onConnected, onClose]);
 
-  const handleSelectPlatform = async (platform: 'whatsapp' | 'telegram') => {
+  const handleSelectPlatform = (platform: 'whatsapp' | 'telegram') => {
     setSelectedPlatform(platform);
     
     if (platform === 'telegram') {
@@ -78,10 +87,23 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
       return;
     }
 
+    setStep('name');
+  };
+
+  const handleConnect = async () => {
+    if (!sessionName.trim()) {
+      toast({
+        title: "Digite um nome",
+        description: "Por favor, digite um nome para identificar esta sessão.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setStep('connecting');
     
     try {
-      await connectBot();
+      await connectNewSession(sessionName.trim());
 
       // Timeout de 2 minutos
       timeoutRef.current = setTimeout(() => {
@@ -133,7 +155,9 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
           <div>
             <h2 className="text-lg font-semibold">Conectar Bot</h2>
             <p className="text-sm text-muted-foreground">
-              {step === 'qrcode' ? 'Escaneie o QR Code' : 'Escolha a plataforma'}
+              {step === 'qrcode' ? 'Escaneie o QR Code' : 
+               step === 'name' ? 'Nome da sessão' : 
+               'Escolha a plataforma'}
             </p>
           </div>
           <button
@@ -174,6 +198,40 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
           </div>
         )}
 
+        {step === 'name' && (
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="sessionName">Nome da Sessão</Label>
+              <Input
+                id="sessionName"
+                placeholder="Ex: numero-principal, numero-vendas"
+                value={sessionName}
+                onChange={(e) => setSessionName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleConnect()}
+              />
+              <p className="text-xs text-muted-foreground">
+                Escolha um nome para identificar esta conexão
+              </p>
+            </div>
+            
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setStep('choose')}
+                className="px-4 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={handleConnect}
+                disabled={!sessionName.trim()}
+                className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Conectar
+              </button>
+            </div>
+          </div>
+        )}
+
         {step === 'connecting' && (
           <div className="py-8 flex flex-col items-center gap-4">
             <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -186,10 +244,10 @@ export function ConnectBotModal({ open, onClose, onConnected }: ConnectBotModalP
           </div>
         )}
 
-        {step === 'qrcode' && status.qrCode && (
+        {step === 'qrcode' && qrCode && (
           <div className="py-6 flex flex-col items-center gap-4">
             <div className="bg-white p-4 rounded-lg">
-              <QRCode value={status.qrCode} size={256} />
+              <QRCode value={qrCode} size={256} />
             </div>
             <div className="text-center">
               <p className="font-medium">Escaneie com seu WhatsApp</p>

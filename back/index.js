@@ -1,19 +1,46 @@
-// back/index.js - COMPLETO COM LOGS DE DEBUG
+// back/index.js - CORS CORRIGIDO PARA PORTA 8080
 
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
 const { connectDB } = require('./database/mongodb');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
 
+// Configurar Socket.IO com CORS
+const io = new Server(server, {
+  cors: {
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://localhost:8080"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  transports: ['websocket', 'polling']
+});
+
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:8080"
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
-// Importe o serviço MAS NÃO INICIALIZE
-const whatsappService = require('./services/WhatsAppService');
+// Inicializar serviço WhatsApp Multi-Sessão com Socket.IO
+const WhatsAppMultiSessionService = require('./services/WhatsAppMultiSessionService');
+const whatsappService = new WhatsAppMultiSessionService(io);
 
 // Banner inicial
 console.log('\n╔════════════════════════════════════════════════════╗');
@@ -23,16 +50,34 @@ console.log('╚═════════════════════�
 // Conectar MongoDB
 connectDB();
 
-// ═══════════════════════════════════════════════════════════
-// ROTAS
-// ═══════════════════════════════════════════════════════════
+// Socket.IO - Gerenciar conexões em tempo real
+io.on('connection', (socket) => {
+  console.log(`🔌 Cliente conectado via Socket.IO: ${socket.id}`);
+
+  socket.emit('sessions:list', {
+    sessions: whatsappService.getAllSessions()
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 Cliente desconectado: ${socket.id}`);
+  });
+
+  socket.on('sessions:get', () => {
+    socket.emit('sessions:list', {
+      sessions: whatsappService.getAllSessions()
+    });
+  });
+});
 
 // Health Check
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'Servidor rodando',
-    whatsappBot: whatsappService.getStatus()
+    whatsapp: {
+      activeSessions: whatsappService.getActiveSessions().length,
+      totalSessions: whatsappService.getAllSessions().length
+    }
   });
 });
 
@@ -44,10 +89,10 @@ app.use('/api/products', productsRoutes);
 const scrapingRoutes = require('./routes/scraping.routes');
 app.use('/api/scraping', scrapingRoutes);
 
-// ✅ ROTAS DE DIVULGAÇÃO (WHATSAPP BOT) - COM DEBUG
+// Rotas de Divulgação
 console.log('📂 Carregando rotas de divulgação...');
 try {
-  const divulgacaoRoutes = require('./routes/divulgacao.routes');
+  const divulgacaoRoutes = require('./routes/divulgacao.routes')(whatsappService);
   console.log('✅ Arquivo divulgacao.routes carregado');
   
   app.use('/api/divulgacao', divulgacaoRoutes);
@@ -57,11 +102,7 @@ try {
   console.error(error.stack);
 }
 
-// ═══════════════════════════════════════════════════════════
-// INICIAR SERVIDOR
-// ═══════════════════════════════════════════════════════════
-
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log('\n╔════════════════════════════════════════════════════╗');
   console.log(`║  ✅ Servidor rodando na porta ${PORT}              ║`);
   console.log('╚════════════════════════════════════════════════════╝\n');
@@ -71,10 +112,11 @@ app.listen(PORT, () => {
   console.log(`📦 Produtos: http://localhost:${PORT}/api/products`);
   console.log(`🔍 Scraping: http://localhost:${PORT}/api/scraping`);
   console.log(`📱 Divulgação: http://localhost:${PORT}/api/divulgacao`);
-  console.log(`🌐 CORS: Habilitado\n`);
+  console.log(`🌐 CORS: Habilitado (porta 8080)`);
+  console.log(`⚡ Socket.IO: Ativo\n`);
   
   console.log('╔════════════════════════════════════════════════════╗');
-  console.log('║  🤖 WhatsApp Bot: Aguardando conexão manual       ║');
-  console.log('║  💡 Use o botão "Conectar Bot" no frontend        ║');
+  console.log('║  🤖 WhatsApp Bot: Sistema Multi-Sessão Ativo      ║');
+  console.log('║  💡 Conecte múltiplos números simultaneamente     ║');
   console.log('╚════════════════════════════════════════════════════╝\n');
 });
