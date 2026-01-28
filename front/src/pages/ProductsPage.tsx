@@ -1,4 +1,4 @@
-// src/pages/ProductsPage.tsx - USANDO PRICEUTILS CORRETO
+// src/pages/ProductsPage.tsx - VERSÃO FINAL FUNCIONAL
 
 import { useState, useMemo } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -31,6 +31,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import {
@@ -42,15 +45,32 @@ import {
   Filter,
   Eraser,
   AlertTriangle,
-  Ticket
+  Ticket,
+  ExternalLink,
+  Copy,
+  Check,
+  Calendar,
+  Tag,
+  TrendingDown,
+  Package,
+  Eye,
+  Star,
+  Truck,
+  CreditCard,
+  Store,
+  Clock,
+  Percent,
+  Link2,
+  ShoppingCart
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatNumber, Marketplace, ProductStatus } from '@/lib/mockData';
 import { productsService } from '@/api/services/products.service';
-// ✅ IMPORTAR AS FUNÇÕES CORRETAS DO PRICEUTILS
 import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib/priceUtils';
 
 type CleanupType = 'all' | 'marketplace' | 'old' | 'selected';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export function ProductsPage() {
   const { products, deleteProducts, refreshProducts, isLoading } = useDashboard();
@@ -68,6 +88,15 @@ export function ProductsPage() {
   const [cleanupMarketplace, setCleanupMarketplace] = useState<Marketplace>('mercadolivre');
   const [cleanupDays, setCleanupDays] = useState(7);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
+
+  // Dialog de detalhes do produto
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedOriginalLink, setCopiedOriginalLink] = useState(false);
+
+  // Estado para armazenar os dados originais do produto
+  const [originalProductData, setOriginalProductData] = useState<any>(null);
 
   const pageSize = 15;
 
@@ -111,7 +140,54 @@ export function ProductsPage() {
     toast({ title: 'Produtos excluídos com sucesso' });
   };
 
-  // Handler de limpeza
+  // ✅ BUSCA OS DADOS COMPLETOS DO PRODUTO NO BACKEND
+  const handleProductClick = async (product: any) => {
+    console.log('📦 Produto do contexto:', product);
+    
+    setSelectedProduct(product);
+    setDetailsDialogOpen(true);
+    setCopiedLink(false);
+    setCopiedOriginalLink(false);
+
+    // Busca os dados completos do produto no backend
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`);
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        console.log('📦 Dados completos do backend:', data.data);
+        setOriginalProductData(data.data);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao buscar dados completos:', error);
+      // Usa os dados do contexto mesmo se falhar
+      setOriginalProductData(product);
+    }
+  };
+
+  const handleCopyLink = async (link: string, isOriginal = false) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      if (isOriginal) {
+        setCopiedOriginalLink(true);
+        setTimeout(() => setCopiedOriginalLink(false), 2000);
+      } else {
+        setCopiedLink(true);
+        setTimeout(() => setCopiedLink(false), 2000);
+      }
+      toast({
+        title: 'Link copiado!',
+        description: isOriginal ? 'Link original copiado' : 'Link de afiliado copiado',
+      });
+    } catch (error) {
+      toast({
+        title: 'Erro ao copiar',
+        description: 'Não foi possível copiar o link',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleCleanup = async () => {
     setIsCleaningUp(true);
 
@@ -175,6 +251,46 @@ export function ProductsPage() {
         return `Deletar ${selectedIds.length} produtos selecionados`;
     }
   };
+
+  const formatDate = (dateString: string | Date) => {
+    if (!dateString) return null;
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  // Formata preço de centavos (129900) para R$ 1.299,00
+  const formatPriceFromCents = (price: string | number): string => {
+    if (!price) return 'R$ 0,00';
+    
+    // Se já está formatado (contém vírgula ou ponto), retorna como está
+    const priceStr = String(price);
+    if (priceStr.includes(',') || priceStr.includes('.')) {
+      return priceStr.startsWith('R$') ? priceStr : `R$ ${priceStr}`;
+    }
+    
+    // Converte centavos para reais
+    const cents = parseInt(priceStr);
+    if (isNaN(cents)) return 'R$ 0,00';
+    
+    const reais = cents / 100;
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(reais);
+  };
+
+  // ✅ USA OS DADOS ORIGINAIS SE DISPONÍVEIS
+  const displayProduct = originalProductData || selectedProduct;
 
   return (
     <div className="p-6 space-y-6">
@@ -291,31 +407,26 @@ export function ProductsPage() {
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Preço</TableHead>
                     <TableHead className="text-right">Desconto</TableHead>
+                    <TableHead className="w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
 
                 <TableBody>
                   {paginatedProducts.map(product => {
-                    // ✅ USAR AS FUNÇÕES CORRETAS DO PRICEUTILS
-                    const productAny = product as any;
-                    
-                    const currentPriceCents = getCurrentPrice(productAny);
-                    const oldPriceCents = getOldPrice(productAny);
-                    const discount = getDiscount(productAny);
+                    const currentPriceCents = getCurrentPrice(product);
+                    const oldPriceCents = getOldPrice(product);
+                    const discount = getDiscount(product);
                     
                     const formattedCurrentPrice = formatCurrency(currentPriceCents);
                     const formattedOldPrice = formatCurrency(oldPriceCents);
-                    
-                    const imageSrc =
-                      productAny.imagem ||
-                      productAny.image ||
-                      productAny.thumbnail ||
-                      productAny.images?.[0] ||
-                      '/no-image.png';
 
                     return (
-                      <TableRow key={product.id}>
-                        <TableCell>
+                      <TableRow 
+                        key={product.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleProductClick(product)}
+                      >
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <Checkbox
                             checked={selectedIds.includes(product.id)}
                             onCheckedChange={() => handleSelect(product.id)}
@@ -324,7 +435,7 @@ export function ProductsPage() {
 
                         <TableCell>
                           <img
-                            src={imageSrc}
+                            src={product.image || '/no-image.png'}
                             alt={product.name}
                             className="w-12 h-12 object-cover rounded"
                             onError={(e) => {
@@ -335,10 +446,10 @@ export function ProductsPage() {
 
                         <TableCell>
                           <p className="font-medium truncate max-w-xs">
-                            {productAny.nome || product.name}
+                            {product.name}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {productAny.categoria || product.category}
+                            {product.category}
                           </p>
                         </TableCell>
 
@@ -371,6 +482,20 @@ export function ProductsPage() {
                               -
                             </span>
                           )}
+                        </TableCell>
+
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleProductClick(product);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     );
@@ -421,6 +546,316 @@ export function ProductsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* DIALOG DE DETALHES DO PRODUTO */}
+      <Dialog open={detailsDialogOpen} onOpenChange={(open) => {
+        setDetailsDialogOpen(open);
+        if (!open) {
+          setOriginalProductData(null);
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[85vh]">
+          {displayProduct && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl pr-6">Detalhes do Produto</DialogTitle>
+                <DialogDescription>
+                  Informações completas e links de afiliado
+                </DialogDescription>
+              </DialogHeader>
+
+              <ScrollArea className="max-h-[calc(85vh-180px)] pr-4">
+                <div className="space-y-6">
+                  {/* Header com Imagem e Título */}
+                  <div className="flex gap-6">
+                    <div className="flex-shrink-0">
+                      <img
+                        src={displayProduct.imagem || displayProduct.image || '/no-image.png'}
+                        alt={displayProduct.nome || displayProduct.name}
+                        className="w-48 h-48 object-cover rounded-lg border shadow-sm"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/no-image.png';
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex-1 space-y-3">
+                      <div>
+                        <h3 className="font-bold text-lg leading-tight mb-3">
+                          {displayProduct.nome || displayProduct.nome_normalizado || displayProduct.name}
+                        </h3>
+                        <div className="flex flex-wrap gap-2">
+                          <MarketplaceBadge marketplace={displayProduct.marketplace} />
+                          <StatusBadge status={displayProduct.status || 'active'} />
+                          {displayProduct.categoria && (
+                            <Badge variant="outline" className="gap-1">
+                              <Tag className="w-3 h-3" />
+                              {displayProduct.categoria}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Preços */}
+                      <div className="bg-muted/50 p-4 rounded-lg">
+                        <div className="flex items-baseline gap-3 flex-wrap">
+                          {displayProduct.preco && (
+                            <span className="text-3xl font-bold text-green-600">
+                              {displayProduct.preco.startsWith('R$') ? displayProduct.preco : `R$ ${displayProduct.preco}`}
+                            </span>
+                          )}
+                          {displayProduct.preco_anterior && (
+                            <span className="text-lg line-through text-muted-foreground">
+                              {displayProduct.preco_anterior.startsWith('R$') ? displayProduct.preco_anterior : `R$ ${displayProduct.preco_anterior}`}
+                            </span>
+                          )}
+                          {displayProduct.desconto && (
+                            <Badge variant="destructive" className="gap-1">
+                              <TrendingDown className="w-3 h-3" />
+                              {displayProduct.desconto}
+                            </Badge>
+                          )}
+                        </div>
+                        {(displayProduct.preco_de || displayProduct.preco_para) && (
+                          <div className="mt-2 text-sm text-muted-foreground flex gap-4">
+                            {displayProduct.preco_de && (
+                              <span>De: {formatPriceFromCents(displayProduct.preco_de)}</span>
+                            )}
+                            {displayProduct.preco_para && (
+                              <span>Para: {formatPriceFromCents(displayProduct.preco_para)}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Informações do Produto */}
+                  <div className="grid grid-cols-2 gap-4">
+                    {displayProduct.vendedor && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Store className="w-3.5 h-3.5" />
+                          Vendedor
+                        </Label>
+                        <p className="font-medium text-sm">{displayProduct.vendedor}</p>
+                      </div>
+                    )}
+
+                    {displayProduct.frete && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Truck className="w-3.5 h-3.5" />
+                          Frete
+                        </Label>
+                        <p className="font-medium text-sm">{displayProduct.frete}</p>
+                      </div>
+                    )}
+
+                    {displayProduct.parcelas && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <CreditCard className="w-3.5 h-3.5" />
+                          Parcelamento
+                        </Label>
+                        <p className="font-medium text-sm">{displayProduct.parcelas}</p>
+                      </div>
+                    )}
+
+                    {displayProduct.numero_avaliacoes && displayProduct.numero_avaliacoes !== '0' && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Star className="w-3.5 h-3.5" />
+                          Avaliações
+                        </Label>
+                        <p className="font-medium text-sm">
+                          {displayProduct.avaliacao && `${displayProduct.avaliacao} - `}
+                          {displayProduct.numero_avaliacoes}
+                        </p>
+                      </div>
+                    )}
+
+                    {displayProduct.porcentagem_vendido && displayProduct.porcentagem_vendido !== 'N/A' && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          Vendas
+                        </Label>
+                        <p className="font-medium text-sm">{displayProduct.porcentagem_vendido}</p>
+                      </div>
+                    )}
+
+                    {displayProduct.tempo_restante && displayProduct.tempo_restante !== 'N/A' && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5" />
+                          Tempo Restante
+                        </Label>
+                        <p className="font-medium text-sm">{displayProduct.tempo_restante}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  {/* Datas */}
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    {(displayProduct.createdAt || displayProduct.createdat) && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          Criado
+                        </Label>
+                        <p className="text-xs">{formatDate(displayProduct.createdAt || displayProduct.createdat)}</p>
+                      </div>
+                    )}
+
+                    {(displayProduct.updatedAt || displayProduct.updatedat) && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          Atualizado
+                        </Label>
+                        <p className="text-xs">{formatDate(displayProduct.updatedAt || displayProduct.updatedat)}</p>
+                      </div>
+                    )}
+
+                    {displayProduct.ultima_verificacao && (
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          Verificado
+                        </Label>
+                        <p className="text-xs">{formatDate(displayProduct.ultima_verificacao)}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  {/* Links */}
+                  {(displayProduct.link_afiliado || displayProduct.affiliateLink) && (
+                    <div className="space-y-3 bg-green-50 dark:bg-green-950/20 p-4 rounded-lg border border-green-200 dark:border-green-900">
+                      <Label className="text-sm font-semibold flex items-center gap-2 text-green-700 dark:text-green-400">
+                        <Link2 className="w-4 h-4" />
+                        Link de Afiliado
+                      </Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={displayProduct.link_afiliado || displayProduct.affiliateLink}
+                          readOnly
+                          className="font-mono text-xs bg-white dark:bg-background"
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => handleCopyLink(displayProduct.link_afiliado || displayProduct.affiliateLink, false)}
+                          className="flex-shrink-0"
+                        >
+                          {copiedLink ? (
+                            <Check className="w-4 h-4 text-green-600" />
+                          ) : (
+                            <Copy className="w-4 h-4" />
+                          )}
+                        </Button>
+                        <Button
+                          size="icon"
+                          asChild
+                          className="flex-shrink-0"
+                        >
+                          <a
+                            href={displayProduct.link_afiliado || displayProduct.affiliateLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        💰 Use este link para receber comissão nas vendas
+                      </p>
+                    </div>
+                  )}
+
+                  {displayProduct.link_original && (
+                    <div className="space-y-2 bg-muted/30 p-4 rounded-lg">
+                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                        <Link2 className="w-3.5 h-3.5" />
+                        Link Original (sem afiliação)
+                      </Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={displayProduct.link_original}
+                          readOnly
+                          className="font-mono text-xs"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleCopyLink(displayProduct.link_original, true)}
+                          className="flex-shrink-0"
+                        >
+                          {copiedOriginalLink ? (
+                            <Check className="w-4 h-4 text-green-600" />
+                          ) : (
+                            <Copy className="w-4 h-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          asChild
+                          className="flex-shrink-0"
+                        >
+                          <a
+                            href={displayProduct.link_original}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ID do Produto */}
+                  {displayProduct._id && (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">ID MongoDB</Label>
+                      <code className="block text-xs bg-muted p-2 rounded font-mono break-all">
+                        {displayProduct._id}
+                      </code>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setDetailsDialogOpen(false)}>
+                  Fechar
+                </Button>
+                {(displayProduct.link_afiliado || displayProduct.affiliateLink) && (
+                  <Button asChild>
+                    <a
+                      href={displayProduct.link_afiliado || displayProduct.affiliateLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="gap-2"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Abrir Produto
+                    </a>
+                  </Button>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* DIALOG DE LIMPEZA */}
       <Dialog open={cleanupDialogOpen} onOpenChange={setCleanupDialogOpen}>
