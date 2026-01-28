@@ -66,19 +66,22 @@ async function startServer() {
 
     // Socket.IO - Gerenciar conexões em tempo real
     io.on('connection', (socket) => {
-      console.log(`🔌 Cliente conectado via Socket.IO: ${socket.id}`);
+      console.log(`\n🔌 [SOCKET] Cliente conectado: ${socket.id}`);
+      console.log(`👥 [SOCKET] Total de clientes conectados: ${io.engine.clientsCount}`);
 
       socket.on('whatsapp:request-sessions', async () => {
         try {
           const sessions = await whatsappService.getAllSessions();
+          console.log(`📤 [SOCKET] Enviando ${sessions.length} sessões para ${socket.id}`);
           socket.emit('whatsapp:sessions-list', { sessions });
         } catch (error) {
-          console.error('Erro ao enviar lista de sessões:', error);
+          console.error('❌ [SOCKET] Erro ao enviar lista de sessões:', error);
         }
       });
 
       socket.on('disconnect', () => {
-        console.log(`🔌 Cliente desconectado: ${socket.id}`);
+        console.log(`❌ [SOCKET] Cliente desconectado: ${socket.id}`);
+        console.log(`👥 [SOCKET] Clientes restantes: ${io.engine.clientsCount}`);
       });
     });
 
@@ -93,6 +96,32 @@ async function startServer() {
         },
         socketConnections: io.engine.clientsCount
       });
+    });
+
+    // ⭐ ROTA DE DEBUG - Testar sincronização
+    app.get('/api/test-sessions', async (req, res) => {
+      try {
+        const fromMemory = Array.from(whatsappService.sessions.values()).map(s => s.getStatus());
+        const fromDatabase = await whatsappService.getAllSessions();
+        
+        res.json({
+          success: true,
+          memory: {
+            count: fromMemory.length,
+            sessions: fromMemory
+          },
+          database: {
+            count: fromDatabase.length,
+            sessions: fromDatabase
+          },
+          socketClients: io.engine.clientsCount
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error.message
+        });
+      }
     });
 
     // Rotas de Produtos

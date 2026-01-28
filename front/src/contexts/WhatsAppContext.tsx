@@ -34,6 +34,8 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
+  console.log('🔍 [DEBUG] WhatsApp Context - sessions:', sessions.length, sessions);
+
   // ═══════════════════════════════════════════════════════════
   // INICIALIZAR SOCKET.IO
   // ═══════════════════════════════════════════════════════════
@@ -120,19 +122,44 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
     // ⭐ LISTA DE SESSÕES ATUALIZADA (broadcast para todos)
     const handleSessionsUpdate = (data: { sessions: WhatsAppSession[] }) => {
       console.log('📋 [REAL-TIME] Sessões atualizadas:', data.sessions?.length || 0, 'sessões');
-      setSessions(Array.isArray(data.sessions) ? data.sessions : []);
+      console.log('📋 [REAL-TIME] Dados recebidos:', data.sessions);
+      
+      // ⭐ Forçar conversão para array
+      let sessionsArray: WhatsAppSession[] = [];
+      if (Array.isArray(data.sessions)) {
+        sessionsArray = data.sessions;
+      } else if (data.sessions && typeof data.sessions === 'object') {
+        // Se vier como objeto, converter para array
+        sessionsArray = Object.values(data.sessions);
+      }
+      
+      console.log('📋 [REAL-TIME] Convertido para array:', sessionsArray.length, sessionsArray);
+      setSessions(sessionsArray);
     };
 
     // ⭐ LISTA DE SESSÕES (resposta da solicitação)
     const handleSessionsList = (data: { sessions: WhatsAppSession[] }) => {
       console.log('📋 [REAL-TIME] Lista de sessões recebida:', data.sessions?.length || 0);
-      const sessionsList = Array.isArray(data.sessions) ? data.sessions : [];
+      console.log('📋 [REAL-TIME] Dados completos:', data);
+      console.log('📋 [REAL-TIME] Tipo:', typeof data.sessions, Array.isArray(data.sessions));
+      
+      // ⭐ Forçar conversão para array
+      let sessionsList: WhatsAppSession[] = [];
+      if (Array.isArray(data.sessions)) {
+        sessionsList = data.sessions;
+      } else if (data.sessions && typeof data.sessions === 'object') {
+        // Se vier como objeto, converter para array
+        sessionsList = Object.values(data.sessions);
+      }
+      
+      console.log('📋 [REAL-TIME] Após conversão:', sessionsList.length, sessionsList);
       setSessions(sessionsList);
       
       // Se não há sessão atual mas há sessões ativas, selecionar a primeira
       if (!currentSessionId && sessionsList.length > 0) {
         const activeSession = sessionsList.find(s => s.conectado);
         if (activeSession) {
+          console.log('📋 [REAL-TIME] Selecionando sessão ativa:', activeSession.sessionId);
           setCurrentSessionId(activeSession.sessionId);
           loadGroups(activeSession.sessionId);
         }
