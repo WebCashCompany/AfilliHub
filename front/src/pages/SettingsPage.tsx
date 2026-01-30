@@ -1,376 +1,274 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { 
-  Settings, Key, Bell, Webhook, Palette, Shield, 
-  Save, Eye, EyeOff, CheckCircle, ExternalLink, RefreshCw
+  Settings, Plus, Trash2, CheckCircle, XCircle, Clock, Power
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import axios from 'axios';
+
+const API_URL = 'http://localhost:3001/api';
+
+interface Account {
+  id: string;
+  name: string;
+  email: string;
+  isActive: boolean;
+  createdAt: string;
+  lastValidated: string;
+  status: 'valid' | 'expired' | 'error';
+}
+
+interface MarketplaceStatus {
+  connected: boolean;
+  accounts: number;
+  activeAccount: Account | null;
+  validAccounts: number;
+  expiredAccounts: number;
+}
 
 export function SettingsPage() {
   const { toast } = useToast();
+  const [mlAccounts, setMlAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [openDialog, setOpenDialog] = useState(false);
+  const [accountName, setAccountName] = useState('');
 
-  // API Settings
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-  const [mlToken, setMlToken] = useState('MLBR-xxxxx-xxxxx-xxxxx-xxxxx');
-  const [amazonId, setAmazonId] = useState('affiliate-tag-20');
-  const [magaluId, setMagaluId] = useState('mg-affiliate-123');
-  const [shopeeId, setShopeeId] = useState('sh_aff_456789');
+  useEffect(() => {
+    loadMLAccounts();
+  }, []);
 
-  // Notification Settings
-  const [emailNotif, setEmailNotif] = useState(true);
-  const [browserNotif, setBrowserNotif] = useState(true);
-  const [scrapingNotif, setScrapingNotif] = useState(true);
-  const [goalNotif, setGoalNotif] = useState(true);
-  const [riskNotif, setRiskNotif] = useState(true);
-
-  // Webhook Settings
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [webhookEnabled, setWebhookEnabled] = useState(false);
-
-  // Theme Settings
-  const [isDark, setIsDark] = useState(false);
-
-  const toggleShowKey = (key: string) => {
-    setShowKeys(prev => ({ ...prev, [key]: !prev[key] }));
+  const loadMLAccounts = async () => {
+    try {
+      const { data } = await axios.get(`${API_URL}/sessions/ml`);
+      setMlAccounts(data.accounts || []);
+    } catch (error) {
+      console.error('Erro ao carregar contas:', error);
+    }
   };
 
-  const handleSave = (section: string) => {
-    toast({
-      title: "Configurações salvas!",
-      description: `As configurações de ${section} foram atualizadas.`,
-    });
+  const createAccount = async () => {
+    if (!accountName.trim()) {
+      toast({ title: "Erro", description: "Digite um nome para a conta", variant: "destructive" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data } = await axios.post(`${API_URL}/sessions/ml/create`, { name: accountName });
+      
+      toast({
+        title: "Navegador aberto!",
+        description: "Faça login no Mercado Livre. Quando fechar o navegador, a sessão será salva.",
+      });
+
+      setOpenDialog(false);
+      setAccountName('');
+      
+      setTimeout(() => loadMLAccounts(), 3000);
+    } catch (error) {
+      toast({ title: "Erro", description: "Falha ao criar conta", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const toggleTheme = () => {
-    setIsDark(!isDark);
-    document.documentElement.classList.toggle('dark');
+  const setActive = async (accountId: string) => {
+    try {
+      await axios.put(`${API_URL}/sessions/ml/${accountId}/activate`);
+      toast({ title: "Conta ativada!", description: "Esta conta será usada nas automações" });
+      loadMLAccounts();
+    } catch (error) {
+      toast({ title: "Erro", description: "Falha ao ativar conta", variant: "destructive" });
+    }
   };
 
-  const maskToken = (token: string) => {
-    if (token.length <= 8) return '••••••••';
-    return token.substring(0, 4) + '••••••••' + token.substring(token.length - 4);
+  const deleteAccount = async (accountId: string) => {
+    try {
+      await axios.delete(`${API_URL}/sessions/ml/${accountId}`);
+      toast({ title: "Conta removida!", description: "A conta foi excluída com sucesso" });
+      loadMLAccounts();
+    } catch (error) {
+      toast({ title: "Erro", description: "Falha ao remover conta", variant: "destructive" });
+    }
+  };
+
+  const reauth = async (accountId: string) => {
+    try {
+      await axios.post(`${API_URL}/sessions/ml/${accountId}/reauth`);
+      toast({ title: "Navegador aberto!", description: "Faça login novamente" });
+      setTimeout(() => loadMLAccounts(), 3000);
+    } catch (error) {
+      toast({ title: "Erro", description: "Falha ao reautenticar", variant: "destructive" });
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    const styles = {
+      valid: { color: 'bg-green-500', text: 'Válida' },
+      expired: { color: 'bg-red-500', text: 'Expirada' },
+      error: { color: 'bg-yellow-500', text: 'Erro' }
+    };
+    const s = styles[status as keyof typeof styles] || styles.error;
+    return <Badge className={`${s.color} text-white`}>{s.text}</Badge>;
   };
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">Configurações</h1>
-        <p className="text-muted-foreground">
-          Gerencie suas preferências e integrações
-        </p>
+        <p className="text-muted-foreground">Gerencie suas conexões e contas de marketplace</p>
       </div>
 
-      <Tabs defaultValue="api" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="api" className="gap-2">
-            <Key className="w-4 h-4" />
-            APIs & Tokens
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="gap-2">
-            <Bell className="w-4 h-4" />
-            Notificações
-          </TabsTrigger>
-          <TabsTrigger value="webhooks" className="gap-2">
-            <Webhook className="w-4 h-4" />
-            Webhooks
-          </TabsTrigger>
-          <TabsTrigger value="theme" className="gap-2">
-            <Palette className="w-4 h-4" />
-            Aparência
-          </TabsTrigger>
-        </TabsList>
-
-        {/* API & Tokens */}
-        <TabsContent value="api" className="space-y-6">
-          <Card>
-            <CardHeader>
+      {/* MERCADO LIVRE */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
               <CardTitle className="flex items-center gap-2">
-                <Key className="w-5 h-5 text-primary" />
-                Credenciais de Afiliado
+                <div className="w-3 h-3 rounded-full bg-[#FFE600]" />
+                Mercado Livre
               </CardTitle>
-              <CardDescription>
-                Configure suas chaves de API para cada marketplace
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Mercado Livre */}
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-ml" />
-                  Token Mercado Livre
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    type={showKeys.ml ? 'text' : 'password'}
-                    value={showKeys.ml ? mlToken : maskToken(mlToken)}
-                    onChange={(e) => setMlToken(e.target.value)}
-                    className="font-mono"
-                  />
-                  <Button variant="outline" size="icon" onClick={() => toggleShowKey('ml')}>
-                    {showKeys.ml ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Amazon */}
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-amazon" />
-                  Amazon Associate ID
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    type={showKeys.amazon ? 'text' : 'password'}
-                    value={showKeys.amazon ? amazonId : maskToken(amazonId)}
-                    onChange={(e) => setAmazonId(e.target.value)}
-                    className="font-mono"
-                  />
-                  <Button variant="outline" size="icon" onClick={() => toggleShowKey('amazon')}>
-                    {showKeys.amazon ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Magalu */}
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-magalu" />
-                  Magalu Affiliate ID
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    type={showKeys.magalu ? 'text' : 'password'}
-                    value={showKeys.magalu ? magaluId : maskToken(magaluId)}
-                    onChange={(e) => setMagaluId(e.target.value)}
-                    className="font-mono"
-                  />
-                  <Button variant="outline" size="icon" onClick={() => toggleShowKey('magalu')}>
-                    {showKeys.magalu ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Shopee */}
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-shopee" />
-                  Shopee Affiliate ID
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    type={showKeys.shopee ? 'text' : 'password'}
-                    value={showKeys.shopee ? shopeeId : maskToken(shopeeId)}
-                    onChange={(e) => setShopeeId(e.target.value)}
-                    className="font-mono"
-                  />
-                  <Button variant="outline" size="icon" onClick={() => toggleShowKey('shopee')}>
-                    {showKeys.shopee ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              <Separator />
-
-              <Button onClick={() => handleSave('API')} className="gap-2">
-                <Save className="w-4 h-4" />
-                Salvar Credenciais
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Notifications */}
-        <TabsContent value="notifications" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="w-5 h-5 text-primary" />
-                Preferências de Notificação
-              </CardTitle>
-              <CardDescription>
-                Escolha como deseja receber alertas e atualizações
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Notificações por Email</Label>
-                  <p className="text-sm text-muted-foreground">Receba atualizações no seu email</p>
-                </div>
-                <Switch checked={emailNotif} onCheckedChange={setEmailNotif} />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Notificações do Navegador</Label>
-                  <p className="text-sm text-muted-foreground">Alertas em tempo real no navegador</p>
-                </div>
-                <Switch checked={browserNotif} onCheckedChange={setBrowserNotif} />
-              </div>
-
-              <Separator />
-
-              <div className="space-y-4">
-                <Label className="text-base font-medium">Tipos de Alerta</Label>
-                
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Scraping concluído</Label>
-                    <p className="text-sm text-muted-foreground">Quando uma coleta é finalizada</p>
-                  </div>
-                  <Switch checked={scrapingNotif} onCheckedChange={setScrapingNotif} />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Progresso de metas</Label>
-                    <p className="text-sm text-muted-foreground">Atualizações sobre suas metas</p>
-                  </div>
-                  <Switch checked={goalNotif} onCheckedChange={setGoalNotif} />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Produtos em risco</Label>
-                    <p className="text-sm text-muted-foreground">Alertas de produtos sem performance</p>
-                  </div>
-                  <Switch checked={riskNotif} onCheckedChange={setRiskNotif} />
-                </div>
-              </div>
-
-              <Separator />
-
-              <Button onClick={() => handleSave('Notificações')} className="gap-2">
-                <Save className="w-4 h-4" />
-                Salvar Preferências
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Webhooks */}
-        <TabsContent value="webhooks" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Webhook className="w-5 h-5 text-primary" />
-                Integração via Webhook
-              </CardTitle>
-              <CardDescription>
-                Receba eventos em tempo real na sua aplicação
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Ativar Webhooks</Label>
-                  <p className="text-sm text-muted-foreground">Enviar eventos para URL externa</p>
-                </div>
-                <Switch checked={webhookEnabled} onCheckedChange={setWebhookEnabled} />
-              </div>
-
-              {webhookEnabled && (
-                <div className="space-y-4 animate-fade-in">
+              <CardDescription>Gerencie suas contas de afiliado</CardDescription>
+            </div>
+            
+            <Dialog open={openDialog} onOpenChange={setOpenDialog}>
+              <DialogTrigger asChild>
+                <Button className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  Conectar Conta
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Nova Conta - Mercado Livre</DialogTitle>
+                  <DialogDescription>
+                    Digite um nome para identificar esta conta. O navegador abrirá para você fazer login.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 mt-4">
                   <div className="space-y-2">
-                    <Label>URL do Webhook</Label>
+                    <Label>Nome da Conta</Label>
                     <Input
-                      placeholder="https://seu-servidor.com/webhook"
-                      value={webhookUrl}
-                      onChange={(e) => setWebhookUrl(e.target.value)}
+                      placeholder="Ex: Conta Principal"
+                      value={accountName}
+                      onChange={(e) => setAccountName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && createAccount()}
                     />
                   </div>
-
-                  <div className="p-4 bg-muted rounded-lg">
-                    <Label className="text-sm">Eventos enviados:</Label>
-                    <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                      <li className="flex items-center gap-2">
-                        <CheckCircle className="w-3 h-3 text-status-active" />
-                        scraping.completed
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle className="w-3 h-3 text-status-active" />
-                        product.added
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle className="w-3 h-3 text-status-active" />
-                        product.deleted
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle className="w-3 h-3 text-status-active" />
-                        goal.reached
-                      </li>
-                    </ul>
-                  </div>
-
-                  <Button variant="outline" className="gap-2">
-                    <RefreshCw className="w-4 h-4" />
-                    Testar Webhook
+                  <Button onClick={createAccount} disabled={loading} className="w-full">
+                    {loading ? 'Aguarde...' : 'Abrir Navegador'}
                   </Button>
                 </div>
-              )}
-
-              <Separator />
-
-              <Button onClick={() => handleSave('Webhooks')} className="gap-2">
-                <Save className="w-4 h-4" />
-                Salvar Configuração
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Theme */}
-        <TabsContent value="theme" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palette className="w-5 h-5 text-primary" />
-                Aparência
-              </CardTitle>
-              <CardDescription>
-                Personalize a aparência do dashboard
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Modo Escuro</Label>
-                  <p className="text-sm text-muted-foreground">Alterne entre tema claro e escuro</p>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardHeader>
+        
+        <CardContent className="space-y-4">
+          {mlAccounts.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Settings className="w-12 h-12 mx-auto mb-2 opacity-20" />
+              <p>Nenhuma conta conectada</p>
+              <p className="text-sm">Clique em "Conectar Conta" para adicionar</p>
+            </div>
+          ) : (
+            mlAccounts.map((account) => (
+              <div key={account.id} className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-medium">{account.name}</h4>
+                    {account.isActive && <Badge variant="default">ATIVA</Badge>}
+                    {getStatusBadge(account.status)}
+                  </div>
+                  <p className="text-sm text-muted-foreground">{account.email}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Criada: {new Date(account.createdAt).toLocaleDateString('pt-BR')}
+                  </p>
                 </div>
-                <Switch checked={isDark} onCheckedChange={toggleTheme} />
+                
+                <div className="flex gap-2">
+                  {!account.isActive && (
+                    <Button variant="outline" size="sm" onClick={() => setActive(account.id)}>
+                      <Power className="w-4 h-4 mr-1" />
+                      Ativar
+                    </Button>
+                  )}
+                  {account.status === 'expired' && (
+                    <Button variant="outline" size="sm" onClick={() => reauth(account.id)}>
+                      Reautenticar
+                    </Button>
+                  )}
+                  <Button variant="destructive" size="sm" onClick={() => deleteAccount(account.id)}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => { setIsDark(false); document.documentElement.classList.remove('dark'); }}
-                  className={`p-4 rounded-xl border-2 transition-all ${
-                    !isDark ? 'border-primary' : 'border-border hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <div className="h-20 bg-white rounded-lg mb-3 border" />
-                  <p className="font-medium">Claro</p>
-                </button>
-                <button
-                  onClick={() => { setIsDark(true); document.documentElement.classList.add('dark'); }}
-                  className={`p-4 rounded-xl border-2 transition-all ${
-                    isDark ? 'border-primary' : 'border-border hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <div className="h-20 bg-slate-900 rounded-lg mb-3" />
-                  <p className="font-medium">Escuro</p>
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* AMAZON - EM BREVE */}
+      <Card className="opacity-50">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#FF9900]" />
+                Amazon
+              </CardTitle>
+              <CardDescription>Em breve</CardDescription>
+            </div>
+            <Button disabled className="gap-2">
+              <Plus className="w-4 h-4" />
+              Conectar Conta
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* MAGALU - EM BREVE */}
+      <Card className="opacity-50">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#0086FF]" />
+                Magazine Luiza
+              </CardTitle>
+              <CardDescription>Em breve</CardDescription>
+            </div>
+            <Button disabled className="gap-2">
+              <Plus className="w-4 h-4" />
+              Conectar Conta
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* SHOPEE - EM BREVE */}
+      <Card className="opacity-50">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#EE4D2D]" />
+                Shopee
+              </CardTitle>
+              <CardDescription>Em breve</CardDescription>
+            </div>
+            <Button disabled className="gap-2">
+              <Plus className="w-4 h-4" />
+              Conectar Conta
+            </Button>
+          </div>
+        </CardHeader>
+      </Card>
     </div>
   );
 }

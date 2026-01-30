@@ -10,6 +10,15 @@ ml-session.backup.json
 chrome-perfil-ml/
 
 # ═══════════════════════════════════════════════════════════════
+# 🔐 SESSION MANAGER - MÚLTIPLAS CONTAS (NUNCA COMMITAR!)
+# ═══════════════════════════════════════════════════════════════
+
+# Diretório com todas as sessões de marketplaces
+sessions/
+sessions/**/*.json
+!sessions/.gitkeep
+
+# ═══════════════════════════════════════════════════════════════
 # 📱 WHATSAPP BOT - AUTENTICAÇÃO (BAILEYS) - CRÍTICO!
 # ═══════════════════════════════════════════════════════════════
 

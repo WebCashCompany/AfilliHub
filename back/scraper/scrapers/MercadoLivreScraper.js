@@ -1,9 +1,9 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - VERSÃO SIMPLIFICADA
+ * MERCADO LIVRE SCRAPER - VERSÃO COMPLETA COM SESSION MANAGER
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 7.0.3 - CORRIGIDO: Acesso ao clipboard após página carregar
+ * @version 8.0.0 - ATUALIZADO: Integração com gerenciador de múltiplas contas
  */
 
 const { chromium } = require('playwright-extra');
@@ -14,6 +14,7 @@ const path = require('path');
 const { getProductConnection } = require('../../database/mongodb');
 const { getProductModel } = require('../../database/models/Products');
 const { getCategoria } = require('../../config/categorias-ml');
+const MLSessionManager = require('../../services/ml-session-manager'); // ✨ NOVO
 
 class MercadoLivreScraper {
   constructor(minDiscount = 30, options = {}) {
@@ -44,7 +45,34 @@ class MercadoLivreScraper {
       this.categoriaInfo = getCategoria('todas');
     }
     
-    this.sessionPath = path.join(process.cwd(), 'ml-session.json');
+    // ═══════════════════════════════════════════════════════════════════
+    // ✨ INTEGRAÇÃO COM SESSION MANAGER - SUPORTE A MÚLTIPLAS CONTAS
+    // ═══════════════════════════════════════════════════════════════════
+    try {
+      this.sessionManager = new MLSessionManager();
+      const activeSessionPath = this.sessionManager.getActiveSessionPath();
+      
+      if (activeSessionPath) {
+        this.sessionPath = activeSessionPath;
+        console.log('✅ Usando sessão ativa do gerenciador');
+        
+        const activeAccount = this.sessionManager.getActiveAccount();
+        if (activeAccount) {
+          console.log(`   📧 Conta: ${activeAccount.name} (${activeAccount.email})`);
+          console.log(`   📊 Status: ${activeAccount.status}`);
+        }
+      } else {
+        // Fallback para sessão antiga (retrocompatibilidade)
+        this.sessionPath = path.join(process.cwd(), 'ml-session.json');
+        console.log('⚠️  Nenhuma conta ativa, usando sessão padrão');
+        console.log('💡 Configure contas via interface: /configuracoes/conexoes');
+      }
+    } catch (error) {
+      // Se o gerenciador não estiver disponível, usa método antigo
+      this.sessionPath = path.join(process.cwd(), 'ml-session.json');
+      console.log('⚠️  Session Manager não disponível, usando método legado');
+    }
+    // ═══════════════════════════════════════════════════════════════════
     
     this.config = {
       pageTimeout: 10000,
@@ -180,8 +208,8 @@ class MercadoLivreScraper {
         console.log('   ⚠️  Erro ao carregar sessão, usando nova\n');
       }
     } else {
-      console.log('   ⚠️  Arquivo ml-session.json não encontrado\n');
-      console.log('   💡 Execute o scraper manualmente uma vez para fazer login\n');
+      console.log('   ⚠️  Arquivo de sessão não encontrado\n');
+      console.log('   💡 Configure uma conta via interface: /configuracoes/conexoes\n');
     }
 
     this.context = await this.browser.newContext(contextOptions);
