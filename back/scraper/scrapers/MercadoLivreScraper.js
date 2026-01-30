@@ -3,7 +3,7 @@
  * MERCADO LIVRE SCRAPER - VERSÃO SIMPLIFICADA
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 7.0.0 - SIMPLIFICADO: 1 aba, sem fechar, sem reabrir
+ * @version 7.0.3 - CORRIGIDO: Acesso ao clipboard após página carregar
  */
 
 const { chromium } = require('playwright-extra');
@@ -50,11 +50,12 @@ class MercadoLivreScraper {
       pageTimeout: 10000,
       maxPages: 50,
       maxEmptyPages: 2,
-      parallelTabs: 1  // 1 ABA POR VEZ - SEM COMPLICAÇÃO
+      parallelTabs: 1
     };
     
     this.browser = null;
     this.context = null;
+    this.isFirstProduct = true;
   }
 
   clearCache() {
@@ -160,9 +161,6 @@ class MercadoLivreScraper {
       ]
     });
 
-    // ═══════════════════════════════════════════════════════════
-    // CARREGA SESSÃO/COOKIES DO ARQUIVO (CRÍTICO!)
-    // ═══════════════════════════════════════════════════════════
     let contextOptions = {
       viewport: { width: 1280, height: 720 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -187,7 +185,6 @@ class MercadoLivreScraper {
     }
 
     this.context = await this.browser.newContext(contextOptions);
-
     await this.context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
     return { browser: this.browser, context: this.context };
@@ -195,22 +192,36 @@ class MercadoLivreScraper {
 
   /**
    * ═══════════════════════════════════════════════════════════════════
-   * MÉTODO SIMPLIFICADO - SEM COMPLICAÇÃO
-   * 1 aba, carrega produto, pega link, PRÓXIMO
+   * MÉTODO CORRIGIDO - CLIPBOARD APÓS PÁGINA CARREGAR
    * ═══════════════════════════════════════════════════════════════════
    */
   async getAffiliateLink(productUrl) {
-    // CRIA UMA NOVA ABA LIMPA
     const page = await this.context.newPage();
     
     try {
-      // CARREGA O PRODUTO
+      // CARREGA O PRODUTO PRIMEIRO
       await page.goto(productUrl, { 
         waitUntil: 'domcontentloaded',
         timeout: this.config.pageTimeout
       });
 
-      await page.waitForTimeout(1500);
+      // AGUARDA MAIS NO PRIMEIRO PRODUTO
+      if (this.isFirstProduct) {
+        await page.waitForTimeout(2500);
+        this.isFirstProduct = false;
+      } else {
+        await page.waitForTimeout(1500);
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // AGORA SIM LIMPA O CLIPBOARD (APÓS PÁGINA CARREGAR)
+      // ═══════════════════════════════════════════════════════════
+      try {
+        await page.evaluate(() => navigator.clipboard.writeText(''));
+        await page.waitForTimeout(300);
+      } catch (e) {
+        // Se clipboard não disponível, continua mesmo assim
+      }
 
       // CLICA NO BOTÃO COMPARTILHAR
       const clicked = await page.evaluate(() => {
@@ -228,18 +239,23 @@ class MercadoLivreScraper {
       });
 
       if (!clicked) {
-        console.log(`      ⚠️  Botão não encontrado`);
+        console.log(`      ⚠️  Botão compartilhar não encontrado`);
         await page.close();
         return null;
       }
 
-      // AGUARDA O MODAL ABRIR!!! (mais tempo)
+      // AGUARDA O MODAL ABRIR
       await page.waitForTimeout(2000);
 
-      // LIMPA CLIPBOARD
-      await page.evaluate(() => navigator.clipboard.writeText(''));
+      // LIMPA CLIPBOARD NOVAMENTE ANTES DE COPIAR
+      try {
+        await page.evaluate(() => navigator.clipboard.writeText(''));
+        await page.waitForTimeout(200);
+      } catch (e) {
+        // Ignora erro
+      }
 
-      // 4 TABS (NÃO 5!)
+      // 4 TABS
       for (let i = 0; i < 4; i++) {
         await page.keyboard.press('Tab');
         await page.waitForTimeout(150);
@@ -247,21 +263,49 @@ class MercadoLivreScraper {
 
       // ENTER PARA COPIAR
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(1000);
+      
+      // AGUARDA A CÓPIA ACONTECER
+      await page.waitForTimeout(1500);
 
-      const link = await page.evaluate(() => navigator.clipboard.readText());
+      // PEGA O LINK COPIADO
+      let copiedLink = '';
+      try {
+        copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+      } catch (e) {
+        console.log(`      ❌ Erro ao ler clipboard: ${e.message}`);
+      }
 
+      // FECHA O MODAL
       await page.keyboard.press('Escape');
-
+      await page.waitForTimeout(300);
+      
       // FECHA A ABA
       await page.close();
 
-      if (link && link.includes('mercadolivre.com/sec/')) {
-        console.log(`      ✅ Afiliado`);
-        return link.trim();
+      // ═══════════════════════════════════════════════════════════
+      // VALIDAÇÃO DO LINK
+      // ═══════════════════════════════════════════════════════════
+      if (!copiedLink || copiedLink.trim() === '') {
+        console.log(`      ⚠️  Clipboard vazio`);
+        return null;
       }
 
-      console.log(`      ⚠️  Original`);
+      const cleanLink = copiedLink.trim();
+
+      // Link de afiliado (ideal)
+      if (cleanLink.includes('/sec/') || cleanLink.includes('mercadolivre.com/sec/')) {
+        console.log(`      ✅ Afiliado`);
+        return cleanLink;
+      }
+
+      // Link normal do ML (ainda é válido!)
+      if (cleanLink.includes('mercadolivre.com.br') || cleanLink.includes('mercadolibre.com')) {
+        console.log(`      ✅ Link ML válido`);
+        return cleanLink;
+      }
+
+      // Não é link do ML
+      console.log(`      ⚠️  Link inválido: ${cleanLink.substring(0, 50)}...`);
       return null;
 
     } catch (error) {
@@ -290,7 +334,7 @@ class MercadoLivreScraper {
 
       if (dupCheck.isDuplicate) {
         this.stats.duplicatesIgnored++;
-        console.log(`   ⏭️  IGNORADO (${dupCheck.reason})`);
+        console.log(`      ⏭️  IGNORADO (${dupCheck.reason})`);
         continue;
       }
 
