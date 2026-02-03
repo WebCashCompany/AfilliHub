@@ -199,5 +199,5 @@ pnpm-lock.yaml
 *.zip
 *.tar
 *.gz
-*.rar
+*.rar   ''  
 *.7z
