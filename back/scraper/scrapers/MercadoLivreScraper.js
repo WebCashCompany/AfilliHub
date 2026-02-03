@@ -1,9 +1,15 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - VERSÃO COMPLETA COM SESSION MANAGER
+ * MERCADO LIVRE SCRAPER - VERSÃO COM SUPORTE INTELIGENTE A CUPONS
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 8.0.0 - ATUALIZADO: Integração com gerenciador de múltiplas contas
+ * @version 9.0.0 - NOVO: Detecção e aplicação automática de cupons
+ * 
+ * FUNCIONALIDADES DE CUPOM:
+ * - Detecta cupons no anúncio
+ * - Valida valor mínimo de compra
+ * - Aplica desconto automaticamente no preço final
+ * - Calcula desconto real (desconto padrão + cupom)
  */
 
 const { chromium } = require('playwright-extra');
@@ -14,7 +20,7 @@ const path = require('path');
 const { getProductConnection } = require('../../database/mongodb');
 const { getProductModel } = require('../../database/models/Products');
 const { getCategoria } = require('../../config/categorias-ml');
-const MLSessionManager = require('../../services/ml-session-manager'); // ✨ NOVO
+const MLSessionManager = require('../../services/ml-session-manager');
 
 class MercadoLivreScraper {
   constructor(minDiscount = 30, options = {}) {
@@ -33,7 +39,9 @@ class MercadoLivreScraper {
       filteredByPrice: 0,
       affiliateLinksSuccess: 0,
       affiliateLinksFailed: 0,
-      timeouts: 0
+      timeouts: 0,
+      couponsApplied: 0,        // ✨ NOVO
+      couponsIgnored: 0         // ✨ NOVO
     };
     
     this.seenLinks = new Set();
@@ -45,9 +53,6 @@ class MercadoLivreScraper {
       this.categoriaInfo = getCategoria('todas');
     }
     
-    // ═══════════════════════════════════════════════════════════════════
-    // ✨ INTEGRAÇÃO COM SESSION MANAGER - SUPORTE A MÚLTIPLAS CONTAS
-    // ═══════════════════════════════════════════════════════════════════
     try {
       this.sessionManager = new MLSessionManager();
       const activeSessionPath = this.sessionManager.getActiveSessionPath();
@@ -62,17 +67,14 @@ class MercadoLivreScraper {
           console.log(`   📊 Status: ${activeAccount.status}`);
         }
       } else {
-        // Fallback para sessão antiga (retrocompatibilidade)
         this.sessionPath = path.join(process.cwd(), 'ml-session.json');
         console.log('⚠️  Nenhuma conta ativa, usando sessão padrão');
         console.log('💡 Configure contas via interface: /configuracoes/conexoes');
       }
     } catch (error) {
-      // Se o gerenciador não estiver disponível, usa método antigo
       this.sessionPath = path.join(process.cwd(), 'ml-session.json');
       console.log('⚠️  Session Manager não disponível, usando método legado');
     }
-    // ═══════════════════════════════════════════════════════════════════
     
     this.config = {
       pageTimeout: 10000,
@@ -174,6 +176,77 @@ class MercadoLivreScraper {
     return { isDuplicate: false };
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🎟️ SISTEMA INTELIGENTE DE CUPONS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Valida se o cupom pode ser aplicado ao produto
+   * @param {Object} coupon - Informações do cupom
+   * @param {number} productPrice - Preço atual do produto
+   * @returns {boolean} True se o cupom pode ser aplicado
+   */
+  canApplyCoupon(coupon, productPrice) {
+    if (!coupon) return false;
+    
+    // Verifica valor mínimo
+    if (coupon.minValue > 0 && productPrice < coupon.minValue) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  /**
+   * Calcula o preço final após aplicar o cupom
+   * @param {number} currentPrice - Preço atual
+   * @param {Object} coupon - Informações do cupom
+   * @returns {Object} Preço final e desconto adicional
+   */
+  applyCoupon(currentPrice, coupon) {
+    if (!coupon) {
+      return { 
+        finalPrice: currentPrice, 
+        additionalDiscount: 0,
+        couponApplied: false
+      };
+    }
+
+    let finalPrice = currentPrice;
+    let additionalDiscount = 0;
+
+    if (coupon.type === 'percent') {
+      // Cupom percentual (ex: 5% OFF)
+      additionalDiscount = Math.round(currentPrice * (coupon.discount / 100));
+      finalPrice = currentPrice - additionalDiscount;
+    } else if (coupon.type === 'value') {
+      // Cupom de valor fixo (ex: R$ 20 OFF)
+      additionalDiscount = coupon.discount;
+      finalPrice = currentPrice - coupon.discount;
+    }
+
+    // Garante que o preço não fique negativo
+    finalPrice = Math.max(0, finalPrice);
+
+    return {
+      finalPrice,
+      additionalDiscount,
+      couponApplied: true,
+      couponText: coupon.text
+    };
+  }
+
+  /**
+   * Calcula o desconto total real (desconto padrão + cupom)
+   * @param {number} oldPrice - Preço original
+   * @param {number} finalPrice - Preço final após cupom
+   * @returns {number} Desconto total em porcentagem
+   */
+  calculateTotalDiscount(oldPrice, finalPrice) {
+    if (oldPrice === 0) return 0;
+    return Math.round(((oldPrice - finalPrice) / oldPrice) * 100);
+  }
+
   async createBrowserContext() {
     if (this.browser) {
       try { await this.browser.close(); } catch (e) {}
@@ -218,22 +291,15 @@ class MercadoLivreScraper {
     return { browser: this.browser, context: this.context };
   }
 
-  /**
-   * ═══════════════════════════════════════════════════════════════════
-   * MÉTODO CORRIGIDO - CLIPBOARD APÓS PÁGINA CARREGAR
-   * ═══════════════════════════════════════════════════════════════════
-   */
   async getAffiliateLink(productUrl) {
     const page = await this.context.newPage();
     
     try {
-      // CARREGA O PRODUTO PRIMEIRO
       await page.goto(productUrl, { 
         waitUntil: 'domcontentloaded',
         timeout: this.config.pageTimeout
       });
 
-      // AGUARDA MAIS NO PRIMEIRO PRODUTO
       if (this.isFirstProduct) {
         await page.waitForTimeout(2500);
         this.isFirstProduct = false;
@@ -241,17 +307,11 @@ class MercadoLivreScraper {
         await page.waitForTimeout(1500);
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // AGORA SIM LIMPA O CLIPBOARD (APÓS PÁGINA CARREGAR)
-      // ═══════════════════════════════════════════════════════════
       try {
         await page.evaluate(() => navigator.clipboard.writeText(''));
         await page.waitForTimeout(300);
-      } catch (e) {
-        // Se clipboard não disponível, continua mesmo assim
-      }
+      } catch (e) {}
 
-      // CLICA NO BOTÃO COMPARTILHAR
       const clicked = await page.evaluate(() => {
         const buttons = Array.from(document.querySelectorAll('button, a'));
         const shareBtn = buttons.find(btn => {
@@ -272,30 +332,21 @@ class MercadoLivreScraper {
         return null;
       }
 
-      // AGUARDA O MODAL ABRIR
       await page.waitForTimeout(2000);
 
-      // LIMPA CLIPBOARD NOVAMENTE ANTES DE COPIAR
       try {
         await page.evaluate(() => navigator.clipboard.writeText(''));
         await page.waitForTimeout(200);
-      } catch (e) {
-        // Ignora erro
-      }
+      } catch (e) {}
 
-      // 4 TABS
       for (let i = 0; i < 4; i++) {
         await page.keyboard.press('Tab');
         await page.waitForTimeout(150);
       }
 
-      // ENTER PARA COPIAR
       await page.keyboard.press('Enter');
-      
-      // AGUARDA A CÓPIA ACONTECER
       await page.waitForTimeout(1500);
 
-      // PEGA O LINK COPIADO
       let copiedLink = '';
       try {
         copiedLink = await page.evaluate(() => navigator.clipboard.readText());
@@ -303,16 +354,10 @@ class MercadoLivreScraper {
         console.log(`      ❌ Erro ao ler clipboard: ${e.message}`);
       }
 
-      // FECHA O MODAL
       await page.keyboard.press('Escape');
       await page.waitForTimeout(300);
-      
-      // FECHA A ABA
       await page.close();
 
-      // ═══════════════════════════════════════════════════════════
-      // VALIDAÇÃO DO LINK
-      // ═══════════════════════════════════════════════════════════
       if (!copiedLink || copiedLink.trim() === '') {
         console.log(`      ⚠️  Clipboard vazio`);
         return null;
@@ -320,19 +365,16 @@ class MercadoLivreScraper {
 
       const cleanLink = copiedLink.trim();
 
-      // Link de afiliado (ideal)
       if (cleanLink.includes('/sec/') || cleanLink.includes('mercadolivre.com/sec/')) {
         console.log(`      ✅ Afiliado`);
         return cleanLink;
       }
 
-      // Link normal do ML (ainda é válido!)
       if (cleanLink.includes('mercadolivre.com.br') || cleanLink.includes('mercadolibre.com')) {
         console.log(`      ✅ Link ML válido`);
         return cleanLink;
       }
 
-      // Não é link do ML
       console.log(`      ⚠️  Link inválido: ${cleanLink.substring(0, 50)}...`);
       return null;
 
@@ -351,13 +393,48 @@ class MercadoLivreScraper {
 
       console.log(`   🔄 [${allProducts.length + 1}/${this.limit}] ${prodData.name.substring(0, 40)}...`);
 
+      // ═══════════════════════════════════════════════════════════
+      // 🎟️ VALIDAÇÃO E APLICAÇÃO DE CUPOM
+      // ═══════════════════════════════════════════════════════════
+      let finalPrice = prodData.currentPrice;
+      let couponApplied = false;
+      let couponText = '';
+      let realDiscount = prodData.discount;
+
+      if (prodData.coupon) {
+        const canApply = this.canApplyCoupon(prodData.coupon, prodData.currentPrice);
+        
+        if (canApply) {
+          const couponResult = this.applyCoupon(prodData.currentPrice, prodData.coupon);
+          
+          if (couponResult.couponApplied) {
+            finalPrice = couponResult.finalPrice;
+            couponApplied = true;
+            couponText = couponResult.couponText;
+            
+            // Recalcula o desconto total real
+            realDiscount = this.calculateTotalDiscount(prodData.oldPrice, finalPrice);
+            
+            this.stats.couponsApplied++;
+            
+            console.log(`      🎟️  Cupom aplicado: ${couponText}`);
+            console.log(`      💰 Preço original: R$ ${prodData.currentPrice}`);
+            console.log(`      ✨ Preço final: R$ ${finalPrice}`);
+            console.log(`      📊 Desconto total: ${realDiscount}%`);
+          }
+        } else {
+          this.stats.couponsIgnored++;
+          console.log(`      ⏭️  Cupom não aplicável (valor mínimo: R$ ${prodData.coupon.minValue})`);
+        }
+      }
+
       const productKey = this.generateProductKey(prodData.name);
 
       const dupCheck = this.checkDuplicate({
         nome: prodData.name,
         link_original: prodData.link,
-        desconto: prodData.discount,
-        preco_para: prodData.currentPrice
+        desconto: realDiscount,
+        preco_para: finalPrice
       }, allProducts);
 
       if (dupCheck.isDuplicate) {
@@ -368,7 +445,6 @@ class MercadoLivreScraper {
 
       this.seenLinks.add(prodData.link);
 
-      // PEGA O LINK DE AFILIADO
       const affiliateLink = await this.getAffiliateLink(prodData.link);
       const finalLink = affiliateLink || prodData.link;
       const isAffiliate = finalLink.includes('/sec/');
@@ -378,15 +454,23 @@ class MercadoLivreScraper {
         imagem: prodData.image,
         link_original: prodData.link,
         link_afiliado: finalLink,
-        desconto: `${prodData.discount}%`,
-        preco: `R$ ${prodData.currentPrice}`,
+        desconto: `${realDiscount}%`,
+        preco: `R$ ${finalPrice}`,
         preco_anterior: `R$ ${prodData.oldPrice}`,
         preco_de: String(prodData.oldPrice),
-        preco_para: String(prodData.currentPrice),
+        preco_para: String(finalPrice),
         categoria: this.categoriaInfo.nome,
         marketplace: 'ML',
         isActive: true
       };
+
+      // Adiciona informações do cupom se aplicado
+      if (couponApplied) {
+        product.cupom_aplicado = true;
+        product.cupom_texto = couponText;
+        product.preco_sem_cupom = String(prodData.currentPrice);
+        product.desconto_cupom = String(prodData.currentPrice - finalPrice);
+      }
 
       if (dupCheck.isBetterOffer) {
         product._shouldUpdate = true;
@@ -404,7 +488,6 @@ class MercadoLivreScraper {
         this.stats.affiliateLinksFailed++;
       }
 
-      // DELAY ENTRE PRODUTOS
       await new Promise(r => setTimeout(r, 500));
     }
   }
@@ -424,7 +507,7 @@ class MercadoLivreScraper {
       console.log(`╔════════════════════════════════════════════════════╗`);
       console.log(`║  ${this.categoriaInfo.emoji}  ${this.categoriaInfo.nome.padEnd(47)} ║`);
       console.log(`║  🎯 META: ${this.limit} produtos (${this.minDiscount}%+)${' '.repeat(26)} ║`);
-      console.log(`║  🔧 MODO: Simplificado (1 aba)${' '.repeat(20)} ║`);
+      console.log(`║  🔧 MODO: Com detecção inteligente de cupons${' '.repeat(6)} ║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
       while (allProducts.length < this.limit && pageNum <= this.config.maxPages) {
@@ -444,6 +527,9 @@ class MercadoLivreScraper {
 
           await mainPage.waitForTimeout(800);
 
+          // ═══════════════════════════════════════════════════════════
+          // 🎟️ SCRAPING COM DETECÇÃO DE CUPONS
+          // ═══════════════════════════════════════════════════════════
           const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
             const cards = document.querySelectorAll('.poly-card, .ui-search-result');
             const products = [];
@@ -477,13 +563,85 @@ class MercadoLivreScraper {
                 }
                 
                 if (oldPrice < currentPrice) [oldPrice, currentPrice] = [currentPrice, oldPrice];
+                
+                // ═══════════════════════════════════════════════════════════
+                // 🎟️ DETECÇÃO AVANÇADA DE CUPONS
+                // ═══════════════════════════════════════════════════════════
+                let couponInfo = null;
+                
+                // Seletores variados para encontrar cupons
+                const couponSelectors = [
+                  '[class*="coupon"]',
+                  '[class*="cupom"]',
+                  '[data-testid*="coupon"]',
+                  '.ui-search-item__group__element--coupon',
+                  '.promotion-item__discount-text',
+                  '.poly-component__price-coupon',
+                  '.andes-tag',
+                  '[class*="discount-tag"]',
+                  '[class*="promo"]'
+                ];
+                
+                let couponElement = null;
+                for (const selector of couponSelectors) {
+                  couponElement = card.querySelector(selector);
+                  if (couponElement) break;
+                }
+                
+                if (couponElement) {
+                  const couponText = couponElement.innerText || couponElement.textContent || '';
+                  
+                  // Extrai desconto do cupom
+                  // Padrões: "5% OFF", "Aplicar 5% OFF", "R$ 20 OFF", etc
+                  const percentMatch = couponText.match(/(\d+)%\s*OFF/i);
+                  const valueMatch = couponText.match(/R\$\s*(\d+(?:\.\d{3})*(?:,\d{2})?)/i);
+                  
+                  // Extrai valor mínimo
+                  // Padrões: "Compra mínima R$ 120", "mínima R$120", "min. 120"
+                  const minValuePatterns = [
+                    /m[ií]nim[ao]\s*R?\$?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)/i,
+                    /compra\s+de\s+R?\$?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)/i,
+                    /acima\s+de\s+R?\$?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)/i
+                  ];
+                  
+                  let minValue = 0;
+                  for (const pattern of minValuePatterns) {
+                    const match = couponText.match(pattern);
+                    if (match) {
+                      minValue = parseInt(match[1].replace(/\./g, '').replace(',', '.'));
+                      break;
+                    }
+                  }
+                  
+                  if (percentMatch || valueMatch) {
+                    couponInfo = {
+                      type: percentMatch ? 'percent' : 'value',
+                      discount: percentMatch 
+                        ? parseInt(percentMatch[1]) 
+                        : parseInt(valueMatch[1].replace(/\./g, '').replace(',', '.')),
+                      minValue: minValue,
+                      text: couponText.trim()
+                    };
+                  }
+                }
+                
                 if (maxPrice && currentPrice > parseInt(maxPrice)) {
                   filtered++;
                   return;
                 }
                 
-                products.push({ link, name, image, discount, currentPrice, oldPrice });
-              } catch (e) {}
+                products.push({ 
+                  link, 
+                  name, 
+                  image, 
+                  discount, 
+                  currentPrice, 
+                  oldPrice,
+                  coupon: couponInfo 
+                });
+              } catch (e) {
+                console.error('Erro ao processar card:', e);
+              }
             });
             
             return { products, filtered };
@@ -537,7 +695,9 @@ class MercadoLivreScraper {
       console.log(`╚════════════════════════════════════════════════════╝`);
       console.log(`✨ Coletados: ${allProducts.length}/${this.limit}`);
       console.log(`🔗 Afiliado: ${this.stats.affiliateLinksSuccess} | Original: ${this.stats.affiliateLinksFailed}`);
-      console.log(`⏭️  Ignorados: ${this.stats.duplicatesIgnored}`);
+      console.log(`🎟️  Cupons aplicados: ${this.stats.couponsApplied}`);
+      console.log(`⏭️  Cupons ignorados: ${this.stats.couponsIgnored}`);
+      console.log(`⏭️  Duplicados: ${this.stats.duplicatesIgnored}`);
       console.log(`📄 Páginas: ${this.stats.pagesScraped}`);
       console.log(`⏱️  Tempo: ${duration}s\n`);
 
