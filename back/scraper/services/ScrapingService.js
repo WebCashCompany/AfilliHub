@@ -33,7 +33,6 @@ class ScrapingService {
   }
 
   initializeMarketplaces() {
-    // MERCADO LIVRE
     try {
       const mlConfig = {
         name: 'Mercado Livre',
@@ -50,7 +49,6 @@ class ScrapingService {
       console.error('⚠️  Mercado Livre não disponível:', error.message);
     }
 
-    // MAGAZINE LUIZA
     if (MagaluScraper) {
       try {
         const magaluConfig = {
@@ -68,7 +66,6 @@ class ScrapingService {
       }
     }
 
-    // SHOPEE
     if (ShopeeScraper) {
       try {
         const shopeeConfig = {
@@ -156,9 +153,6 @@ class ScrapingService {
     
     console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
-    // ═══════════════════════════════════════════════════════════════════
-    // VALIDAÇÃO DE LINKS - NÃO SOBRESCREVE LINKS JÁ DEFINIDOS
-    // ═══════════════════════════════════════════════════════════════════
     if (products.length > 0) {
       console.log(`🔗 Processando ${products.length} links de afiliado...\n`);
       
@@ -167,12 +161,7 @@ class ScrapingService {
       for (let i = 0; i < products.length; i++) {
         const product = products[i];
         
-        // ═══════════════════════════════════════════════════════════
-        // MERCADO LIVRE: Link JÁ VEM PRONTO do scraper
-        // NÃO MODIFICAR EM HIPÓTESE ALGUMA!
-        // ═══════════════════════════════════════════════════════════
         if (marketplace.code === 'ML') {
-          // Valida se o link de afiliado existe e está correto
           if (!product.link_afiliado || !product.link_afiliado.includes('mercadolivre.com/sec/')) {
             console.log(`   ⚠️  Produto sem link de afiliado válido: ${product.nome.substring(0, 40)}...`);
             console.log(`       Link atual: ${product.link_afiliado || 'VAZIO'}`);
@@ -189,9 +178,6 @@ class ScrapingService {
             console.log(`   ... (${products.length - 4} produtos omitidos)`);
           }
         } 
-        // ═══════════════════════════════════════════════════════════
-        // OUTROS MARKETPLACES: Adiciona parâmetros de afiliado
-        // ═══════════════════════════════════════════════════════════
         else if (marketplace.code === 'MAGALU') {
           const separator = product.link_original.includes('?') ? '&' : '?';
           product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
@@ -236,7 +222,6 @@ class ScrapingService {
 
     for (const product of products) {
       try {
-        // Validação básica
         if (!product.link_afiliado || product.link_afiliado.length < 20) {
           console.log(`   ⚠️  Produto sem link válido: ${product.nome.substring(0, 40)}...`);
           stats.errors++;
@@ -245,7 +230,6 @@ class ScrapingService {
 
         const normalizedName = this.normalizeProductName(product.nome);
         
-        // ATUALIZAÇÃO DE OFERTA MELHOR
         if (product._shouldUpdate) {
           const query = { link_afiliado: product._oldLink || product.link_afiliado };
           const existing = await Product.findOne(query);
@@ -282,7 +266,6 @@ class ScrapingService {
             console.log(`   ✨ NOVO: ${product.nome.substring(0, 40)}...`);
           }
         } 
-        // PRODUTO NORMAL
         else {
           const query = { link_afiliado: product.link_afiliado };
           const existing = await Product.findOne(query);

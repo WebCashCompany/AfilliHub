@@ -3,28 +3,18 @@
  * MERCADO LIVRE WORKER - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * Worker profissional para coleta de ofertas do Mercado Livre
- * Sistema de retry automático e distribuição inteligente de produtos
- * 
- * @version 2.1.0 - CORRIGIDO: Cache persiste entre tentativas
- * @author Dashboard Promoforia
- * @license Proprietary
+ * @version 2.2.0 - ✅ CORRIGIDO: Aceita valor direto como filtro de preço
  * 
  * MODOS DE USO:
  * 1. Interativo: node workers/mlWorker.js
- * 2. Via argumentos: node workers/mlWorker.js --categorias=informatica,games --preco=100
+ * 2. Via argumentos: node workers/mlWorker.js --categorias=informatica --preco=50
  */
 
 require('dotenv').config();
 
-const { connectDB, getProductConnection } = require('../database/mongodb');
-const { getProductModel } = require('../database/models/Products');
+const { connectDB } = require('../database/mongodb');
 const ScrapingService = require('../scraper/services/ScrapingService');
 const readline = require('readline');
-
-// ═══════════════════════════════════════════════════════════════════════
-// CONFIGURAÇÕES
-// ═══════════════════════════════════════════════════════════════════════
 
 const CONFIG = {
   MIN_DISCOUNT: Number(process.env.MIN_DISCOUNT || 30),
@@ -34,7 +24,6 @@ const CONFIG = {
   MIN_PRODUCTS_TO_CONTINUE: 1
 };
 
-// Mapeamento de categorias
 const CATEGORIES = {
   '1': { key: 'celulares', name: 'Celulares', emoji: '📱' },
   '2': { key: 'beleza', name: 'Beleza', emoji: '💄' },
@@ -58,20 +47,9 @@ const PRICE_FILTERS = {
   '0': { value: null, label: 'Sem limite' }
 };
 
-// ═══════════════════════════════════════════════════════════════════════
-// INTERFACE
-// ═══════════════════════════════════════════════════════════════════════
-
-const rl = readline.createInterface({ 
-  input: process.stdin, 
-  output: process.stdout 
-});
-
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (query) => new Promise((resolve) => rl.question(query, resolve));
 
-/**
- * Parser de argumentos da linha de comando
- */
 function parseArguments(args) {
   const result = { categorias: null, maxPrice: null };
   
@@ -91,9 +69,6 @@ function parseArguments(args) {
   return result;
 }
 
-/**
- * Interface interativa de seleção
- */
 async function selecionarInterativo() {
   console.log('\n╔════════════════════════════════════════════════════╗');
   console.log('║         🚀 WORKER MERCADO LIVRE 🚀                 ║');
@@ -111,10 +86,7 @@ async function selecionarInterativo() {
   if (inputCat.toUpperCase() === 'A' || !inputCat.trim()) {
     selectedCats = Object.values(CATEGORIES).map(c => c.key);
   } else {
-    selectedCats = inputCat
-      .split(',')
-      .map(i => CATEGORIES[i.trim()]?.key)
-      .filter(Boolean);
+    selectedCats = inputCat.split(',').map(i => CATEGORIES[i.trim()]?.key).filter(Boolean);
   }
   
   if (selectedCats.length === 0) {
@@ -126,17 +98,21 @@ async function selecionarInterativo() {
   Object.entries(PRICE_FILTERS).forEach(([num, filter]) => {
     console.log(`  ${num}. ${filter.label}`);
   });
-  console.log('');
+  console.log('  OU digite um valor direto (ex: 75 para limitar a R$ 75)\n');
   
-  const priceChoice = await question('Escolha: ');
-  const maxPrice = PRICE_FILTERS[priceChoice]?.value || null;
+  const priceChoice = await question('Escolha (0-3) ou digite o valor: ');
+  
+  // ✅ CORREÇÃO: Aceita tanto opção pré-definida quanto valor direto
+  let maxPrice = null;
+  if (PRICE_FILTERS[priceChoice]) {
+    maxPrice = PRICE_FILTERS[priceChoice].value;
+  } else if (!isNaN(priceChoice) && parseInt(priceChoice) > 0) {
+    maxPrice = priceChoice.trim();
+  }
   
   return { categorias: selectedCats, maxPrice };
 }
 
-/**
- * Exibe configuração do scraping
- */
 function displayConfiguration(selectedCats, maxPrice) {
   console.log('\n╔════════════════════════════════════════════════════╗');
   console.log('║              ⚙️  CONFIGURAÇÕES                      ║');
@@ -146,6 +122,8 @@ function displayConfiguration(selectedCats, maxPrice) {
   console.log(`  📁 Categorias: ${selectedCats.length}`);
   if (maxPrice) {
     console.log(`  💰 Preço máximo: R$ ${maxPrice}`);
+  } else {
+    console.log(`  💰 Preço máximo: Sem limite`);
   }
   console.log(`  🔄 Tentativas por categoria: ${CONFIG.MAX_ATTEMPTS}`);
   
@@ -155,88 +133,59 @@ function displayConfiguration(selectedCats, maxPrice) {
   return limitPerCat;
 }
 
-/**
- * Processa uma categoria individual
- */
 async function processCategory(scrapingService, categoria, limitPerCat, maxPrice, categoryIndex, totalCategories) {
   console.log(`\n${'═'.repeat(70)}`);
   console.log(`📁 CATEGORIA ${categoryIndex}/${totalCategories}: ${categoria.toUpperCase()}`);
   console.log(`🎯 Meta: ${limitPerCat} produtos`);
+  if (maxPrice) console.log(`💰 Preço máximo: R$ ${maxPrice}`);
   console.log(`${'═'.repeat(70)}\n`);
   
-  let savedInCategory = 0;
-  let collectedInCategory = 0;
-  let attempt = 0;
-  let consecutiveZeros = 0;
+  let savedInCategory = 0, collectedInCategory = 0, attempt = 0, consecutiveZeros = 0;
   
   while (savedInCategory < limitPerCat && attempt < CONFIG.MAX_ATTEMPTS) {
     attempt++;
-    
     console.log(`🔄 TENTATIVA ${attempt}/${CONFIG.MAX_ATTEMPTS} | Salvos: ${savedInCategory}/${limitPerCat}\n`);
     
-    const remaining = limitPerCat - savedInCategory;
-    
     try {
-      // Coleta produtos
       const products = await scrapingService.collectFromMarketplace('ML', {
         minDiscount: CONFIG.MIN_DISCOUNT,
-        limit: remaining,
+        limit: limitPerCat - savedInCategory,
         categoria: categoria,
         maxPrice: maxPrice
       });
       
       if (!products || products.length === 0) {
         consecutiveZeros++;
-        console.log(`⚠️  Nenhum produto coletado. (${consecutiveZeros}ª vez sem resultados)\n`);
-        
+        console.log(`⚠️  Nenhum produto coletado. (${consecutiveZeros}ª vez)\n`);
         if (consecutiveZeros >= 2) {
-          console.log(`⏭️  Encerrando categoria após ${consecutiveZeros} tentativas sem resultados.\n`);
+          console.log(`⏭️  Encerrando categoria.\n`);
           break;
         }
-        
         continue;
       }
       
       consecutiveZeros = 0;
       collectedInCategory += products.length;
+      console.log(`📦 ${products.length} produtos coletados, salvando...\n`);
       
-      console.log(`📦 ${products.length} produtos coletados, salvando no banco...\n`);
-      
-      // Salva produtos
       const result = await scrapingService.saveProducts(products, 'ML');
-      const savedThisRound = result.inserted + result.betterOffers;
+      savedInCategory += result.inserted + result.betterOffers;
       
-      savedInCategory += savedThisRound;
+      console.log(`\n📊 Resultado: Novos: ${result.inserted} | Melhores: ${result.betterOffers}`);
+      console.log(`📈 Progresso: ${savedInCategory}/${limitPerCat} (${Math.round((savedInCategory/limitPerCat)*100)}%)\n`);
       
-      console.log(`\n📊 Resultado:`);
-      console.log(`   ├─ Novos: ${result.inserted}`);
-      console.log(`   ├─ Ofertas melhores: ${result.betterOffers}`);
-      console.log(`   ├─ Duplicados: ${result.duplicates}`);
-      console.log(`   └─ Erros: ${result.errors}`);
-      console.log(`\n📈 Progresso: ${savedInCategory}/${limitPerCat} (${Math.round((savedInCategory/limitPerCat)*100)}%)\n`);
-      
-      // Verifica se deve continuar
       if (savedInCategory >= limitPerCat) {
-        console.log(`✅ Meta da categoria atingida!\n`);
+        console.log(`✅ Meta atingida!\n`);
         break;
       }
       
-      if (savedThisRound < CONFIG.MIN_PRODUCTS_TO_CONTINUE) {
-        console.log(`⚠️  Poucos produtos novos (${savedThisRound}). Continuando busca...\n`);
-      }
-      
-      // Aguarda antes da próxima tentativa
       if (savedInCategory < limitPerCat && attempt < CONFIG.MAX_ATTEMPTS) {
-        const delay = CONFIG.RETRY_DELAY / 1000;
-        console.log(`⏳ Aguardando ${delay} segundos antes da próxima tentativa...\n`);
+        console.log(`⏳ Aguardando ${CONFIG.RETRY_DELAY/1000}s...\n`);
         await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
       }
       
     } catch (error) {
-      console.error(`\n❌ Erro na categoria ${categoria}:`);
-      console.error(`   ${error.message}`);
-      console.error(`\n⏭️  Pulando para próxima tentativa...\n`);
-      
+      console.error(`\n❌ Erro: ${error.message}\n`);
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
@@ -250,133 +199,80 @@ async function processCategory(scrapingService, categoria, limitPerCat, maxPrice
   };
 }
 
-/**
- * Exibe relatório final
- */
 function displayFinalReport(resultados, totalSaved, totalCollected, selectedCats, startTime) {
   const duration = ((Date.now() - startTime) / 1000).toFixed(2);
   
   console.log(`\n${'═'.repeat(70)}`);
   console.log(`🏁 PROCESSO FINALIZADO`);
   console.log(`${'═'.repeat(70)}`);
-  console.log(`✨ Total de produtos NOVOS salvos: ${totalSaved}/${CONFIG.TARGET_PRODUCTS}`);
+  console.log(`✨ Produtos salvos: ${totalSaved}/${CONFIG.TARGET_PRODUCTS}`);
   console.log(`📦 Total coletados: ${totalCollected}`);
-  console.log(`📁 Categorias processadas: ${selectedCats.length}`);
-  console.log(`⏱️  Tempo total: ${duration}s`);
-  console.log(`⚡ Taxa de sucesso: ${Math.round((totalSaved/CONFIG.TARGET_PRODUCTS)*100)}%`);
+  console.log(`⏱️  Tempo: ${duration}s`);
+  console.log(`⚡ Taxa: ${Math.round((totalSaved/CONFIG.TARGET_PRODUCTS)*100)}%`);
   
   console.log(`\n📊 RESULTADOS POR CATEGORIA:\n`);
-  
   for (const [categoria, res] of Object.entries(resultados)) {
     const status = res.salvos >= res.meta ? '✅' : res.salvos > 0 ? '⚠️' : '❌';
     const catInfo = Object.values(CATEGORIES).find(c => c.key === categoria);
-    const emoji = catInfo?.emoji || '📦';
-    
-    console.log(`   ${status} ${emoji} ${categoria.padEnd(22)} ${res.salvos}/${res.meta} (${res.percentual}%) - ${res.tentativas}x`);
+    console.log(`   ${status} ${catInfo?.emoji || '📦'} ${categoria.padEnd(22)} ${res.salvos}/${res.meta} (${res.percentual}%)`);
   }
   
   if (totalSaved >= CONFIG.TARGET_PRODUCTS) {
-    console.log(`\n🎉 META COMPLETA! ${totalSaved} produtos salvos com sucesso!\n`);
+    console.log(`\n🎉 META COMPLETA!\n`);
   } else if (totalSaved > 0) {
-    console.log(`\n⚠️  Meta parcial: ${totalSaved}/${CONFIG.TARGET_PRODUCTS} produtos`);
-    console.log(`\n💡 SUGESTÕES DE OTIMIZAÇÃO:`);
-    console.log(`   • Reduza MIN_DISCOUNT (atual: ${CONFIG.MIN_DISCOUNT}%)`);
-    console.log(`   • Escolha categorias com mais ofertas disponíveis`);
-    console.log(`   • Remova o filtro de preço máximo`);
-    console.log(`   • Aumente o TARGET_PRODUCTS para compensar duplicatas\n`);
+    console.log(`\n⚠️  Meta parcial: ${totalSaved}/${CONFIG.TARGET_PRODUCTS}`);
+    console.log(`💡 Dica: Reduza MIN_DISCOUNT ou remova filtro de preço\n`);
   } else {
-    console.log(`\n❌ Nenhum produto foi salvo.`);
-    console.log(`\n🔍 DIAGNÓSTICO:`);
-    console.log(`   • Verifique a conexão com o Mercado Livre`);
-    console.log(`   • Confirme que há ofertas disponíveis nas categorias selecionadas`);
-    console.log(`   • Reduza o desconto mínimo (atual: ${CONFIG.MIN_DISCOUNT}%)`);
-    console.log(`   • Remova filtros de preço\n`);
+    console.log(`\n❌ Nenhum produto salvo. Verifique filtros.\n`);
   }
   
   console.log(`${'═'.repeat(70)}\n`);
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// EXECUÇÃO PRINCIPAL
-// ═══════════════════════════════════════════════════════════════════════
-
 (async () => {
   const startTime = Date.now();
   
   try {
-    // Conecta ao banco de dados
-    console.log('📡 Conectando ao banco de dados...\n');
+    console.log('📡 Conectando ao banco...\n');
     await connectDB();
     
-    // Configuração via argumentos ou interativa
     let config;
     const argsConfig = parseArguments(process.argv);
     
     if (argsConfig.categorias) {
       config = argsConfig;
-      console.log('\n📋 Configuração via linha de comando\n');
+      console.log('\n📋 Config via argumentos\n');
     } else {
       config = await selecionarInterativo();
       rl.close();
     }
     
     const { categorias: selectedCats, maxPrice } = config;
-    
-    // Exibe configuração
     const limitPerCat = displayConfiguration(selectedCats, maxPrice);
-    
-    // ════════════════════════════════════════════════════════════
-    // CRÍTICO: Criar instância UMA VEZ antes do loop
-    // Isso mantém o cache do scraper entre as tentativas
-    // ════════════════════════════════════════════════════════════
     const scrapingService = new ScrapingService();
     
-    // Estatísticas globais
-    let totalSaved = 0;
-    let totalCollected = 0;
+    let totalSaved = 0, totalCollected = 0;
     const resultados = {};
     
-    // Processa cada categoria
     for (const [index, categoria] of selectedCats.entries()) {
-      // ════════════════════════════════════════════════════════
-      // Limpar cache ao mudar de categoria
-      // ════════════════════════════════════════════════════════
-      if (index > 0) {
-        scrapingService.clearScraperCache('ML');
-      }
+      if (index > 0) scrapingService.clearScraperCache('ML');
       
-      const resultado = await processCategory(
-        scrapingService,
-        categoria,
-        limitPerCat,
-        maxPrice,
-        index + 1,
-        selectedCats.length
-      );
-      
+      const resultado = await processCategory(scrapingService, categoria, limitPerCat, maxPrice, index + 1, selectedCats.length);
       resultados[categoria] = resultado;
       totalSaved += resultado.salvos;
       totalCollected += resultado.coletados;
       
-      // Verifica se já atingiu a meta global
       if (totalSaved >= CONFIG.TARGET_PRODUCTS) {
         console.log(`\n🎯 META GLOBAL ATINGIDA! ${totalSaved}/${CONFIG.TARGET_PRODUCTS}\n`);
-        console.log(`⏭️  Pulando categorias restantes...\n`);
         break;
       }
     }
     
-    // Exibe relatório final
     displayFinalReport(resultados, totalSaved, totalCollected, selectedCats, startTime);
-    
     process.exit(0);
     
   } catch (error) {
-    console.error('\n❌ ERRO CRÍTICO NO WORKER:');
-    console.error(`   ${error.message}`);
-    console.error(`\n📋 Stack trace:`);
-    console.error(error.stack);
-    
+    console.error('\n❌ ERRO CRÍTICO:', error.message);
     if (rl) rl.close();
     process.exit(1);
   }
