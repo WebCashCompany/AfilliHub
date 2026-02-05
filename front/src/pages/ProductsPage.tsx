@@ -616,17 +616,6 @@ export function ProductsPage() {
                             </Badge>
                           )}
                         </div>
-                        
-                        {(displayProduct.preco_de || displayProduct.preco_para) && (
-                          <div className="mt-2 text-sm text-muted-foreground flex gap-4">
-                            {displayProduct.preco_de && (
-                              <span>De: {formatPriceFromCents(displayProduct.preco_de)}</span>
-                            )}
-                            {displayProduct.preco_para && (
-                              <span>Para: {formatPriceFromCents(displayProduct.preco_para)}</span>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
