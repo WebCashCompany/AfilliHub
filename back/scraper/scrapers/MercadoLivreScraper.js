@@ -1,9 +1,13 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - VERSÃO COM SUPORTE INTELIGENTE A CUPONS
+ * MERCADO LIVRE SCRAPER - VERSÃO CORRIGIDA ANTI-LOOP
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 9.1.0 - ✅ CORRIGIDO: Filtro de preço máximo aplicado corretamente
+ * @version 9.2.0 - 🔥 CORREÇÕES CRÍTICAS:
+ * 1. Detecção de loop infinito (mesma página repetida)
+ * 2. Múltiplas estratégias de paginação
+ * 3. Garante coleta de TODOS os produtos válidos da página
+ * 4. Filtro de preço aplicado ANTES do processamento de links
  */
 
 const { chromium } = require('playwright-extra');
@@ -20,11 +24,9 @@ class MercadoLivreScraper {
   constructor(minDiscount = 30, options = {}) {
     this.minDiscount = minDiscount;
     this.limit = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
-    // ✅ CORREÇÃO: Converte maxPrice para número inteiro
     this.maxPrice = options.maxPrice ? parseInt(options.maxPrice) : null;
     this.categoriaKey = options.categoria || 'todas';
     
-    // ✅ Log do filtro ativo
     if (this.maxPrice) {
       console.log(`💰 Filtro de preço ativo: máximo R$ ${this.maxPrice}\n`);
     }
@@ -41,7 +43,8 @@ class MercadoLivreScraper {
       affiliateLinksFailed: 0,
       timeouts: 0,
       couponsApplied: 0,
-      couponsIgnored: 0
+      couponsIgnored: 0,
+      loopDetections: 0
     };
     
     this.seenLinks = new Set();
@@ -80,7 +83,8 @@ class MercadoLivreScraper {
       pageTimeout: 10000,
       maxPages: 50,
       maxEmptyPages: 2,
-      parallelTabs: 1
+      parallelTabs: 1,
+      maxSamePage: 3  // 🔥 NOVO: Máximo de vezes que aceita mesma página
     };
     
     this.browser = null;
@@ -398,16 +402,14 @@ class MercadoLivreScraper {
         }
       }
 
-      const productKey = this.generateProductKey(prodData.name);
-
-      // ═══════════════════════════════════════════════════════════
-      // 💰 ✅ FILTRO DE PREÇO MÁXIMO CORRIGIDO
-      // ═══════════════════════════════════════════════════════════
+      // 🔥 FILTRO DE PREÇO APLICADO ANTES DE PROCESSAR LINK
       if (this.maxPrice && finalPrice > this.maxPrice) {
         this.stats.filteredByPrice++;
         console.log(`      ⏭️  IGNORADO (preço R$ ${finalPrice} > máx R$ ${this.maxPrice})`);
         continue;
       }
+
+      const productKey = this.generateProductKey(prodData.name);
 
       const dupCheck = this.checkDuplicate({
         nome: prodData.name,
@@ -480,24 +482,46 @@ class MercadoLivreScraper {
     let pageNum = 1;
     let emptyPagesCount = 0;
     let currentOffset = 0;
+    
+    // 🔥 NOVO: Detecção de loop infinito
+    let lastPageProducts = [];
+    let samePageCount = 0;
+    const MAX_SAME_PAGE = 3;
 
     try {
       console.log(`╔════════════════════════════════════════════════════╗`);
       console.log(`║  ${this.categoriaInfo.emoji}  ${this.categoriaInfo.nome.padEnd(47)} ║`);
       console.log(`║  🎯 META: ${this.limit} produtos (${this.minDiscount}%+)${' '.repeat(26)} ║`);
-      // ✅ Mostra filtro de preço no cabeçalho
       if (this.maxPrice) {
         console.log(`║  💰 PREÇO MÁXIMO: R$ ${this.maxPrice}${' '.repeat(29 - String(this.maxPrice).length)} ║`);
       }
-      console.log(`║  🔧 MODO: Com detecção inteligente de cupons${' '.repeat(6)} ║`);
+      console.log(`║  🔧 MODO: Com detecção de loop e coleta garantida${' '.repeat(1)} ║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
       while (allProducts.length < this.limit && pageNum <= this.config.maxPages) {
         const baseUrl = this.categoriaInfo.url;
         const separator = baseUrl.includes('?') ? '&' : '?';
-        const url = pageNum === 1 ? baseUrl : `${baseUrl}${separator}_Desde_${currentOffset + 1}&_NoIndex_true`;
+        
+        // 🔥 ESTRATÉGIA MÚLTIPLA DE PAGINAÇÃO
+        let url;
+        if (pageNum === 1) {
+          url = baseUrl;
+        } else if (samePageCount >= 2) {
+          // Se detectou loop, pula mais produtos
+          const newOffset = currentOffset + 48;
+          url = `${baseUrl}${separator}_Desde_${newOffset}&_NoIndex_true`;
+          console.log(`   🔥 LOOP DETECTADO! Pulando para offset ${newOffset}`);
+          currentOffset = newOffset;
+          samePageCount = 0;
+          this.stats.loopDetections++;
+        } else {
+          url = `${baseUrl}${separator}_Desde_${currentOffset + 1}&_NoIndex_true`;
+        }
        
         console.log(`📄 Página ${pageNum} [${allProducts.length}/${this.limit}]`);
+        if (pageNum > 1) {
+          console.log(`   🔗 Offset: ${currentOffset + 1}`);
+        }
        
         try {
           const mainPage = await context.newPage();
@@ -507,9 +531,9 @@ class MercadoLivreScraper {
             timeout: this.config.pageTimeout 
           });
 
-          await mainPage.waitForTimeout(800);
+          await mainPage.waitForTimeout(1200); // 🔥 Aumentado para garantir carregamento
 
-          const pageData = await mainPage.evaluate(({ minDiscount }) => {
+          const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
             let cards = document.querySelectorAll('.poly-card, .ui-search-result');
             
             if (cards.length === 0) {
@@ -547,6 +571,7 @@ class MercadoLivreScraper {
             
             const products = [];
             let filteredByDiscount = 0;
+            let filteredByPrice = 0; // 🔥 NOVO contador
             
             cards.forEach(card => {
               try {
@@ -569,6 +594,7 @@ class MercadoLivreScraper {
                 const discountText = discountElement?.innerText || '0';
                 const discount = parseInt(discountText.replace(/\D/g, '')) || 0;
                 
+                // 🔥 FILTRO DE DESCONTO
                 if (discount < minDiscount) {
                   filteredByDiscount++;
                   return;
@@ -659,6 +685,21 @@ class MercadoLivreScraper {
                   }
                 }
                 
+                // 🔥 PRÉ-FILTRO DE PREÇO (antes de adicionar à lista)
+                let finalPrice = currentPrice;
+                if (couponInfo && currentPrice >= couponInfo.minValue) {
+                  if (couponInfo.type === 'percent') {
+                    finalPrice = currentPrice - Math.round(currentPrice * (couponInfo.discount / 100));
+                  } else if (couponInfo.type === 'value') {
+                    finalPrice = currentPrice - couponInfo.discount;
+                  }
+                }
+                
+                if (maxPrice && finalPrice > maxPrice) {
+                  filteredByPrice++;
+                  return;
+                }
+                
                 products.push({ 
                   link, 
                   name, 
@@ -673,18 +714,37 @@ class MercadoLivreScraper {
               }
             });
             
-            return { products, filteredByDiscount };
-          }, { minDiscount: this.minDiscount });
+            return { products, filteredByDiscount, filteredByPrice };
+          }, { minDiscount: this.minDiscount, maxPrice: this.maxPrice });
 
           await mainPage.close();
 
           console.log(`   📊 DEBUG: ${pageData.products.length} produtos encontrados na página`);
-          console.log(`   🔍 DEBUG: ${pageData.filteredByDiscount} filtrados por desconto`);
+          console.log(`   🔍 DEBUG: ${pageData.filteredByDiscount} filtrados por desconto | ${pageData.filteredByPrice} filtrados por preço`);
+
+          // 🔥 DETECÇÃO DE LOOP: Compara produtos da página atual com anterior
+          const currentPageLinks = pageData.products.map(p => p.link).sort();
+          const lastPageLinks = lastPageProducts.map(p => p.link).sort();
+          
+          if (currentPageLinks.length > 0 && 
+              JSON.stringify(currentPageLinks) === JSON.stringify(lastPageLinks)) {
+            samePageCount++;
+            console.log(`   ⚠️  MESMA PÁGINA DETECTADA (${samePageCount}/${MAX_SAME_PAGE})`);
+            
+            if (samePageCount >= MAX_SAME_PAGE) {
+              console.log(`   🛑 LOOP INFINITO CONFIRMADO - Encerrando categoria\n`);
+              break;
+            }
+          } else {
+            samePageCount = 0;
+            lastPageProducts = pageData.products;
+          }
 
           const newProducts = pageData.products.filter(p => !this.seenLinks.has(p.link));
           this.stats.filteredByDiscount += pageData.filteredByDiscount;
+          this.stats.filteredByPrice += pageData.filteredByPrice;
 
-          console.log(`   ✅ ${newProducts.length} novos | ${pageData.filteredByDiscount} filtrados por desconto\n`);
+          console.log(`   ✅ ${newProducts.length} novos | ${pageData.filteredByDiscount} desc | ${pageData.filteredByPrice} preço\n`);
           
           if (newProducts.length === 0) {
             emptyPagesCount++;
@@ -731,6 +791,7 @@ class MercadoLivreScraper {
       console.log(`⏭️  Cupons ignorados: ${this.stats.couponsIgnored}`);
       console.log(`⏭️  Duplicados: ${this.stats.duplicatesIgnored}`);
       console.log(`🚫 Filtrados: ${this.stats.filteredByDiscount} desconto | ${this.stats.filteredByPrice} preço`);
+      console.log(`🔄 Loops detectados: ${this.stats.loopDetections}`);
       console.log(`📄 Páginas: ${this.stats.pagesScraped}`);
       console.log(`⏱️  Tempo: ${duration}s\n`);
 

@@ -14,7 +14,6 @@ import { Zap, Play, Settings2, Loader2, CheckCircle, Package, AlertCircle, Filte
 import { useToast } from '@/hooks/use-toast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
 
-// ... (resto das interfaces e constantes permanecem iguais)
 
 interface MarketplaceFilters {
   categoria?: string;
