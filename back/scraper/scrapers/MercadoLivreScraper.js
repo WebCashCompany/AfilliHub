@@ -145,7 +145,7 @@ class MercadoLivreScraper {
     }
 
     this.browser = await chromium.launch({
-      headless: true,
+      headless: false,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -185,63 +185,65 @@ class MercadoLivreScraper {
     try {
       await page.goto(productUrl, { 
         waitUntil: 'domcontentloaded',
-        timeout: 12000
+        timeout: 10000
       });
 
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(800);
 
-      const hasShareButton = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('button, a'));
-        return buttons.some(btn => btn.textContent?.toLowerCase().includes('compartilhar'));
+      // Limpa clipboard
+      await page.evaluate(() => {
+        try {
+          navigator.clipboard.writeText('');
+        } catch(e) {}
       });
 
-      if (!hasShareButton) {
-        await page.close();
-        return productUrl;
-      }
+      await page.waitForTimeout(200);
 
-      try { await page.evaluate(() => navigator.clipboard.writeText('')); } catch (e) {}
-      await page.waitForTimeout(100);
-
-      const clicked = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll('button, a'));
-        const shareBtn = buttons.find(btn => btn.textContent?.toLowerCase().includes('compartilhar'));
-        if (shareBtn) {
-          shareBtn.click();
-          return true;
-        }
-        return false;
-      });
-
-      if (!clicked) {
-        await page.close();
-        return productUrl;
-      }
-
-      await page.waitForTimeout(1000);
-
+      // PASSO 1: Tab 4x para chegar no botão COMPARTILHAR
       for (let i = 0; i < 4; i++) {
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(80);
+        await page.waitForTimeout(100);
       }
+      
+      // PASSO 2: Enter para ABRIR o botão compartilhar
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(1200);
+      await page.waitForTimeout(1500);
 
+      // PASSO 3: Tab 4x para chegar no botão COPIAR LINK
+      for (let i = 0; i < 4; i++) {
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(100);
+      }
+      
+      // PASSO 4: Enter para COPIAR o link de afiliado
+      await page.keyboard.press('Enter');
+      
+      // PASSO 5: Aguarda e verifica clipboard - SAI IMEDIATAMENTE quando copiar
       let copiedLink = '';
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        await page.waitForTimeout(300);
+        
         try {
           copiedLink = await page.evaluate(() => navigator.clipboard.readText());
-          if (copiedLink && copiedLink.trim() !== '') break;
-          if (attempt < 3) await page.waitForTimeout(400);
+          
+          // Se copiou algo válido, sai imediatamente
+          if (copiedLink && 
+              copiedLink.trim().length > 20 && 
+              (copiedLink.includes('/sec/') || copiedLink.includes('mercadolivre.com'))) {
+            break;
+          }
         } catch (e) {}
       }
 
       await page.keyboard.press('Escape');
       await page.close();
 
-      if (copiedLink && copiedLink.trim() !== '') {
+      if (copiedLink && copiedLink.trim() && copiedLink.length > 20) {
         const cleanLink = copiedLink.trim();
-        if (cleanLink.includes('/sec/') || cleanLink.includes('mercadolivre.com')) {
+        if (cleanLink.includes('/sec/')) {
+          return cleanLink;
+        }
+        if (cleanLink.includes('mercadolivre.com') && !cleanLink.includes('mclics')) {
           return cleanLink;
         }
       }
@@ -291,7 +293,7 @@ class MercadoLivreScraper {
       console.log(`   🔄 [${allProducts.length + 1}/${this.limit}] ${prodData.name.substring(0, 40)}...`);
       
       const affiliateLink = await this.getAffiliateLink(prodData.link);
-      const finalLink = affiliateLink || prodData.link;
+      const finalLink = affiliateLink;
       const isAffiliate = finalLink.includes('/sec/');
 
       if (isAffiliate) {
@@ -328,8 +330,6 @@ class MercadoLivreScraper {
       allProducts.push(product);
 
       if (allProducts.length >= this.limit) break;
-
-      await new Promise(r => setTimeout(r, 150));
     }
   }
 
