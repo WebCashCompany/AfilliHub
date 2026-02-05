@@ -397,6 +397,25 @@ class MercadoLivreScraper {
 
           await mainPage.waitForTimeout(pageNum === 1 ? 2000 : 1200);
 
+          // Scroll para carregar lazy loading
+          await mainPage.evaluate(async () => {
+            await new Promise((resolve) => {
+              let totalHeight = 0;
+              const distance = 300;
+              const timer = setInterval(() => {
+                window.scrollBy(0, distance);
+                totalHeight += distance;
+                if (totalHeight >= document.body.scrollHeight) {
+                  clearInterval(timer);
+                  window.scrollTo(0, 0);
+                  resolve();
+                }
+              }, 100);
+            });
+          });
+
+          await mainPage.waitForTimeout(1500);
+
           const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
             // PEGA TODOS OS CARDS DA PÁGINA
             const cards = document.querySelectorAll('.poly-card, .ui-search-result');
@@ -422,19 +441,53 @@ class MercadoLivreScraper {
                 // NOME
                 const name = card.querySelector('h2, .poly-component__title, [class*="title"]')?.innerText || 'Sem nome';
                 
-                // IMAGEM: Pega a PRIMEIRA que não for data:
-                let image = 'https://http2.mlstatic.com/D_NQ_NP_2X_default.webp';
+                // IMAGEM: Prioriza src real e ignora placeholders
+                let image = null;
                 const imgs = card.querySelectorAll('img');
+                
                 for (const img of imgs) {
-                  const src = img.src || img.getAttribute('data-src') || '';
-                  if (src && !src.startsWith('data:')) {
-                    image = src.startsWith('//') ? 'https:' + src : src;
-                    // Converte WEBP → JPG
-                    if (image.includes('.webp')) {
-                      image = image.replace(/\.webp/gi, '.jpg');
-                    }
-                    break;
+                  const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy') || '';
+                  
+                  // Ignora placeholders e imagens inválidas
+                  if (!src || 
+                      src.startsWith('data:') || 
+                      src.includes('default.webp') ||
+                      src.includes('placeholder') ||
+                      src.length < 30) {
+                    continue;
                   }
+                  
+                  // Formata URL
+                  let finalSrc = src.startsWith('//') ? 'https:' + src : src;
+                  
+                  // Converte WEBP → JPG
+                  finalSrc = finalSrc.replace(/\.webp/gi, '.jpg');
+                  
+                  image = finalSrc;
+                  break;
+                }
+                
+                // Fallback: tenta data-lazy ou qualquer atributo com URL de imagem
+                if (!image) {
+                  for (const img of imgs) {
+                    const attrs = ['data-src', 'data-lazy', 'data-original', 'srcset'];
+                    for (const attr of attrs) {
+                      const val = img.getAttribute(attr);
+                      if (val && val.includes('mlstatic.com') && !val.includes('default')) {
+                        const urlMatch = val.match(/(https?:)?\/\/[^\s,]+\.(?:jpg|jpeg|png)/i);
+                        if (urlMatch) {
+                          image = urlMatch[0].startsWith('//') ? 'https:' + urlMatch[0] : urlMatch[0];
+                          break;
+                        }
+                      }
+                    }
+                    if (image) break;
+                  }
+                }
+                
+                // Se ainda não achou, usa placeholder
+                if (!image) {
+                  image = 'https://http2.mlstatic.com/D_NQ_NP_2X_default.webp';
                 }
                 
                 // DESCONTO
