@@ -185,86 +185,72 @@ class MercadoLivreScraper {
     try {
       await page.goto(productUrl, { 
         waitUntil: 'domcontentloaded',
-        timeout: 20000
+        timeout: 12000
       });
 
-      await page.waitForTimeout(this.isFirstProduct ? 2500 : 1500);
-      this.isFirstProduct = false;
+      await page.waitForTimeout(600);
 
-      try { await page.evaluate(() => navigator.clipboard.writeText('')); } catch (e) {}
-      await page.waitForTimeout(200);
+      const hasShareButton = await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button, a'));
+        return buttons.some(btn => btn.textContent?.toLowerCase().includes('compartilhar'));
+      });
 
-      // Tenta 3 métodos
-      for (let method = 1; method <= 3; method++) {
-        const clicked = await page.evaluate(() => {
-          const buttons = Array.from(document.querySelectorAll('button, a'));
-          const shareBtn = buttons.find(btn => btn.textContent?.toLowerCase().includes('compartilhar'));
-          if (shareBtn) {
-            shareBtn.click();
-            return true;
-          }
-          return false;
-        });
-
-        if (!clicked) break;
-
-        await page.waitForTimeout(2000);
-
-        if (method === 1 || method === 3) {
-          const tabs = method === 1 ? 4 : 5;
-          for (let i = 0; i < tabs; i++) {
-            await page.keyboard.press('Tab');
-            await page.waitForTimeout(150);
-          }
-          await page.keyboard.press('Enter');
-        } else {
-          await page.evaluate(() => {
-            const buttons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
-            const copyBtn = buttons.find(btn => {
-              const text = btn.textContent?.toLowerCase() || '';
-              return text.includes('copiar') && (text.includes('link') || text.length < 20);
-            });
-            if (copyBtn) copyBtn.click();
-          });
-        }
-
-        await page.waitForTimeout(2000);
-
-        let copiedLink = '';
-        for (let attempt = 1; attempt <= 5; attempt++) {
-          try {
-            copiedLink = await page.evaluate(() => navigator.clipboard.readText());
-            if (copiedLink && copiedLink.trim() !== '') break;
-            if (attempt < 5) await page.waitForTimeout(700);
-          } catch (e) {}
-        }
-
-        await page.keyboard.press('Escape');
-
-        if (copiedLink && copiedLink.trim() !== '') {
-          await page.close();
-          const cleanLink = copiedLink.trim();
-          
-          if (cleanLink.includes('/sec/')) {
-            console.log(`      ✅ Afiliado (Método ${method})`);
-            return cleanLink;
-          }
-          if (cleanLink.includes('mercadolivre.com')) {
-            console.log(`      ⚠️  Original (Método ${method})`);
-            return cleanLink;
-          }
-        }
-
-        await page.waitForTimeout(500);
+      if (!hasShareButton) {
+        await page.close();
+        return productUrl;
       }
 
+      try { await page.evaluate(() => navigator.clipboard.writeText('')); } catch (e) {}
+      await page.waitForTimeout(100);
+
+      const clicked = await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button, a'));
+        const shareBtn = buttons.find(btn => btn.textContent?.toLowerCase().includes('compartilhar'));
+        if (shareBtn) {
+          shareBtn.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (!clicked) {
+        await page.close();
+        return productUrl;
+      }
+
+      await page.waitForTimeout(1000);
+
+      for (let i = 0; i < 4; i++) {
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(80);
+      }
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(1200);
+
+      let copiedLink = '';
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+          if (copiedLink && copiedLink.trim() !== '') break;
+          if (attempt < 3) await page.waitForTimeout(400);
+        } catch (e) {}
+      }
+
+      await page.keyboard.press('Escape');
       await page.close();
-      console.log(`      ❌ Falhou afiliado`);
-      return null;
+
+      if (copiedLink && copiedLink.trim() !== '') {
+        const cleanLink = copiedLink.trim();
+        if (cleanLink.includes('/sec/') || cleanLink.includes('mercadolivre.com')) {
+          return cleanLink;
+        }
+      }
+
+      return productUrl;
 
     } catch (error) {
       try { await page.close(); } catch (e) {}
-      return null;
+      return productUrl;
     }
   }
 
@@ -295,16 +281,8 @@ class MercadoLivreScraper {
         continue;
       }
 
-      const dupCheck = this.checkDuplicate({
-        nome: prodData.name,
-        link_original: prodData.link,
-        desconto: realDiscount,
-        preco_para: finalPrice
-      });
-
-      if (dupCheck.isDuplicate) {
+      if (this.seenLinks.has(prodData.link)) {
         this.stats.duplicatesIgnored++;
-        console.log(`   ⏭️  IGNORADO (${dupCheck.reason})`);
         continue;
       }
 
@@ -315,6 +293,14 @@ class MercadoLivreScraper {
       const affiliateLink = await this.getAffiliateLink(prodData.link);
       const finalLink = affiliateLink || prodData.link;
       const isAffiliate = finalLink.includes('/sec/');
+
+      if (isAffiliate) {
+        console.log(`      ✅ Afiliado`);
+        this.stats.affiliateLinksSuccess++;
+      } else {
+        console.log(`      ⚠️  Original`);
+        this.stats.affiliateLinksFailed++;
+      }
 
       const product = {
         nome: prodData.name,
@@ -336,26 +322,14 @@ class MercadoLivreScraper {
         product.cupom_texto = couponText;
         product.preco_sem_cupom = String(prodData.currentPrice);
         product.desconto_cupom = String(prodData.currentPrice - finalPrice);
-        
-        console.log(`      🎟️  Cupom: ${couponText}`);
-        console.log(`      📊 Desconto total: ${realDiscount}%`);
       }
 
-      const productKey = this.generateProductKey(prodData.name);
-      this.seenProductKeys.add(productKey);
       this.stats.productsCollected++;
-
-      if (isAffiliate) {
-        this.stats.affiliateLinksSuccess++;
-      } else {
-        this.stats.affiliateLinksFailed++;
-      }
-
       allProducts.push(product);
 
       if (allProducts.length >= this.limit) break;
 
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 150));
     }
   }
 
