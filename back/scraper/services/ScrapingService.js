@@ -3,7 +3,7 @@
  * SCRAPING SERVICE - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.3.0 - CORREÇÃO: Suporte adequado para categoryKey do Magalu
+ * @version 2.4.0 - CORREÇÃO: Logs otimizados + validação URL + stats
  * @author Dashboard Promoforia
  */
 
@@ -104,12 +104,6 @@ class ScrapingService {
       maxPrice = null 
     } = options;
 
-    console.log('\n╔════════════════════════════════════════════════════╗');
-    console.log('║      🔍 COLLECT FROM MARKETPLACE - DEBUG            ║');
-    console.log('╚════════════════════════════════════════════════════╝');
-    console.log('📦 Marketplace:', marketplaceName);
-    console.log('📋 Options recebidas:', JSON.stringify(options, null, 2));
-
     const marketplace = this.marketplaces.get(marketplaceName) || 
                         this.marketplaces.get(marketplaceName.toLowerCase()) ||
                         this.marketplaces.get(marketplaceName.toUpperCase());
@@ -138,23 +132,14 @@ class ScrapingService {
     let scraper;
     
     if (marketplace.code === 'MAGALU') {
-      console.log('\n🔥 CRIANDO MAGALU SCRAPER COM CONFIGURAÇÕES...');
-      
       if (categoryKey) {
-        console.log(`🎯 CategoryKey detectado: ${categoryKey}`);
         scraper = new MagaluScraper(minDiscount, { categoryKey });
       } else {
-        console.log('⚠️  Nenhuma categoryKey fornecida, usando padrão');
         scraper = new MagaluScraper(minDiscount);
       }
       
       scraper.limit = limit;
       scraper.maxPrice = maxPrice;
-      
-      const current = scraper.getCurrentCategory();
-      console.log('📂 Categoria configurada:', current.name);
-      console.log('💾 Salva no DB como:', current.dbName);
-      console.log('🔗 URL:', current.url);
       
     } else {
       // Outros marketplaces usam scraper existente
@@ -172,7 +157,6 @@ class ScrapingService {
       if (categoriaInfo) {
         scraper.categoriaKey = categoria;
         scraper.categoriaInfo = categoriaInfo;
-        console.log(`📂 Categoria ML configurada: ${categoriaInfo.nome}`);
       } else {
         console.warn(`⚠️  Categoria "${categoria}" não encontrada, usando padrão`);
       }
@@ -188,36 +172,32 @@ class ScrapingService {
     console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
     // ═══════════════════════════════════════════════════════════
-    // PROCESSAMENTO DE LINKS DE AFILIADO
+    // 🔥 PROCESSAMENTO DE LINKS DE AFILIADO - OTIMIZADO
     // ═══════════════════════════════════════════════════════════
     if (products.length > 0) {
-      console.log(`🔗 Processando ${products.length} links de afiliado...\n`);
+      console.log(`🔗 Validando ${products.length} links de afiliado...\n`);
       
-      let processados = 0;
+      let validLinks = 0;
+      let invalidLinks = 0;
       
-      for (let i = 0; i < products.length; i++) {
-        const product = products[i];
+      for (const product of products) {
+        // 🔥 CORREÇÃO: Validação de URL
+        const isValidUrl = this.isValidUrl(product.link_afiliado);
+        
+        if (!isValidUrl) {
+          console.log(`   ⚠️  URL inválida: ${product.nome.substring(0, 30)}...`);
+          product.link_afiliado = product.link_original;
+          invalidLinks++;
+        } else {
+          validLinks++;
+        }
         
         if (marketplace.code === 'ML') {
           if (!product.link_afiliado || !product.link_afiliado.includes('mercadolivre.com/sec/')) {
-            console.log(`   ⚠️  Produto sem link de afiliado válido: ${product.nome.substring(0, 40)}...`);
-            console.log(`       Link atual: ${product.link_afiliado || 'VAZIO'}`);
-            console.log(`       Usando link original como fallback\n`);
             product.link_afiliado = product.link_original;
-          }
-          
-          processados++;
-          
-          if (i < 3 || i === products.length - 1) {
-            console.log(`   [${i + 1}] ${product.nome.substring(0, 40)}...`);
-            console.log(`       🔗 ${product.link_afiliado.substring(0, 80)}...`);
-          } else if (i === 3) {
-            console.log(`   ... (${products.length - 4} produtos omitidos)`);
           }
         } 
         else if (marketplace.code === 'MAGALU') {
-          // 🔥 Magalu já vem com link de afiliado correto do scraper
-          // Validar se já tem o affiliateId
           const affiliateId = process.env.MAGALU_AFFILIATE_ID || 'magazinepromoforia';
           
           if (!product.link_afiliado || !product.link_afiliado.includes(affiliateId)) {
@@ -225,36 +205,33 @@ class ScrapingService {
             product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
           }
           
-          processados++;
-          
-          if (i < 3) {
-            console.log(`   [${i + 1}] ${product.nome.substring(0, 40)}...`);
-            console.log(`       📂 Categoria: ${product.categoria}`);
-            console.log(`       🔗 ${product.link_afiliado.substring(0, 80)}...`);
-          } else if (i === 3) {
-            console.log(`   ... (${products.length - 4} produtos omitidos)`);
-          }
-          
         } else if (marketplace.code === 'shopee') {
           const separator = product.link_original.includes('?') ? '&' : '?';
           const affiliateId = process.env.SHOPEE_AFFILIATE_ID || '18182230010';
           product.link_afiliado = `${product.link_original}${separator}af_siteid=${affiliateId}&pid=affiliates&af_click_lookback=7d`;
-          processados++;
-          
-          if (i < 3) {
-            console.log(`   [${i + 1}] ${product.nome.substring(0, 40)}...`);
-            console.log(`       🔗 ${product.link_afiliado.substring(0, 80)}...`);
-          }
         } else {
           product.link_afiliado = product.link_original;
-          processados++;
         }
       }
       
-      console.log(`✅ ${processados} links processados\n`);
+      console.log(`   ✅ Válidos: ${validLinks} | ⚠️  Inválidos: ${invalidLinks}\n`);
     }
 
     return products;
+  }
+
+  // 🔥 NOVO: Validação de URL
+  isValidUrl(url) {
+    if (!url || typeof url !== 'string' || url.length < 10) {
+      return false;
+    }
+    
+    try {
+      const urlObj = new URL(url);
+      return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+    } catch (e) {
+      return false;
+    }
   }
 
   async saveProducts(products, marketplaceCode = 'ML') {
@@ -274,8 +251,9 @@ class ScrapingService {
 
     for (const product of products) {
       try {
-        if (!product.link_afiliado || product.link_afiliado.length < 20) {
-          console.log(`   ⚠️  Produto sem link válido: ${product.nome.substring(0, 40)}...`);
+        // 🔥 CORREÇÃO: Validação completa antes de salvar
+        if (!product.link_afiliado || product.link_afiliado.length < 10 || !this.isValidUrl(product.link_afiliado)) {
+          console.log(`   ❌ Link inválido: ${product.nome.substring(0, 30)}...`);
           stats.errors++;
           continue;
         }
@@ -359,7 +337,8 @@ class ScrapingService {
       }
     }
 
-    stats.totalSaved = stats.inserted + stats.betterOffers;
+    // 🔥 CORREÇÃO: TotalSaved inclui updates também
+    stats.totalSaved = stats.inserted + stats.betterOffers + stats.updated;
 
     console.log(`\n╔═══════════════════════════════════════╗`);
     console.log(`║         📊 RESULTADO FINAL 📊         ║`);
@@ -370,10 +349,10 @@ class ScrapingService {
     console.log(`⏭️  Duplicatas: ${stats.duplicates}`);
     console.log(`❌ Erros: ${stats.errors}`);
     console.log(`📦 Total processados: ${products.length}`);
+    console.log(`💾 Total salvos/atualizados: ${stats.totalSaved}`);
     
-    if (stats.totalSaved < products.length) {
-      const ignorados = products.length - stats.totalSaved - stats.updated;
-      console.log(`\n⚠️  ${ignorados} produtos foram ignorados (duplicatas ou ofertas piores)`);
+    if (stats.duplicates > 0 || stats.errors > 0) {
+      console.log(`\n⚠️  ${stats.duplicates + stats.errors} produtos ignorados`);
     }
     console.log('');
 

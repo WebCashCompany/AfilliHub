@@ -3,7 +3,7 @@
  * MERCADO LIVRE WORKER - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.2.0 - ✅ CORRIGIDO: Aceita valor direto como filtro de preço
+ * @version 2.3.0 - ✅ CORRIGIDO: Validação de preço + percentual + loop
  * 
  * MODOS DE USO:
  * 1. Interativo: node workers/mlWorker.js
@@ -102,12 +102,15 @@ async function selecionarInterativo() {
   
   const priceChoice = await question('Escolha (0-3) ou digite o valor: ');
   
-  // ✅ CORREÇÃO: Aceita tanto opção pré-definida quanto valor direto
+  // 🔥 CORREÇÃO: Validação completa de entrada de preço
   let maxPrice = null;
   if (PRICE_FILTERS[priceChoice]) {
     maxPrice = PRICE_FILTERS[priceChoice].value;
-  } else if (!isNaN(priceChoice) && parseInt(priceChoice) > 0) {
-    maxPrice = priceChoice.trim();
+  } else {
+    const numValue = parseInt(priceChoice);
+    if (!isNaN(numValue) && numValue > 0 && numValue < 100000) {
+      maxPrice = String(numValue);
+    }
   }
   
   return { categorias: selectedCats, maxPrice };
@@ -157,8 +160,10 @@ async function processCategory(scrapingService, categoria, limitPerCat, maxPrice
       if (!products || products.length === 0) {
         consecutiveZeros++;
         console.log(`⚠️  Nenhum produto coletado. (${consecutiveZeros}ª vez)\n`);
-        if (consecutiveZeros >= 2) {
-          console.log(`⏭️  Encerrando categoria.\n`);
+        
+        // 🔥 CORREÇÃO: Para após 3 tentativas vazias (não 2)
+        if (consecutiveZeros >= 3) {
+          console.log(`⏭️  Encerrando categoria após 3 tentativas vazias.\n`);
           break;
         }
         continue;
@@ -190,12 +195,15 @@ async function processCategory(scrapingService, categoria, limitPerCat, maxPrice
     }
   }
   
+  // 🔥 CORREÇÃO: Percentual limitado a 100%
+  const percentual = Math.min(100, Math.round((savedInCategory / limitPerCat) * 100));
+  
   return {
     meta: limitPerCat,
     salvos: savedInCategory,
     coletados: collectedInCategory,
     tentativas: attempt,
-    percentual: Math.round((savedInCategory / limitPerCat) * 100)
+    percentual: percentual
   };
 }
 
@@ -208,7 +216,10 @@ function displayFinalReport(resultados, totalSaved, totalCollected, selectedCats
   console.log(`✨ Produtos salvos: ${totalSaved}/${CONFIG.TARGET_PRODUCTS}`);
   console.log(`📦 Total coletados: ${totalCollected}`);
   console.log(`⏱️  Tempo: ${duration}s`);
-  console.log(`⚡ Taxa: ${Math.round((totalSaved/CONFIG.TARGET_PRODUCTS)*100)}%`);
+  
+  // 🔥 CORREÇÃO: Taxa limitada a 100%
+  const taxa = Math.min(100, Math.round((totalSaved/CONFIG.TARGET_PRODUCTS)*100));
+  console.log(`⚡ Taxa: ${taxa}%`);
   
   console.log(`\n📊 RESULTADOS POR CATEGORIA:\n`);
   for (const [categoria, res] of Object.entries(resultados)) {

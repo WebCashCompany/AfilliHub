@@ -183,12 +183,20 @@ class MercadoLivreScraper {
     const page = await this.context.newPage();
     
     try {
+      // 🔥 CORREÇÃO: Delay extra SOMENTE no primeiro produto
+      const initialDelay = this.isFirstProduct ? 3000 : 800;
+      
       await page.goto(productUrl, { 
         waitUntil: 'domcontentloaded',
         timeout: 10000
       });
 
-      await page.waitForTimeout(800);
+      await page.waitForTimeout(initialDelay);
+      
+      // Marca que já processou o primeiro
+      if (this.isFirstProduct) {
+        this.isFirstProduct = false;
+      }
 
       // Limpa clipboard
       await page.evaluate(() => {
@@ -278,19 +286,24 @@ class MercadoLivreScraper {
         this.stats.couponsApplied++;
       }
 
+      // 🔥 CORREÇÃO: Filtro de preço antes de verificar duplicatas
       if (this.maxPrice && finalPrice > this.maxPrice) {
         this.stats.filteredByPrice++;
         continue;
       }
 
+      // 🔥 CORREÇÃO: Verificar duplicatas e mostrar no console
       if (this.seenLinks.has(prodData.link)) {
         this.stats.duplicatesIgnored++;
+        console.log(`   ⏭️  Duplicado: ${prodData.name.substring(0, 40)}...`);
         continue;
       }
 
       this.seenLinks.add(prodData.link);
 
-      console.log(`   🔄 [${allProducts.length + 1}/${this.limit}] ${prodData.name.substring(0, 40)}...`);
+      // 🔥 CORREÇÃO: Mostra progresso correto (produtos válidos processados)
+      const currentProgress = allProducts.length + 1;
+      console.log(`   🔄 [${currentProgress}/${this.limit}] ${prodData.name.substring(0, 40)}...`);
       
       const affiliateLink = await this.getAffiliateLink(prodData.link);
       const finalLink = affiliateLink;
@@ -415,14 +428,14 @@ class MercadoLivreScraper {
                 // NOME
                 const name = card.querySelector('h2, .poly-component__title, [class*="title"]')?.innerText || 'Sem nome';
                 
-                // IMAGEM: Prioriza src real e ignora placeholders
+                // 🔥 CORREÇÃO: Busca mais agressiva por imagens válidas
                 let image = null;
                 const imgs = card.querySelectorAll('img');
                 
+                // Primeiro: tenta pegar imagem já carregada (src válido)
                 for (const img of imgs) {
-                  const src = img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy') || '';
+                  const src = img.src || '';
                   
-                  // Ignora placeholders e imagens inválidas
                   if (!src || 
                       src.startsWith('data:') || 
                       src.includes('default.webp') ||
@@ -431,35 +444,47 @@ class MercadoLivreScraper {
                     continue;
                   }
                   
-                  // Formata URL
                   let finalSrc = src.startsWith('//') ? 'https:' + src : src;
-                  
-                  // Converte WEBP → JPG
                   finalSrc = finalSrc.replace(/\.webp/gi, '.jpg');
                   
                   image = finalSrc;
                   break;
                 }
                 
-                // Fallback: tenta data-lazy ou qualquer atributo com URL de imagem
+                // Segundo: tenta data-src ou data-lazy
                 if (!image) {
                   for (const img of imgs) {
-                    const attrs = ['data-src', 'data-lazy', 'data-original', 'srcset'];
+                    const attrs = ['data-src', 'data-lazy', 'data-original'];
                     for (const attr of attrs) {
                       const val = img.getAttribute(attr);
                       if (val && val.includes('mlstatic.com') && !val.includes('default')) {
-                        const urlMatch = val.match(/(https?:)?\/\/[^\s,]+\.(?:jpg|jpeg|png)/i);
-                        if (urlMatch) {
-                          image = urlMatch[0].startsWith('//') ? 'https:' + urlMatch[0] : urlMatch[0];
-                          break;
-                        }
+                        let finalSrc = val.startsWith('//') ? 'https:' + val : val;
+                        finalSrc = finalSrc.replace(/\.webp/gi, '.jpg');
+                        image = finalSrc;
+                        break;
                       }
                     }
                     if (image) break;
                   }
                 }
                 
-                // Se ainda não achou, usa placeholder
+                // Terceiro: tenta srcset
+                if (!image) {
+                  for (const img of imgs) {
+                    const srcset = img.getAttribute('srcset');
+                    if (srcset) {
+                      const urlMatch = srcset.match(/(https?:)?\/\/[^\s,]+\.(?:jpg|jpeg|png)/i);
+                      if (urlMatch) {
+                        let finalSrc = urlMatch[0].startsWith('//') ? 'https:' + urlMatch[0] : urlMatch[0];
+                        finalSrc = finalSrc.replace(/\.webp/gi, '.jpg');
+                        image = finalSrc;
+                        break;
+                      }
+                    }
+                  }
+                }
+                
+                // Fallback: placeholder
                 if (!image) {
                   image = 'https://http2.mlstatic.com/D_NQ_NP_2X_default.webp';
                 }
@@ -559,6 +584,7 @@ class MercadoLivreScraper {
                   }
                 }
                 
+                // 🔥 CORREÇÃO: Calcula preço final com cupom ANTES do filtro
                 let finalPrice = currentPrice;
                 if (couponInfo && currentPrice >= couponInfo.minValue) {
                   if (couponInfo.type === 'percent') {
@@ -568,6 +594,7 @@ class MercadoLivreScraper {
                   }
                 }
                 
+                // Filtro de preço com preço final (após cupom)
                 if (maxPrice && finalPrice > maxPrice) {
                   filteredByPrice++;
                   return;
