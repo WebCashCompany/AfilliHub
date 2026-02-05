@@ -3,7 +3,7 @@
  * SCRAPING SERVICE - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.2.0 - CORREÇÃO CRÍTICA: Não sobrescreve links de afiliado
+ * @version 2.3.0 - CORREÇÃO: Suporte adequado para categoryKey do Magalu
  * @author Dashboard Promoforia
  */
 
@@ -51,10 +51,11 @@ class ScrapingService {
 
     if (MagaluScraper) {
       try {
+        // 🔥 NÃO inicializa o scraper aqui, cria sob demanda
         const magaluConfig = {
           name: 'Magazine Luiza',
           code: 'MAGALU',
-          scraper: new MagaluScraper(),
+          scraper: null, // Será criado sob demanda
           enabled: true
         };
         
@@ -103,6 +104,12 @@ class ScrapingService {
       maxPrice = null 
     } = options;
 
+    console.log('\n╔════════════════════════════════════════════════════╗');
+    console.log('║      🔍 COLLECT FROM MARKETPLACE - DEBUG            ║');
+    console.log('╚════════════════════════════════════════════════════╝');
+    console.log('📦 Marketplace:', marketplaceName);
+    console.log('📋 Options recebidas:', JSON.stringify(options, null, 2));
+
     const marketplace = this.marketplaces.get(marketplaceName) || 
                         this.marketplaces.get(marketplaceName.toLowerCase()) ||
                         this.marketplaces.get(marketplaceName.toUpperCase());
@@ -118,41 +125,71 @@ class ScrapingService {
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
     
     const filters = [];
-    if (categoria) filters.push(`Categoria: ${categoria}`);
+    if (categoria) filters.push(`Categoria ML: ${categoria}`);
     if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
     if (maxPrice) filters.push(`Preço Máx: R$ ${maxPrice}`);
     if (filters.length > 0) {
       console.log(`🎯 FILTROS: ${filters.join(' | ')}`);
     }
 
-    console.log('🟡 Iniciando Web Scraper (Playwright)...\n');
+    // ═══════════════════════════════════════════════════════════
+    // 🔥 MAGALU: CRIA SCRAPER COM CATEGORIA NO CONSTRUTOR
+    // ═══════════════════════════════════════════════════════════
+    let scraper;
     
-    const scraper = marketplace.scraper;
-    
-    scraper.minDiscount = minDiscount;
-    scraper.limit = limit;
-    scraper.maxPrice = maxPrice;
-    
+    if (marketplace.code === 'MAGALU') {
+      console.log('\n🔥 CRIANDO MAGALU SCRAPER COM CONFIGURAÇÕES...');
+      
+      if (categoryKey) {
+        console.log(`🎯 CategoryKey detectado: ${categoryKey}`);
+        scraper = new MagaluScraper(minDiscount, { categoryKey });
+      } else {
+        console.log('⚠️  Nenhuma categoryKey fornecida, usando padrão');
+        scraper = new MagaluScraper(minDiscount);
+      }
+      
+      scraper.limit = limit;
+      scraper.maxPrice = maxPrice;
+      
+      const current = scraper.getCurrentCategory();
+      console.log('📂 Categoria configurada:', current.name);
+      console.log('💾 Salva no DB como:', current.dbName);
+      console.log('🔗 URL:', current.url);
+      
+    } else {
+      // Outros marketplaces usam scraper existente
+      scraper = marketplace.scraper;
+      scraper.minDiscount = minDiscount;
+      scraper.limit = limit;
+      scraper.maxPrice = maxPrice;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // MERCADO LIVRE: Configuração de categoria
+    // ═══════════════════════════════════════════════════════════
     if (marketplace.code === 'ML' && categoria) {
       const categoriaInfo = getCategoria(categoria);
       if (categoriaInfo) {
         scraper.categoriaKey = categoria;
         scraper.categoriaInfo = categoriaInfo;
+        console.log(`📂 Categoria ML configurada: ${categoriaInfo.nome}`);
       } else {
         console.warn(`⚠️  Categoria "${categoria}" não encontrada, usando padrão`);
       }
     }
     
-    if (marketplace.code === 'MAGALU' && categoryKey) {
-      if (typeof scraper.setCategory === 'function') {
-        scraper.setCategory(categoryKey);
-      }
-    }
+    console.log('🟡 Iniciando Web Scraper (Playwright)...\n');
     
+    // ═══════════════════════════════════════════════════════════
+    // EXECUÇÃO DO SCRAPING
+    // ═══════════════════════════════════════════════════════════
     const products = await scraper.scrapeCategory();
     
     console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
+    // ═══════════════════════════════════════════════════════════
+    // PROCESSAMENTO DE LINKS DE AFILIADO
+    // ═══════════════════════════════════════════════════════════
     if (products.length > 0) {
       console.log(`🔗 Processando ${products.length} links de afiliado...\n`);
       
@@ -179,9 +216,24 @@ class ScrapingService {
           }
         } 
         else if (marketplace.code === 'MAGALU') {
-          const separator = product.link_original.includes('?') ? '&' : '?';
-          product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
+          // 🔥 Magalu já vem com link de afiliado correto do scraper
+          // Validar se já tem o affiliateId
+          const affiliateId = process.env.MAGALU_AFFILIATE_ID || 'magazinepromoforia';
+          
+          if (!product.link_afiliado || !product.link_afiliado.includes(affiliateId)) {
+            const separator = product.link_original.includes('?') ? '&' : '?';
+            product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
+          }
+          
           processados++;
+          
+          if (i < 3) {
+            console.log(`   [${i + 1}] ${product.nome.substring(0, 40)}...`);
+            console.log(`       📂 Categoria: ${product.categoria}`);
+            console.log(`       🔗 ${product.link_afiliado.substring(0, 80)}...`);
+          } else if (i === 3) {
+            console.log(`   ... (${products.length - 4} produtos omitidos)`);
+          }
           
         } else if (marketplace.code === 'shopee') {
           const separator = product.link_original.includes('?') ? '&' : '?';

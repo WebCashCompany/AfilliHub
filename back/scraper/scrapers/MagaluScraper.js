@@ -2,9 +2,10 @@
  * ═══════════════════════════════════════════════════════════════════════
  * MAGALU SCRAPER - VERSÃO FINAL CORRIGIDA (HYBRID STRUCTURE SUPPORT)
  * ═══════════════════════════════════════════════════════════════════════
- * * @version 3.1.0 - PRODUCTION READY
- * @fixes Adaptação para estruturas HTML com e sem 'price-original'
- * * LÓGICA DE EXTRAÇÃO APLICADA:
+ * @version 3.2.0 - PRODUCTION READY - CATEGORIA FIXA
+ * @fixes Correção para garantir que a categoria selecionada seja respeitada
+ * 
+ * LÓGICA DE EXTRAÇÃO APLICADA:
  * 1. Busca Preço Atual (price-value).
  * 2. Tenta encontrar Preço Original (price-original).
  * 3. Se (2) falhar, varre o texto buscando padrão "(XX% de desconto no pix)".
@@ -17,7 +18,7 @@ const { getProductModel } = require('../../database/models/Products');
 const { getCategoryUrl, getCategoryName, MAGALU_CATEGORIES } = require('../../config/categorias-magalu');
 
 class MagaluScraper {
-  constructor(minDiscount = 30) {
+  constructor(minDiscount = 30, options = {}) {
     this.minDiscount = minDiscount;
     this.limit = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
     this.affiliateId = process.env.MAGALU_AFFILIATE_ID || 'magazinepromoforia';
@@ -36,21 +37,56 @@ class MagaluScraper {
     this.seenProductKeys = new Set();
     this.existingProductsMap = new Map();
     
-    this.currentCategory = 'OFERTAS_DIA';
-    this.categoryName = 'Ofertas do Dia';
-    this.categoryNameForDB = 'Ofertas do Dia';
+    // 🔥 CORREÇÃO: Categoria agora pode vir do construtor
+    if (options.categoryKey && MAGALU_CATEGORIES[options.categoryKey]) {
+      this.currentCategory = options.categoryKey;
+      this.categoryName = MAGALU_CATEGORIES[options.categoryKey].name;
+      this.categoryNameForDB = getCategoryName(options.categoryKey);
+      console.log(`🎯 Categoria definida no construtor: ${this.categoryName} → "${this.categoryNameForDB}"`);
+    } else {
+      this.currentCategory = 'OFERTAS_DIA';
+      this.categoryName = 'Ofertas do Dia';
+      this.categoryNameForDB = 'Ofertas do Dia';
+      console.log(`⚠️  Nenhuma categoria especificada, usando padrão: ${this.categoryName}`);
+    }
   }
 
+  /**
+   * 🔥 MÉTODO SETCATEGORY APRIMORADO
+   * Agora valida e registra a mudança de categoria
+   */
   setCategory(categoryKey) {
+    if (!categoryKey) {
+      console.warn('⚠️  setCategory chamado sem categoryKey, mantendo categoria atual');
+      return;
+    }
+
     if (!MAGALU_CATEGORIES[categoryKey]) {
+      console.error(`❌ Categoria "${categoryKey}" não existe nas configurações`);
+      console.log('📋 Categorias disponíveis:', Object.keys(MAGALU_CATEGORIES).join(', '));
       throw new Error(`Categoria "${categoryKey}" não existe`);
     }
     
+    const oldCategory = this.currentCategory;
     this.currentCategory = categoryKey;
     this.categoryName = MAGALU_CATEGORIES[categoryKey].name;
     this.categoryNameForDB = getCategoryName(categoryKey);
     
-    console.log(`📂 Categoria: ${this.categoryName} → "${this.categoryNameForDB}"`);
+    console.log(`🔄 Categoria alterada: "${oldCategory}" → "${this.currentCategory}"`);
+    console.log(`📂 Nome da categoria: ${this.categoryName}`);
+    console.log(`💾 Salva no DB como: "${this.categoryNameForDB}"\n`);
+  }
+
+  /**
+   * 🔥 NOVO MÉTODO: Retorna a categoria atual
+   */
+  getCurrentCategory() {
+    return {
+      key: this.currentCategory,
+      name: this.categoryName,
+      dbName: this.categoryNameForDB,
+      url: getCategoryUrl(this.currentCategory, this.affiliateId, 1)
+    };
   }
 
   async loadExistingProducts() {
@@ -143,6 +179,15 @@ class MagaluScraper {
   async scrapeCategory() {
     const startTime = Date.now();
     
+    // 🔥 VALIDAÇÃO ANTES DE COMEÇAR
+    console.log('\n╔════════════════════════════════════════════════════╗');
+    console.log(`║   🔍 VALIDAÇÃO DE CATEGORIA                         ║`);
+    console.log(`╚════════════════════════════════════════════════════╝`);
+    console.log(`🎯 Categoria Key: ${this.currentCategory}`);
+    console.log(`📂 Nome: ${this.categoryName}`);
+    console.log(`💾 DB: ${this.categoryNameForDB}`);
+    console.log(`🔗 URL Base: ${getCategoryUrl(this.currentCategory, this.affiliateId, 1)}\n`);
+    
     await this.loadExistingProducts();
 
     const browser = await chromium.launch({ 
@@ -179,9 +224,11 @@ class MagaluScraper {
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
       while (allProducts.length < this.limit && pageNum <= maxPages) {
+        // 🔥 GARANTIR QUE ESTAMOS USANDO A CATEGORIA CORRETA
         const url = getCategoryUrl(this.currentCategory, this.affiliateId, pageNum);
         
         console.log(`📄 Pág ${pageNum.toString().padStart(2, '0')}/${maxPages} [${allProducts.length}/${this.limit}]`);
+        console.log(`🔗 URL: ${url.substring(0, 80)}...`);
         
         try {
           await page.goto(url, { 
@@ -211,7 +258,6 @@ class MagaluScraper {
             // Função auxiliar de limpeza de preço
             function extractPriceInCents(text) {
               if (!text) return 0;
-              // Remove "ou ", "R$", espaços e caracteres invisíveis
               const cleaned = text.replace(/[^\d.,]/g, ''); 
               let priceStr = cleaned;
               
@@ -269,7 +315,6 @@ class MagaluScraper {
                 let imgEl = card.querySelector('img');
                 let imageUrl = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
                 
-                // Texto completo do card para Regex (innerText remove comentários HTML automaticamente)
                 const cardText = card.innerText || '';
                 
                 // ═══════════════════════════════════════════════════════
@@ -279,43 +324,38 @@ class MagaluScraper {
                 let oldPriceCents = 0;
                 let discountVal = 0;
                 
-                // A) PREÇO ATUAL (Target: price-value)
+                // A) PREÇO ATUAL
                 const currentPriceEl = card.querySelector('[data-testid="price-value"]');
                 if (currentPriceEl) {
                   currentPriceCents = extractPriceInCents(currentPriceEl.innerText);
                 } else {
-                  // Fallback Regex
                   const priceMatch = cardText.match(/R\$\s*[\d.,]+/);
                   if (priceMatch) currentPriceCents = extractPriceInCents(priceMatch[0]);
                 }
                 
                 if (!currentPriceCents || currentPriceCents === 0) return;
                 
-                // B) PREÇO ORIGINAL (Target: price-original)
+                // B) PREÇO ORIGINAL
                 const oldPriceEl = card.querySelector('[data-testid="price-original"]');
                 if (oldPriceEl) {
                   oldPriceCents = extractPriceInCents(oldPriceEl.innerText);
                 }
                 
-                // C) CÁLCULO REVERSO VIA TEXTO PIX (Se não tiver price-original)
-                // Exemplo HTML: <span ...>(20% de desconto no pix)</span>
+                // C) CÁLCULO REVERSO VIA TEXTO PIX
                 if (oldPriceCents === 0) {
-                  // Regex robusta que pega "20% ... pix" mesmo com quebras ou espaços extras
                   const pixMatch = cardText.match(/(\d+)%\s+(?:de\s+)?desconto\s+(?:no\s+)?pix/i);
                   
                   if (pixMatch) {
                     const foundDiscount = parseInt(pixMatch[1]);
                     
                     if (foundDiscount > 0 && foundDiscount < 100) {
-                      // Engenharia reversa: Preço Original = Preço Pix / (1 - Desconto%)
-                      // Ex: 256 / 0.8 = 320
                       oldPriceCents = Math.round(currentPriceCents / (1 - foundDiscount / 100));
                       discountVal = foundDiscount;
                     }
                   }
                 }
                 
-                // D) CÁLCULO FINAL DE DESCONTO (Se achou os dois preços)
+                // D) CÁLCULO FINAL DE DESCONTO
                 if (discountVal === 0 && oldPriceCents > 0) {
                   discountVal = calculateDiscount(oldPriceCents, currentPriceCents);
                 }
@@ -324,15 +364,12 @@ class MagaluScraper {
                 // FILTROS FINAIS
                 // ═══════════════════════════════════════════════════════
                 
-                // Sanidade: Preço DE deve ser maior que PARA
                 if (oldPriceCents > 0 && currentPriceCents > 0 && oldPriceCents < currentPriceCents) {
                   [oldPriceCents, currentPriceCents] = [currentPriceCents, oldPriceCents];
                   discountVal = calculateDiscount(oldPriceCents, currentPriceCents);
                 }
                 
                 if (discountVal < minDisc) return;
-                
-                // Ignorar se não foi possível determinar um preço "DE" válido
                 if (oldPriceCents === 0 || oldPriceCents <= currentPriceCents) return;
                 
                 // Tratamento de Link Afiliado
@@ -438,7 +475,7 @@ class MagaluScraper {
       console.log('\n╔════════════════════════════════════════════════════╗');
       console.log(`║               🏁 FINALIZADO 🏁                       ║`);
       console.log(`╚════════════════════════════════════════════════════╝`);
-      console.log(`📂 Subcategoria: ${this.categoryName}`);
+      console.log(`📂 Categoria: ${this.categoryName}`);
       console.log(`💾 Salvo como: ${this.categoryNameForDB}`);
       console.log(`✨ Coletados: ${allProducts.length}/${this.limit}`);
       console.log(`   └─ Novos: ${allProducts.filter(p => !p._shouldUpdate).length}`);

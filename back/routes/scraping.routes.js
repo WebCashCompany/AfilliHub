@@ -1,4 +1,4 @@
-// backend/routes/scraping.routes.js - FIX DEFINITIVO
+// backend/routes/scraping.routes.js - FIX DEFINITIVO COM SUPORTE A CATEGORIAS (V2)
 
 const express = require('express');
 const router = express.Router();
@@ -32,6 +32,11 @@ router.post('/start', async (req, res) => {
   try {
     const { marketplaces, minDiscount, maxPrice, filters } = req.body;
 
+    console.log('\n╔════════════════════════════════════════════════════╗');
+    console.log('║         🚀 RECEBENDO REQUISIÇÃO DE SCRAPING        ║');
+    console.log('╚════════════════════════════════════════════════════╝');
+    console.log('📦 Body recebido:', JSON.stringify(req.body, null, 2));
+
     if (!marketplaces || typeof marketplaces !== 'object') {
       return res.status(400).json({
         success: false,
@@ -57,6 +62,8 @@ router.post('/start', async (req, res) => {
     });
 
     console.log('✅ Scraping iniciado - Session ID:', sessionId);
+    console.log('📊 Marketplaces habilitados:', enabledMarketplaces.map(([name]) => name).join(', '));
+    console.log('🎯 Total de itens esperados:', totalItems);
     
     res.json({
       success: true,
@@ -67,6 +74,9 @@ router.post('/start', async (req, res) => {
       }
     });
 
+    // ═══════════════════════════════════════════════════════════
+    // PROCESSAMENTO ASSÍNCRONO
+    // ═══════════════════════════════════════════════════════════
     (async () => {
       const scrapingService = new ScrapingService();
       let totalCollected = 0;
@@ -81,6 +91,10 @@ router.post('/start', async (req, res) => {
 
         session.currentMarketplace = marketplaceName;
         
+        console.log(`\n${'═'.repeat(60)}`);
+        console.log(`🔄 PROCESSANDO: ${marketplaceName.toUpperCase()}`);
+        console.log(`${'═'.repeat(60)}`);
+        
         sendSSE(sessionId, {
           progress: Math.round((processedItems / totalItems) * 100),
           currentMarketplace: marketplaceName,
@@ -91,6 +105,9 @@ router.post('/start', async (req, res) => {
         });
 
         try {
+          // ═══════════════════════════════════════════════════════════
+          // 🔥 CORREÇÃO CRÍTICA: Usar categoryKey em vez de categoria
+          // ═══════════════════════════════════════════════════════════
           const options = {
             minDiscount: mpConfig.filters?.minDiscount || minDiscount || 30,
             limit: mpConfig.quantity,
@@ -98,6 +115,32 @@ router.post('/start', async (req, res) => {
             filters: mpConfig.filters || {}
           };
 
+          // 🔥 DEBUG: Mostrar todos os filtros recebidos
+          console.log('📋 Filtros recebidos do frontend:');
+          console.log('   mpConfig.filters:', JSON.stringify(mpConfig.filters, null, 2));
+
+          // 🔥 MAGALU: Usa categoryKey (a KEY correta, não o slug)
+          if (marketplaceName === 'magalu') {
+            if (mpConfig.filters?.categoryKey) {
+              options.categoryKey = mpConfig.filters.categoryKey;
+              console.log(`✅ CATEGORIA MAGALU (categoryKey): ${options.categoryKey}`);
+            } else if (mpConfig.filters?.categoria) {
+              // Fallback: se só tiver categoria (slug), tenta usar
+              console.warn(`⚠️  Recebido apenas 'categoria' (slug): ${mpConfig.filters.categoria}`);
+              console.warn(`⚠️  Esperado 'categoryKey' (KEY). Tentando usar categoria como fallback...`);
+              options.categoryKey = mpConfig.filters.categoria;
+            } else {
+              console.log(`ℹ️  Nenhuma categoria especificada, usando padrão (OFERTAS_DIA)`);
+            }
+          }
+
+          // 🔥 MERCADO LIVRE: Usa categoria normalmente
+          if (marketplaceName === 'mercadolivre' && mpConfig.filters?.categoria) {
+            options.categoria = mpConfig.filters.categoria;
+            console.log(`✅ CATEGORIA ML: ${options.categoria}`);
+          }
+
+          console.log(`📋 Opções finais para scraping:`, JSON.stringify(options, null, 2));
           console.log(`\n📦 Iniciando coleta: ${marketplaceName}`);
 
           const products = await scrapingService.collectFromMarketplace(
@@ -110,7 +153,6 @@ router.post('/start', async (req, res) => {
           console.log(`   Tipo: ${typeof products}`);
           console.log(`   É array? ${Array.isArray(products)}`);
 
-          // ✅ VALIDAÇÃO CRÍTICA
           const hasProducts = products && Array.isArray(products) && products.length > 0;
           
           console.log(`   Tem produtos válidos? ${hasProducts}`);
@@ -140,7 +182,6 @@ router.post('/start', async (req, res) => {
 
             const newProgress = Math.min(Math.round((processedItems / totalItems) * 100), 100);
             
-            // ✅ ATUALIZAR SESSÃO
             session.progress = newProgress;
             session.itemsCollected = totalCollected;
 
@@ -170,7 +211,6 @@ router.post('/start', async (req, res) => {
             console.log(`\n⚠️ NÃO TEM PRODUTOS VÁLIDOS, pulando...`);
             processedItems += mpConfig.quantity;
             
-            // ✅ ATUALIZAR PROGRESSO MESMO SEM PRODUTOS
             const newProgress = Math.min(Math.round((processedItems / totalItems) * 100), 100);
             session.progress = newProgress;
             
@@ -188,18 +228,25 @@ router.post('/start', async (req, res) => {
 
         } catch (error) {
           console.error(`❌ Erro no marketplace ${marketplaceName}:`, error);
+          console.error(error.stack);
           processedItems += mpConfig.quantity;
         }
       }
 
-      // ✅ FINALIZAR
+      // ═══════════════════════════════════════════════════════════
+      // FINALIZAÇÃO
+      // ═══════════════════════════════════════════════════════════
       const session = activeScrapingSessions.get(sessionId);
       if (session) {
         session.status = 'completed';
         session.progress = 100;
         session.completedAt = new Date();
 
-        console.log(`\n🎉 FINALIZANDO: ${totalCollected} produtos coletados`);
+        console.log(`\n╔════════════════════════════════════════════════════╗`);
+        console.log(`║            🎉 SCRAPING FINALIZADO 🎉               ║`);
+        console.log(`╚════════════════════════════════════════════════════╝`);
+        console.log(`✨ Total de produtos coletados: ${totalCollected}`);
+        console.log(`📊 Progresso final: 100%\n`);
 
         sendSSE(sessionId, {
           progress: 100,
@@ -220,6 +267,7 @@ router.post('/start', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Erro ao iniciar scraping:', error);
+    console.error(error.stack);
     res.status(500).json({
       success: false,
       error: error.message
