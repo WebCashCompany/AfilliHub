@@ -44,19 +44,22 @@ const MAGALU_CATEGORIES = [
   { value: 'domesticos', label: 'Domésticos', key: 'DOMESTICOS', icon: '🧹' },
 ];
 
+// ✅ CATEGORIAS EXATAS DO MERCADO LIVRE (sincronizado com categorias-ml.js)
 const MERCADOLIVRE_CATEGORIES = [
-  { value: '', label: 'Todas as categorias', icon: '📦' },
+  { value: 'todas', label: 'Todas as Ofertas', icon: '🎯' },
   { value: 'celulares', label: 'Celulares', icon: '📱' },
   { value: 'beleza', label: 'Beleza', icon: '💄' },
+  { value: 'ofertas_relampago', label: 'Ofertas Relâmpago', icon: '⚡' },
+  { value: 'ofertas_dia', label: 'Ofertas do Dia', icon: '🌟' },
+  { value: 'informatica', label: 'Informática', icon: '💻' },
+  { value: 'precos_imbativeis', label: 'Preços Imbatíveis', icon: '💥' },
   { value: 'eletrodomesticos', label: 'Eletrodomésticos', icon: '🏠' },
   { value: 'casa_decoracao', label: 'Casa e Decoração', icon: '🛋️' },
-  { value: 'calcados_roupas', label: 'Calçados e Roupas', icon: '👟' },
-  { value: 'informatica', label: 'Informática', icon: '💻' },
-  { value: 'games', label: 'Games', icon: '🎮' },
-  { value: 'eletronicos', label: 'Eletrônicos', icon: '📺' },
   { value: 'joias_relogios', label: 'Joias e Relógios', icon: '⌚' },
-  { value: 'esportes', label: 'Esportes', icon: '⚽' },
+  { value: 'esportes', label: 'Esportes e Fitness', icon: '⚽' },
+  { value: 'games', label: 'Games', icon: '🎮' },
   { value: 'ferramentas', label: 'Ferramentas', icon: '🔧' },
+  { value: 'calcados_roupas', label: 'Calçados e Roupas', icon: '👟' },
 ];
 
 export function AutomationPage() {
