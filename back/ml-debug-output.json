@@ -1,0 +1,123 @@
+{
+  "totalElements": 4348,
+  "cardSelectors": [
+    {
+      "selector": ".poly-card",
+      "count": 60
+    },
+    {
+      "selector": "[class*=\"poly-card\"]",
+      "count": 186
+    },
+    {
+      "selector": "div[class*=\"item\"]",
+      "count": 22
+    }
+  ],
+  "cards": [
+    {
+      "classes": "andes-card poly-card poly-card--grid-card poly-card--xlarge andes-card--flat andes-card--padding-0 andes-card--animated",
+      "html": "<div class=\"andes-card poly-card poly-card--grid-card poly-card--xlarge andes-card--flat andes-card--padding-0 andes-card--animated\" id=\":R21j7:\"><div class=\"poly-card__portada\"><span class=\"poly-component__image-overlay\"></span><img title=\"Secador De Cabelo Taiff Black Ion 2000w Para Barbearia\" width=\"150\" height=\"150\" aria-hidden=\"true\" decoding=\"async\" src=\"https://http2.mlstatic.com/D_Q_NP_2X_875090-MLA99988656513_112025-AB.webp\" class=\"poly-component__picture\" alt=\"Secador De Cabelo Taiff B"
+    }
+  ],
+  "priceSelectors": [
+    {
+      "class": "poly-component__price",
+      "text": "R$\n399\nR$\n221\n,\n50\n44% OFF no Pix\nou \nR$\n240\n,\n76\n",
+      "tag": "DIV"
+    },
+    {
+      "class": "andes-money-amount andes-money-amount--previous andes-money-amount--cents-comma",
+      "text": "R$\n399",
+      "tag": "S"
+    },
+    {
+      "class": "andes-money-amount__currency-symbol",
+      "text": "R$",
+      "tag": "SPAN"
+    },
+    {
+      "class": "andes-money-amount__fraction",
+      "text": "399",
+      "tag": "SPAN"
+    },
+    {
+      "class": "poly-price__current",
+      "text": "R$\n221\n,\n50\n44% OFF no Pix",
+      "tag": "DIV"
+    },
+    {
+      "class": "andes-money-amount andes-money-amount--cents-superscript",
+      "text": "R$\n221\n,\n50",
+      "tag": "SPAN"
+    },
+    {
+      "class": "andes-money-amount__currency-symbol",
+      "text": "R$",
+      "tag": "SPAN"
+    },
+    {
+      "class": "andes-money-amount__fraction",
+      "text": "221",
+      "tag": "SPAN"
+    },
+    {
+      "class": "andes-money-amount__cents andes-money-amount__cents--superscript-24",
+      "text": "50",
+      "tag": "SPAN"
+    },
+    {
+      "class": "poly-price__disc_label andes-money-amount__discount",
+      "text": "44% OFF no Pix",
+      "tag": "SPAN"
+    },
+    {
+      "class": "poly-price__installments",
+      "text": "ou \nR$\n240\n,\n76\n em outros meios",
+      "tag": "SPAN"
+    },
+    {
+      "class": "andes-money-amount poly-phrase-price andes-money-amount--cents-comma",
+      "text": "R$\n240\n,\n76",
+      "tag": "SPAN"
+    },
+    {
+      "class": "andes-money-amount__currency-symbol",
+      "text": "R$",
+      "tag": "SPAN"
+    },
+    {
+      "class": "andes-money-amount__fraction",
+      "text": "240",
+      "tag": "SPAN"
+    },
+    {
+      "class": "andes-money-amount__cents",
+      "text": "76",
+      "tag": "SPAN"
+    },
+    {
+      "selector": ".andes-money-amount__fraction",
+      "count": 3,
+      "values": [
+        "399",
+        "221",
+        "240"
+      ]
+    }
+  ],
+  "discountSelectors": [
+    {
+      "class": "poly-price__disc_label andes-money-amount__discount",
+      "text": "44% OFF no Pix",
+      "tag": "SPAN"
+    }
+  ],
+  "imageSelectors": [
+    {
+      "src": "https://http2.mlstatic.com/D_Q_NP_2X_875090-MLA99988656513_112025-AB.webp",
+      "dataSrc": "N/A",
+      "class": "poly-component__picture"
+    }
+  ]
+}

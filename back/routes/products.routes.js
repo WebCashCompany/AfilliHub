@@ -1,11 +1,122 @@
-// ═══════════════════════════════════════════════════════════
-// routes/products.routes.js - COMPLETO COM EXCLUSÕES
-// ═══════════════════════════════════════════════════════════
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * PRODUCTS ROUTES - VERSÃO ATUALIZADA COM MIDDLEWARE DE IMAGENS
+ * ═══════════════════════════════════════════════════════════════════════
+ * 
+ * ✅ Mantém todas as rotas existentes
+ * ✅ Adiciona transformação automática de imagens WEBP → JPG
+ * ✅ Compatível com sistema multi-marketplace existente
+ */
 
 const express = require('express');
 const router = express.Router();
 const { getProductConnection } = require('../database/mongodb');
 const { getProductModel } = require('../database/models/Products');
+
+// ═══════════════════════════════════════════════════════════
+// MIDDLEWARE: Transformação de Imagens WEBP → JPG
+// ═══════════════════════════════════════════════════════════
+
+function transformImageUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  
+  // URLs base64 não precisam transformação
+  if (url.startsWith('data:image')) return url;
+  
+  // Se já é JPG/PNG, retorna direto
+  if (url.match(/\.(jpg|jpeg|png)(\?|$)/i)) return url;
+  
+  // Mercado Livre: Converte WEBP → JPG
+  if (url.includes('mlstatic.com') || url.includes('mluploads.com')) {
+    const baseUrl = url.split('?')[0];
+    if (baseUrl.includes('.webp')) {
+      return baseUrl.replace(/\.webp/gi, '.jpg') + '?quality=75';
+    }
+    return baseUrl + '?quality=75';
+  }
+  
+  // Magazine Luiza: Converte WEBP → JPG
+  if (url.includes('magazineluiza.com')) {
+    const baseUrl = url.split('?')[0];
+    if (baseUrl.includes('.webp')) {
+      return baseUrl.replace(/\.webp/gi, '.jpg');
+    }
+    return baseUrl;
+  }
+  
+  // Outros: Tenta conversão genérica
+  const baseUrl = url.split('?')[0];
+  if (baseUrl.includes('.webp')) {
+    return baseUrl.replace(/\.webp/gi, '.jpg');
+  }
+  
+  return url;
+}
+
+function transformProductImages(products) {
+  if (!Array.isArray(products)) return products;
+  
+  return products.map(product => {
+    if (product && product.imagem) {
+      return {
+        ...product,
+        imagem: transformImageUrl(product.imagem)
+      };
+    }
+    return product;
+  });
+}
+
+// Middleware que intercepta res.json para transformar imagens
+function imageTransformerMiddleware(req, res, next) {
+  const originalJson = res.json.bind(res);
+  
+  res.json = function(data) {
+    if (data && typeof data === 'object') {
+      // Array direto de produtos
+      if (Array.isArray(data)) {
+        return originalJson(transformProductImages(data));
+      }
+      
+      // Objeto com array "items"
+      if (data.data && data.data.items && Array.isArray(data.data.items)) {
+        return originalJson({
+          ...data,
+          data: {
+            ...data.data,
+            items: transformProductImages(data.data.items)
+          }
+        });
+      }
+      
+      // Objeto com array "data"
+      if (data.data && Array.isArray(data.data)) {
+        return originalJson({
+          ...data,
+          data: transformProductImages(data.data)
+        });
+      }
+      
+      // Produto único
+      if (data.data && data.data.imagem) {
+        return originalJson({
+          ...data,
+          data: {
+            ...data.data,
+            imagem: transformImageUrl(data.data.imagem)
+          }
+        });
+      }
+    }
+    
+    return originalJson(data);
+  };
+  
+  next();
+}
+
+// ✅ Aplicar middleware em todas as rotas
+router.use(imageTransformerMiddleware);
 
 // ═══════════════════════════════════════════════════════════
 // GET /api/products - LISTAR TODOS OS PRODUTOS
@@ -47,7 +158,8 @@ router.get('/', async (req, res) => {
       }
     }
 
-    console.log(`   📊 Total: ${allProducts.length} produtos\n`);
+    console.log(`   📊 Total: ${allProducts.length} produtos`);
+    console.log(`   🖼️  Imagens sendo transformadas pelo middleware\n`);
 
     res.json({
       success: true,
@@ -59,6 +171,82 @@ router.get('/', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Erro ao listar produtos:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// GET /api/products/:id - BUSCAR PRODUTO POR ID
+// ═══════════════════════════════════════════════════════════
+
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conn = getProductConnection();
+    const marketplaces = ['ML', 'shopee', 'amazon', 'magalu'];
+    
+    for (const mp of marketplaces) {
+      const Model = getProductModel(mp, conn);
+      const product = await Model.findById(id).lean();
+      
+      if (product) {
+        return res.json({
+          success: true,
+          data: { ...product, marketplace: mp }
+        });
+      }
+    }
+
+    res.status(404).json({
+      success: false,
+      error: 'Produto não encontrado'
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao buscar produto:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// DELETE /api/products/:id - DELETAR PRODUTO ÚNICO
+// ═══════════════════════════════════════════════════════════
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`\n🗑️ DELETE /api/products/${id}`);
+    
+    const conn = getProductConnection();
+    const marketplaces = ['ML', 'shopee', 'amazon', 'magalu'];
+    
+    for (const mp of marketplaces) {
+      const Model = getProductModel(mp, conn);
+      const result = await Model.findByIdAndDelete(id);
+      
+      if (result) {
+        console.log(`   ✅ Produto deletado do ${mp}\n`);
+        return res.json({
+          success: true,
+          message: 'Produto deletado com sucesso',
+          data: { id, marketplace: mp }
+        });
+      }
+    }
+
+    res.status(404).json({
+      success: false,
+      error: 'Produto não encontrado'
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao deletar produto:', error);
     res.status(500).json({
       success: false,
       error: error.message
@@ -236,82 +424,6 @@ router.post('/bulk-delete', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Erro no bulk delete:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════
-// GET /api/products/:id - BUSCAR PRODUTO POR ID
-// ═══════════════════════════════════════════════════════════
-
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const conn = getProductConnection();
-    const marketplaces = ['ML', 'shopee', 'amazon', 'magalu'];
-    
-    for (const mp of marketplaces) {
-      const Model = getProductModel(mp, conn);
-      const product = await Model.findById(id).lean();
-      
-      if (product) {
-        return res.json({
-          success: true,
-          data: { ...product, marketplace: mp }
-        });
-      }
-    }
-
-    res.status(404).json({
-      success: false,
-      error: 'Produto não encontrado'
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao buscar produto:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════
-// DELETE /api/products/:id - DELETAR PRODUTO ÚNICO
-// ═══════════════════════════════════════════════════════════
-
-router.delete('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`\n🗑️ DELETE /api/products/${id}`);
-    
-    const conn = getProductConnection();
-    const marketplaces = ['ML', 'shopee', 'amazon', 'magalu'];
-    
-    for (const mp of marketplaces) {
-      const Model = getProductModel(mp, conn);
-      const result = await Model.findByIdAndDelete(id);
-      
-      if (result) {
-        console.log(`   ✅ Produto deletado do ${mp}\n`);
-        return res.json({
-          success: true,
-          message: 'Produto deletado com sucesso',
-          data: { id, marketplace: mp }
-        });
-      }
-    }
-
-    res.status(404).json({
-      success: false,
-      error: 'Produto não encontrado'
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao deletar produto:', error);
     res.status(500).json({
       success: false,
       error: error.message

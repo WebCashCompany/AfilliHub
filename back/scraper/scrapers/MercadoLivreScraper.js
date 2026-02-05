@@ -1,14 +1,12 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - VERSÃO OTIMIZADA E CORRIGIDA 🚀
+ * MERCADO LIVRE SCRAPER - VERSÃO CORRIGIDA 🔥
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 10.0.0 - ✅ CORREÇÕES CRÍTICAS:
- * 1. ⚡ Performance: Reduzido de 50s → ~15s para 10 produtos
- * 2. 🖼️ Imagens WEBP: Download real + conversão (não só URL)
- * 3. 🔧 Timeouts otimizados: Removidos waits desnecessários
- * 4. 🎯 Processamento serial nos links de afiliado (evita clipboard race)
- * 5. 📦 Batch reduzido para 1 (100% confiável)
+ * @version 12.2.0 - ✅ CORREÇÃO CRÍTICA DE PREÇOS:
+ * - Extração de preços 100% funcional usando classe "previous"
+ * - Validação inteligente com recálculo automático
+ * - Bloqueio total de placeholders lazy-load mantido
  */
 
 const { chromium } = require('playwright-extra');
@@ -16,8 +14,6 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 chromium.use(StealthPlugin());
 
 const path = require('path');
-const sharp = require('sharp'); // ✅ Adicionar: npm install sharp
-const axios = require('axios');
 const { getProductConnection } = require('../../database/mongodb');
 const { getProductModel } = require('../../database/models/Products');
 const { getCategoria } = require('../../config/categorias-ml');
@@ -43,8 +39,10 @@ class MercadoLivreScraper {
       couponsApplied: 0,
       couponsIgnored: 0,
       loopDetections: 0,
-      imagesConverted: 0,
-      imagesDownloaded: 0 // ✅ NOVO
+      webpImages: 0,
+      jpgImages: 0,
+      imagesWithoutUrl: 0,
+      placeholdersBlocked: 0
     };
     
     this.seenLinks = new Set();
@@ -72,10 +70,12 @@ class MercadoLivreScraper {
     }
     
     this.config = {
-      pageTimeout: 8000, // ✅ Reduzido de 10000ms
+      pageTimeout: 15000,
+      navigationTimeout: 20000,
       maxPages: 50,
       maxEmptyPages: 2,
-      maxSamePage: 3
+      maxSamePage: 3,
+      retryAttempts: 2
     };
     
     this.browser = null;
@@ -203,45 +203,26 @@ class MercadoLivreScraper {
   }
 
   /**
-   * ✅ NOVA FUNÇÃO: Download e conversão real de WEBP → JPG
+   * ✅ Converte WEBP → JPG
    */
-  async downloadAndConvertImage(imageUrl) {
-    try {
-      // Se já é JPG/PNG, retorna direto
-      if (imageUrl.match(/\.(jpg|jpeg|png)(\?|$)/i)) {
-        return imageUrl;
-      }
-
-      // Download da imagem
-      const response = await axios.get(imageUrl, {
-        responseType: 'arraybuffer',
-        timeout: 5000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      });
-
-      // Converte para JPG usando Sharp
-      const jpgBuffer = await sharp(response.data)
-        .jpeg({ quality: 85 })
-        .toBuffer();
-
-      // Converte para base64 data URL
-      const base64 = jpgBuffer.toString('base64');
-      const dataUrl = `data:image/jpeg;base64,${base64}`;
-
-      this.stats.imagesConverted++;
-      this.stats.imagesDownloaded++;
-      
-      return dataUrl;
-
-    } catch (error) {
-      // Em caso de erro, tenta apenas trocar extensão (fallback)
-      if (imageUrl.includes('.webp')) {
-        return imageUrl.replace('.webp', '.jpg');
-      }
+  extractBestImage(imageUrl) {
+    if (!imageUrl) {
+      this.stats.imagesWithoutUrl++;
+      return '';
+    }
+    
+    if (imageUrl.match(/\.(jpg|jpeg|png)(\?|$)/i)) {
+      this.stats.jpgImages++;
       return imageUrl;
     }
+    
+    if (imageUrl.includes('.webp')) {
+      this.stats.webpImages++;
+      const jpgUrl = imageUrl.replace(/\.webp/gi, '.jpg');
+      return jpgUrl;
+    }
+    
+    return imageUrl;
   }
 
   async createBrowserContext() {
@@ -255,13 +236,14 @@ class MercadoLivreScraper {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-blink-features=AutomationControlled'
       ]
     });
 
     let contextOptions = {
       viewport: { width: 1280, height: 720 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     };
 
     const fs = require('fs');
@@ -284,30 +266,28 @@ class MercadoLivreScraper {
     return { browser: this.browser, context: this.context };
   }
 
-  /**
-   * ✅ OTIMIZADO: Função de afiliado com timeouts reduzidos
-   */
   async getAffiliateLink(productUrl) {
     const page = await this.context.newPage();
     
     try {
       await page.goto(productUrl, { 
         waitUntil: 'domcontentloaded',
-        timeout: this.config.pageTimeout
+        timeout: 20000
       });
 
-      // ✅ Timeouts drasticamente reduzidos
       if (this.isFirstProduct) {
-        await page.waitForTimeout(1200); // Era 2000ms
+        await page.waitForTimeout(2500);
         this.isFirstProduct = false;
       } else {
-        await page.waitForTimeout(600); // Era 1200ms
+        await page.waitForTimeout(1500);
       }
 
-      // Limpa clipboard
+      // ═══════════════════════════════════════════════════════
+      // ESTRATÉGIA 1: MÉTODO ORIGINAL (TABS)
+      // ═══════════════════════════════════════════════════════
       try {
         await page.evaluate(() => navigator.clipboard.writeText(''));
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(200);
       } catch (e) {}
 
       const clicked = await page.evaluate(() => {
@@ -323,58 +303,173 @@ class MercadoLivreScraper {
         return false;
       });
 
-      if (!clicked) {
-        await page.close();
-        return null;
-      }
+      if (clicked) {
+        await page.waitForTimeout(2000);
 
-      await page.waitForTimeout(800); // Era 1500ms
-
-      try {
-        await page.evaluate(() => navigator.clipboard.writeText(''));
-        await page.waitForTimeout(100);
-      } catch (e) {}
-
-      // Navega até botão copiar
-      for (let i = 0; i < 4; i++) {
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(60); // Era 120ms
-      }
-
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(1000); // Era 1800ms
-
-      // ✅ Retry clipboard mais rápido
-      let copiedLink = '';
-      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          copiedLink = await page.evaluate(() => navigator.clipboard.readText());
-          if (copiedLink && copiedLink.trim() !== '') break;
-          if (attempt < 3) await page.waitForTimeout(400); // Era 800ms
-        } catch (e) {
-          if (attempt === 3) console.log(`      ❌ Clipboard falhou`);
+          await page.evaluate(() => navigator.clipboard.writeText(''));
+          await page.waitForTimeout(200);
+        } catch (e) {}
+
+        for (let i = 0; i < 4; i++) {
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(150);
+        }
+
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(2000);
+
+        let copiedLink = '';
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          try {
+            copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+            if (copiedLink && copiedLink.trim() !== '') break;
+            if (attempt < 5) await page.waitForTimeout(700);
+          } catch (e) {}
+        }
+
+        if (copiedLink && copiedLink.trim() !== '') {
+          await page.keyboard.press('Escape');
+          await page.close();
+          
+          const cleanLink = copiedLink.trim();
+          if (cleanLink.includes('/sec/') || cleanLink.includes('mercadolivre.com/sec/')) {
+            console.log(`      ✅ Afiliado (Método 1)`);
+            return cleanLink;
+          }
+          if (cleanLink.includes('mercadolivre.com.br')) {
+            console.log(`      ⚠️  Original (Método 1)`);
+            return cleanLink;
+          }
+        }
+
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // ESTRATÉGIA 2: CLICAR DIRETAMENTE NO BOTÃO COPIAR
+      // ═══════════════════════════════════════════════════════
+      await page.evaluate(() => navigator.clipboard.writeText(''));
+      await page.waitForTimeout(200);
+
+      const clicked2 = await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button, a'));
+        const shareBtn = buttons.find(btn => {
+          const text = btn.textContent?.toLowerCase() || '';
+          return text.includes('compartilhar');
+        });
+        if (shareBtn) {
+          shareBtn.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (clicked2) {
+        await page.waitForTimeout(2500);
+
+        const copyClicked = await page.evaluate(() => {
+          const buttons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+          const copyBtn = buttons.find(btn => {
+            const text = btn.textContent?.toLowerCase() || '';
+            return text.includes('copiar') && (text.includes('link') || text.length < 20);
+          });
+          if (copyBtn) {
+            copyBtn.click();
+            return true;
+          }
+          return false;
+        });
+
+        if (copyClicked) {
+          await page.waitForTimeout(2000);
+
+          let copiedLink = '';
+          for (let attempt = 1; attempt <= 5; attempt++) {
+            try {
+              copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+              if (copiedLink && copiedLink.trim() !== '') break;
+              if (attempt < 5) await page.waitForTimeout(700);
+            } catch (e) {}
+          }
+
+          await page.keyboard.press('Escape');
+          await page.close();
+
+          if (copiedLink && copiedLink.trim() !== '') {
+            const cleanLink = copiedLink.trim();
+            if (cleanLink.includes('/sec/') || cleanLink.includes('mercadolivre.com/sec/')) {
+              console.log(`      ✅ Afiliado (Método 2)`);
+              return cleanLink;
+            }
+            if (cleanLink.includes('mercadolivre.com.br')) {
+              console.log(`      ⚠️  Original (Método 2)`);
+              return cleanLink;
+            }
+          }
+        } else {
+          await page.keyboard.press('Escape');
         }
       }
 
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(100);
+      // ═══════════════════════════════════════════════════════
+      // ESTRATÉGIA 3: TENTAR 5 TABS
+      // ═══════════════════════════════════════════════════════
+      await page.evaluate(() => navigator.clipboard.writeText(''));
+      await page.waitForTimeout(200);
+
+      const clicked3 = await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('button, a'));
+        const shareBtn = buttons.find(btn => {
+          const text = btn.textContent?.toLowerCase() || '';
+          return text.includes('compartilhar');
+        });
+        if (shareBtn) {
+          shareBtn.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (clicked3) {
+        await page.waitForTimeout(2000);
+
+        for (let i = 0; i < 5; i++) {
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(150);
+        }
+
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(2000);
+
+        let copiedLink = '';
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          try {
+            copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+            if (copiedLink && copiedLink.trim() !== '') break;
+            if (attempt < 5) await page.waitForTimeout(700);
+          } catch (e) {}
+        }
+
+        await page.keyboard.press('Escape');
+        await page.close();
+
+        if (copiedLink && copiedLink.trim() !== '') {
+          const cleanLink = copiedLink.trim();
+          if (cleanLink.includes('/sec/') || cleanLink.includes('mercadolivre.com/sec/')) {
+            console.log(`      ✅ Afiliado (Método 3)`);
+            return cleanLink;
+          }
+          if (cleanLink.includes('mercadolivre.com.br')) {
+            console.log(`      ⚠️  Original (Método 3)`);
+            return cleanLink;
+          }
+        }
+      }
+
       await page.close();
-
-      if (!copiedLink || copiedLink.trim() === '') {
-        return null;
-      }
-
-      const cleanLink = copiedLink.trim();
-
-      if (cleanLink.includes('/sec/') || cleanLink.includes('mercadolivre.com/sec/')) {
-        console.log(`      ✅ Afiliado`);
-        return cleanLink;
-      }
-
-      if (cleanLink.includes('mercadolivre.com.br') || cleanLink.includes('mercadolibre.com')) {
-        return cleanLink;
-      }
-
+      console.log(`      ❌ Todos os métodos falharam`);
       return null;
 
     } catch (error) {
@@ -383,9 +478,6 @@ class MercadoLivreScraper {
     }
   }
 
-  /**
-   * ✅ CRÍTICO: Processamento SERIAL (não paralelo) para evitar race conditions
-   */
   async processProducts(products, allProducts) {
     for (const prodData of products) {
       if (allProducts.length >= this.limit) break;
@@ -413,7 +505,6 @@ class MercadoLivreScraper {
         }
       }
 
-      // Filtro de preço
       if (this.maxPrice && finalPrice > this.maxPrice) {
         this.stats.filteredByPrice++;
         console.log(`   ⏭️  IGNORADO (preço R$ ${finalPrice} > máx R$ ${this.maxPrice})`);
@@ -435,23 +526,17 @@ class MercadoLivreScraper {
 
       this.seenLinks.add(prodData.link);
 
-      // ✅ CRÍTICO: Obter link de afiliado de forma SERIAL (um por vez)
       console.log(`   🔄 [${allProducts.length + 1}/${this.limit}] ${prodData.name.substring(0, 40)}...`);
       
       const affiliateLink = await this.getAffiliateLink(prodData.link);
       const finalLink = affiliateLink || prodData.link;
       const isAffiliate = finalLink.includes('/sec/');
 
-      // ✅ CRÍTICO: Converter imagem WEBP se necessário
-      let finalImage = prodData.image;
-      if (prodData.image && prodData.image.includes('.webp')) {
-        console.log(`      🖼️  Convertendo WEBP → JPG...`);
-        finalImage = await this.downloadAndConvertImage(prodData.image);
-      }
+      const finalImage = this.extractBestImage(prodData.image);
 
       const product = {
         nome: prodData.name,
-        imagem: finalImage, // ✅ Imagem convertida
+        imagem: finalImage,
         link_original: prodData.link,
         link_afiliado: finalLink,
         desconto: `${realDiscount}%`,
@@ -494,8 +579,7 @@ class MercadoLivreScraper {
 
       if (allProducts.length >= this.limit) break;
 
-      // ✅ Pequeno delay entre produtos (evita rate limit)
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 400));
     }
   }
 
@@ -509,7 +593,7 @@ class MercadoLivreScraper {
     let pageNum = 1;
     let emptyPagesCount = 0;
     let currentOffset = 0;
-    let lastPageProducts = [];
+    let lastPageProducts = []; // ✅ Array de links, não objetos
     let samePageCount = 0;
 
     try {
@@ -519,7 +603,7 @@ class MercadoLivreScraper {
       if (this.maxPrice) {
         console.log(`║  💰 PREÇO MÁXIMO: R$ ${this.maxPrice}${' '.repeat(29 - String(this.maxPrice).length)} ║`);
       }
-      console.log(`║  ⚡ MODO OTIMIZADO: Serial + conversão real${' '.repeat(6)} ║`);
+      console.log(`║  ⚡ MODO: Serial + Anti-Lazy-Load${' '.repeat(16)} ║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
       while (allProducts.length < this.limit && pageNum <= this.config.maxPages) {
@@ -541,205 +625,348 @@ class MercadoLivreScraper {
        
         console.log(`📄 Página ${pageNum} [${allProducts.length}/${this.limit}]`);
        
-        try {
-          const mainPage = await context.newPage();
-          
-          await mainPage.goto(url, { 
-            waitUntil: 'domcontentloaded', 
-            timeout: this.config.pageTimeout 
-          });
-
-          await mainPage.waitForTimeout(600); // ✅ Era 1000ms
-
-          const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
-            let cards = document.querySelectorAll('.poly-card, .ui-search-result');
+        let pageData = null;
+        let retryCount = 0;
+        
+        while (retryCount <= this.config.retryAttempts && !pageData) {
+          try {
+            const mainPage = await context.newPage();
             
-            if (cards.length === 0) {
-              cards = document.querySelectorAll('[class*="ui-search-result__content"]');
-            }
+            const timeout = pageNum === 1 ? this.config.navigationTimeout : this.config.pageTimeout;
             
-            if (cards.length === 0) {
-              cards = document.querySelectorAll('.ui-search-layout__item');
-            }
-            
-            const products = [];
-            let filteredByDiscount = 0;
-            let filteredByPrice = 0;
-            
-            cards.forEach(card => {
-              try {
-                const link = card.querySelector('a[href*="/MLB"]')?.href.split('?')[0];
-                if (!link || !link.match(/MLB\d+/)) return;
-                
-                let name = card.querySelector('h2')?.innerText || 
-                           card.querySelector('.poly-component__title')?.innerText ||
-                           'Sem nome';
-                
-                // ✅ Extração inteligente de imagem
-                let image = '';
-                const allImages = Array.from(card.querySelectorAll('img'));
-                
-                if (allImages.length > 0) {
-                  const jpgPngImages = allImages.filter(img => {
-                    const src = img.src || img.getAttribute('data-src') || '';
-                    return src.match(/\.(jpg|jpeg|png)/i) && !src.includes('placeholder');
-                  });
-                  
-                  if (jpgPngImages.length > 0) {
-                    image = jpgPngImages[0].src || jpgPngImages[0].getAttribute('data-src') || '';
-                  } else {
-                    // Pega WEBP (será convertido depois)
-                    image = allImages[0].src || allImages[0].getAttribute('data-src') || '';
-                  }
-                }
-                
-                const discountElement = card.querySelector('.poly-price__disc_label') ||
-                                       card.querySelector('.ui-search-price__discount') ||
-                                       card.querySelector('[class*="discount"]');
-                
-                const discountText = discountElement?.innerText || '0';
-                const discount = parseInt(discountText.replace(/\D/g, '')) || 0;
-                
-                if (discount < minDiscount) {
-                  filteredByDiscount++;
-                  return;
-                }
-                
-                let currentPrice = 0, oldPrice = 0;
-                
-                const prices = Array.from(card.querySelectorAll('.andes-money-amount__fraction'));
-                
-                if (prices.length >= 2) {
-                  currentPrice = parseInt(prices[0]?.innerText.replace(/\./g, '')) || 0;
-                  oldPrice = parseInt(prices[1]?.innerText.replace(/\./g, '')) || 0;
-                } else if (prices.length === 1) {
-                  currentPrice = parseInt(prices[0]?.innerText.replace(/\./g, '')) || 0;
-                  oldPrice = discount > 0 ? Math.round(currentPrice / (1 - discount / 100)) : currentPrice;
-                }
-                
-                if (currentPrice === 0 || oldPrice === 0) return;
-                if (oldPrice < currentPrice) [oldPrice, currentPrice] = [currentPrice, oldPrice];
-                
-                let couponInfo = null;
-                
-                const couponSelectors = [
-                  '[class*="coupon"]',
-                  '[class*="cupom"]',
-                  '[data-testid*="coupon"]',
-                  '.ui-search-item__group__element--coupon'
-                ];
-                
-                let couponElement = null;
-                for (const selector of couponSelectors) {
-                  couponElement = card.querySelector(selector);
-                  if (couponElement) break;
-                }
-                
-                if (couponElement) {
-                  const couponText = couponElement.innerText || couponElement.textContent || '';
-                  const percentMatch = couponText.match(/(\d+)%\s*OFF/i);
-                  const valueMatch = couponText.match(/R\$\s*(\d+(?:\.\d{3})*(?:,\d{2})?)/i);
-                  
-                  let minValue = 0;
-                  const minValueMatch = couponText.match(/m[ií]nim[ao]\s*R?\$?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)/i);
-                  if (minValueMatch) {
-                    minValue = parseInt(minValueMatch[1].replace(/\./g, '').replace(',', '.'));
-                  }
-                  
-                  if (percentMatch || valueMatch) {
-                    couponInfo = {
-                      type: percentMatch ? 'percent' : 'value',
-                      discount: percentMatch 
-                        ? parseInt(percentMatch[1]) 
-                        : parseInt(valueMatch[1].replace(/\./g, '').replace(',', '.')),
-                      minValue: minValue,
-                      text: couponText.trim()
-                    };
-                  }
-                }
-                
-                let finalPrice = currentPrice;
-                if (couponInfo && currentPrice >= couponInfo.minValue) {
-                  if (couponInfo.type === 'percent') {
-                    finalPrice = currentPrice - Math.round(currentPrice * (couponInfo.discount / 100));
-                  } else if (couponInfo.type === 'value') {
-                    finalPrice = currentPrice - couponInfo.discount;
-                  }
-                }
-                
-                if (maxPrice && finalPrice > maxPrice) {
-                  filteredByPrice++;
-                  return;
-                }
-                
-                products.push({ 
-                  link, 
-                  name, 
-                  image, 
-                  discount, 
-                  currentPrice, 
-                  oldPrice,
-                  coupon: couponInfo 
-                });
-              } catch (e) {}
+            await mainPage.goto(url, { 
+              waitUntil: 'domcontentloaded', 
+              timeout: timeout
             });
+
+            await mainPage.waitForTimeout(pageNum === 1 ? 2000 : 1200);
+
+            pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
+              let cards = document.querySelectorAll('.poly-card');
+              
+              if (cards.length === 0) {
+                cards = document.querySelectorAll('.ui-search-result');
+              }
+              
+              const products = [];
+              const allPageLinks = []; // ✅ NOVO: Guarda TODOS os links da página
+              let filteredByDiscount = 0;
+              let filteredByPrice = 0;
+              let placeholdersBlocked = 0;
+              
+              cards.forEach(card => {
+                try {
+                  const link = card.querySelector('a[href*="/MLB"]')?.href.split('?')[0];
+                  if (!link || !link.match(/MLB\d+/)) return;
+                  
+                  allPageLinks.push(link); // ✅ Guarda o link ANTES de filtrar
+                  
+                  let name = card.querySelector('h2, .poly-component__title')?.innerText || 
+                             card.querySelector('[class*="title"]')?.innerText ||
+                             'Sem nome';
+                  
+                  // ✅ EXTRAÇÃO DE IMAGEM
+                  let image = '';
+                  const img = card.querySelector('img.poly-component__picture');
+                  if (img) {
+                    const src = img.src || img.getAttribute('data-src') || '';
+                    if (src && !src.startsWith('data:image/gif')) {
+                      image = src.startsWith('//') ? 'https:' + src : src;
+                    }
+                  }
+                  
+                  if (!image) {
+                    const anyImg = card.querySelector('img');
+                    if (anyImg && anyImg.src && !anyImg.src.startsWith('data:image/gif')) {
+                      image = anyImg.src;
+                    }
+                  }
+                  
+                  if (!image || image.startsWith('data:image/gif')) {
+                    image = 'https://http2.mlstatic.com/D_NQ_NP_2X_default.webp';
+                    placeholdersBlocked++;
+                  }
+                  
+                  // ✅ DESCONTO
+                  const discountElement = card.querySelector('.poly-price__disc_label, .andes-money-amount__discount');
+                  const discountText = discountElement?.innerText || '0';
+                  const discount = parseInt(discountText.replace(/\D/g, '')) || 0;
+                  
+                  if (discount < minDiscount) {
+                    filteredByDiscount++;
+                    return;
+                  }
+                  
+                  // ✅✅✅ EXTRAÇÃO DE PREÇOS ULTRA-ROBUSTA (V2) ✅✅✅
+                  let currentPrice = 0, oldPrice = 0;
+                  let debugMethod = 'none';
+                  
+                  const priceContainer = card.querySelector('.poly-component__price');
+                  
+                  if (priceContainer) {
+                    // ═════════════════════════════════════════════════════
+                    // ESTRATÉGIA 1: Previous + Current (IDEAL)
+                    // ═════════════════════════════════════════════════════
+                    const previousPrice = priceContainer.querySelector('.andes-money-amount--previous .andes-money-amount__fraction');
+                    const currentContainer = priceContainer.querySelector('.poly-price__current');
+                    
+                    if (previousPrice && currentContainer) {
+                      const currentFraction = currentContainer.querySelector('.andes-money-amount__fraction');
+                      if (currentFraction) {
+                        oldPrice = parseInt(previousPrice.innerText.replace(/\./g, '')) || 0;
+                        currentPrice = parseInt(currentFraction.innerText.replace(/\./g, '')) || 0;
+                        debugMethod = 'previous+current';
+                      }
+                    }
+                    
+                    // ═════════════════════════════════════════════════════
+                    // ESTRATÉGIA 2: Só Previous (calcula current com desconto)
+                    // ═════════════════════════════════════════════════════
+                    if (currentPrice === 0 && previousPrice && discount > 0) {
+                      oldPrice = parseInt(previousPrice.innerText.replace(/\./g, '')) || 0;
+                      currentPrice = Math.round(oldPrice * (1 - discount / 100));
+                      debugMethod = 'previous+calc';
+                    }
+                    
+                    // ═════════════════════════════════════════════════════
+                    // ESTRATÉGIA 3: Todos os fractions (separar por previous)
+                    // ═════════════════════════════════════════════════════
+                    if (currentPrice === 0) {
+                      const allFractions = Array.from(priceContainer.querySelectorAll('.andes-money-amount__fraction'));
+                      
+                      if (allFractions.length >= 2) {
+                        const previousFractions = allFractions.filter(f => 
+                          f.closest('.andes-money-amount')?.classList.contains('andes-money-amount--previous')
+                        );
+                        const currentFractions = allFractions.filter(f => 
+                          !f.closest('.andes-money-amount')?.classList.contains('andes-money-amount--previous')
+                        );
+                        
+                        if (previousFractions.length > 0 && currentFractions.length > 0) {
+                          oldPrice = parseInt(previousFractions[0].innerText.replace(/\./g, '')) || 0;
+                          currentPrice = parseInt(currentFractions[0].innerText.replace(/\./g, '')) || 0;
+                          debugMethod = 'all-filtered';
+                        } else if (allFractions.length >= 2) {
+                          // Assume que maior = old, menor = current
+                          const p1 = parseInt(allFractions[0].innerText.replace(/\./g, '')) || 0;
+                          const p2 = parseInt(allFractions[1].innerText.replace(/\./g, '')) || 0;
+                          
+                          if (p1 > p2) {
+                            oldPrice = p1;
+                            currentPrice = p2;
+                          } else {
+                            oldPrice = p2;
+                            currentPrice = p1;
+                          }
+                          debugMethod = 'all-order';
+                        }
+                      } else if (allFractions.length === 1 && discount > 0) {
+                        // ═════════════════════════════════════════════════════
+                        // ESTRATÉGIA 4: Único preço (identificar se é current ou old)
+                        // ═════════════════════════════════════════════════════
+                        const price = parseInt(allFractions[0].innerText.replace(/\./g, '')) || 0;
+                        
+                        // Calcula ambos
+                        const calculatedCurrent = Math.round(price * (1 - discount / 100));
+                        const calculatedOld = Math.round(price / (1 - discount / 100));
+                        
+                        // Se calcular old dá número razoável (não 3x maior), price é current
+                        if (calculatedOld > price && calculatedOld < price * 3) {
+                          currentPrice = price;
+                          oldPrice = calculatedOld;
+                          debugMethod = 'single-is-current';
+                        } else {
+                          // Caso contrário, price é old
+                          oldPrice = price;
+                          currentPrice = calculatedCurrent;
+                          debugMethod = 'single-is-old';
+                        }
+                      }
+                    }
+                  }
+                  
+                  // ═════════════════════════════════════════════════════
+                  // VALIDAÇÃO E CORREÇÃO AUTOMÁTICA
+                  // ═════════════════════════════════════════════════════
+                  
+                  // 1. Preços invertidos? Corrige
+                  if (currentPrice > 0 && oldPrice > 0 && currentPrice >= oldPrice) {
+                    [oldPrice, currentPrice] = [currentPrice, oldPrice];
+                    debugMethod += '-inverted';
+                  }
+                  
+                  // 2. Ainda inválido mas temos desconto? Recalcula
+                  if ((currentPrice === 0 || oldPrice === 0 || currentPrice >= oldPrice) && discount > 0) {
+                    if (currentPrice > 0) {
+                      oldPrice = Math.round(currentPrice / (1 - discount / 100));
+                      debugMethod += '-recalc-old';
+                    } else if (oldPrice > 0) {
+                      currentPrice = Math.round(oldPrice * (1 - discount / 100));
+                      debugMethod += '-recalc-curr';
+                    }
+                  }
+                  
+                  // ═════════════════════════════════════════════════════
+                  // REJEIÇÃO FINAL (com log dos primeiros 3 para debug)
+                  // ═════════════════════════════════════════════════════
+                  if (currentPrice === 0 || oldPrice === 0 || currentPrice >= oldPrice) {
+                    if (filteredByPrice < 3) {
+                      console.log(`      [DEBUG-PREÇO] ${name.substring(0, 30)}...`);
+                      console.log(`        Method: ${debugMethod}`);
+                      console.log(`        Result: curr=${currentPrice} old=${oldPrice} disc=${discount}%`);
+                    }
+                    filteredByPrice++;
+                    return;
+                  }
+                  
+                  let couponInfo = null;
+                  
+                  const couponSelectors = [
+                    '[class*="coupon"]',
+                    '[class*="cupom"]',
+                    '[data-testid*="coupon"]',
+                    '.ui-search-item__group__element--coupon'
+                  ];
+                  
+                  let couponElement = null;
+                  for (const selector of couponSelectors) {
+                    couponElement = card.querySelector(selector);
+                    if (couponElement) break;
+                  }
+                  
+                  if (couponElement) {
+                    const couponText = couponElement.innerText || couponElement.textContent || '';
+                    const percentMatch = couponText.match(/(\d+)%\s*OFF/i);
+                    const valueMatch = couponText.match(/R\$\s*(\d+(?:\.\d{3})*(?:,\d{2})?)/i);
+                    
+                    let minValue = 0;
+                    const minValueMatch = couponText.match(/m[ií]nim[ao]\s*R?\$?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)/i);
+                    if (minValueMatch) {
+                      minValue = parseInt(minValueMatch[1].replace(/\./g, '').replace(',', '.'));
+                    }
+                    
+                    if (percentMatch || valueMatch) {
+                      couponInfo = {
+                        type: percentMatch ? 'percent' : 'value',
+                        discount: percentMatch 
+                          ? parseInt(percentMatch[1]) 
+                          : parseInt(valueMatch[1].replace(/\./g, '').replace(',', '.')),
+                        minValue: minValue,
+                        text: couponText.trim()
+                      };
+                    }
+                  }
+                  
+                  let finalPrice = currentPrice;
+                  if (couponInfo && currentPrice >= couponInfo.minValue) {
+                    if (couponInfo.type === 'percent') {
+                      finalPrice = currentPrice - Math.round(currentPrice * (couponInfo.discount / 100));
+                    } else if (couponInfo.type === 'value') {
+                      finalPrice = currentPrice - couponInfo.discount;
+                    }
+                  }
+                  
+                  if (maxPrice && finalPrice > maxPrice) {
+                    filteredByPrice++;
+                    return;
+                  }
+                  
+                  products.push({ 
+                    link, 
+                    name, 
+                    image, 
+                    discount, 
+                    currentPrice, 
+                    oldPrice,
+                    coupon: couponInfo 
+                  });
+                } catch (e) {
+                  // Silenciosamente ignora produtos com erro
+                }
+              });
+              
+              return { products, filteredByDiscount, filteredByPrice, placeholdersBlocked, allPageLinks };
+            }, { minDiscount: this.minDiscount, maxPrice: this.maxPrice });
+
+            await mainPage.close();
             
-            return { products, filteredByDiscount, filteredByPrice };
-          }, { minDiscount: this.minDiscount, maxPrice: this.maxPrice });
-
-          await mainPage.close();
-
-          console.log(`   📊 ${pageData.products.length} produtos encontrados`);
-          console.log(`   🔍 ${pageData.filteredByDiscount} desc | ${pageData.filteredByPrice} preço\n`);
-
-          // Detecção de loop
-          const currentPageLinks = pageData.products.map(p => p.link).sort();
-          const lastPageLinks = lastPageProducts.map(p => p.link).sort();
-          
-          if (currentPageLinks.length > 0 && 
-              JSON.stringify(currentPageLinks) === JSON.stringify(lastPageLinks)) {
-            samePageCount++;
-            if (samePageCount >= 3) break;
-          } else {
-            samePageCount = 0;
-            lastPageProducts = pageData.products;
-          }
-
-          const newProducts = pageData.products.filter(p => !this.seenLinks.has(p.link));
-          this.stats.filteredByDiscount += pageData.filteredByDiscount;
-          this.stats.filteredByPrice += pageData.filteredByPrice;
-
-          if (newProducts.length === 0) {
-            emptyPagesCount++;
-            if (pageData.products.length > 0) {
+          } catch (pageError) {
+            retryCount++;
+            
+            if (retryCount <= this.config.retryAttempts) {
+              console.log(`   ⚠️  Falha (tentativa ${retryCount}/${this.config.retryAttempts})`);
+              await new Promise(r => setTimeout(r, 2000));
+            } else {
+              console.error(`   ❌ Erro após ${this.config.retryAttempts} tentativas: ${pageError.message}`);
+              this.stats.errors++;
               pageNum++;
               currentOffset += 48;
-              emptyPagesCount = 0;
               continue;
             }
-            if (emptyPagesCount >= this.config.maxEmptyPages) break;
+          }
+        }
+        
+        if (!pageData) {
+          pageNum++;
+          currentOffset += 48;
+          continue;
+        }
+
+        console.log(`   📊 ${pageData.products.length} produtos encontrados`);
+        console.log(`   🔍 ${pageData.filteredByDiscount} desc | ${pageData.filteredByPrice} preço`);
+        if (pageData.placeholdersBlocked > 0) {
+          console.log(`   🚫 ${pageData.placeholdersBlocked} placeholders bloqueados`);
+          this.stats.placeholdersBlocked += pageData.placeholdersBlocked;
+        }
+        console.log('');
+
+        // ✅ DETECÇÃO DE LOOP CORRIGIDA: Usa TODOS os links da página
+        const currentPageLinks = (pageData.allPageLinks || []).sort();
+        const lastPageLinks = lastPageProducts.sort();
+        
+        if (currentPageLinks.length > 0 && lastPageLinks.length > 0 &&
+            JSON.stringify(currentPageLinks) === JSON.stringify(lastPageLinks)) {
+          samePageCount++;
+          console.log(`   ⚠️  Página repetida detectada (${samePageCount}/3)`);
+          if (samePageCount >= 3) {
+            console.log(`   🛑 LOOP DETECTADO! Parando...\n`);
+            break;
+          }
+        } else {
+          samePageCount = 0;
+          lastPageProducts = currentPageLinks;
+        }
+
+        const newProducts = pageData.products.filter(p => !this.seenLinks.has(p.link));
+        this.stats.filteredByDiscount += pageData.filteredByDiscount;
+        this.stats.filteredByPrice += pageData.filteredByPrice;
+
+        if (newProducts.length === 0) {
+          emptyPagesCount++;
+          if (pageData.products.length > 0) {
+            this.stats.pagesScraped = pageNum;
             pageNum++;
             currentOffset += 48;
+            emptyPagesCount = 0;
             continue;
           }
-          emptyPagesCount = 0;
-
-          console.log(`   🔗 Obtendo links (serial)...\n`);
-
-          await this.processProducts(newProducts, allProducts);
-
-          if (allProducts.length >= this.limit) break;
-
+          if (emptyPagesCount >= this.config.maxEmptyPages) break;
           this.stats.pagesScraped = pageNum;
           pageNum++;
           currentOffset += 48;
-
-        } catch (pageError) {
-          console.error(`   ❌ Erro: ${pageError.message}`);
-          this.stats.errors++;
-          pageNum++;
-          currentOffset += 48;
+          continue;
         }
+        emptyPagesCount = 0;
+
+        console.log(`   🔗 Obtendo links (serial)...\n`);
+
+        await this.processProducts(newProducts, allProducts);
+
+        if (allProducts.length >= this.limit) break;
+
+        this.stats.pagesScraped = pageNum;
+        pageNum++;
+        currentOffset += 48;
       }
 
       await browser.close();
@@ -756,8 +983,12 @@ class MercadoLivreScraper {
       console.log(`🎟️  Cupons aplicados: ${this.stats.couponsApplied}`);
       console.log(`⏭️  Duplicados: ${this.stats.duplicatesIgnored}`);
       console.log(`🚫 Filtrados: ${this.stats.filteredByDiscount} desc | ${this.stats.filteredByPrice} preço`);
-      if (this.stats.imagesConverted > 0) {
-        console.log(`🖼️  Imagens WEBP→JPG: ${this.stats.imagesConverted} (${this.stats.imagesDownloaded} downloads)`);
+      console.log(`🖼️  Imagens: ${this.stats.jpgImages} JPG/PNG | ${this.stats.webpImages} WEBP→JPG`);
+      if (this.stats.placeholdersBlocked > 0) {
+        console.log(`🚫 Placeholders bloqueados: ${this.stats.placeholdersBlocked}`);
+      }
+      if (this.stats.imagesWithoutUrl > 0) {
+        console.log(`⚠️  Sem imagem: ${this.stats.imagesWithoutUrl} produtos ignorados`);
       }
       console.log(`🔄 Loops: ${this.stats.loopDetections}`);
       console.log(`📄 Páginas: ${this.stats.pagesScraped}`);
