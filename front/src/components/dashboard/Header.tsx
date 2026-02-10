@@ -25,6 +25,7 @@ export function Header() {
       {/* Search */}
       <div className="flex-1 max-w-md">
         
+        
       </div>
 
       {/* Actions */}
