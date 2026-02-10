@@ -1,4 +1,4 @@
-// src/contexts/DashboardContext.tsx - COM SSE E HISTÓRICO REAL
+// src/contexts/DashboardContext.tsx - COM SSE E HISTÓRICO REAL - VERSÃO CORRIGIDA
 
 import React, {
   createContext,
@@ -130,6 +130,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const scrapingStartTimeRef = useRef<number | null>(null);
+  const isCompletedRef = useRef(false); // 🔥 NOVO: Flag para evitar múltiplos completes
 
   function normalizeMarketplace(mp: string): Marketplace {
     const map: Record<string, Marketplace> = {
@@ -236,6 +237,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             console.log('🔄 Scraping ativo detectado, conectando SSE...');
             sessionIdRef.current = backendStatus.sessionId;
             scrapingStartTimeRef.current = Date.now();
+            isCompletedRef.current = false;
             connectSSE(backendStatus.sessionId);
           }
         }
@@ -252,10 +254,64 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ═══════════════════════════════════════════════════════════
+  // 🔥 HELPER: Verificar se scraping realmente completou
+  // ═══════════════════════════════════════════════════════════
+  const checkIfCompleted = (data: any): boolean => {
+    // Scraping está completo se:
+    // 1. Status é 'completed' OU
+    // 2. Progress >= 100 OU
+    // 3. itemsCollected >= totalItems (e totalItems > 0)
+    const statusCompleted = data.status === 'completed';
+    const progressCompleted = data.progress >= 100;
+    const itemsCompleted = data.totalItems > 0 && data.itemsCollected >= data.totalItems;
+    
+    return statusCompleted || progressCompleted || itemsCompleted;
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // 🔥 HELPER: Processar completion (usado por SSE e polling)
+  // ═══════════════════════════════════════════════════════════
+  const handleCompletion = (data: any) => {
+    if (isCompletedRef.current) {
+      console.log('⏭️ Completion já processado, ignorando...');
+      return;
+    }
+
+    console.log('🎉 SCRAPING COMPLETADO!');
+    isCompletedRef.current = true;
+    
+    const newHistory = saveToHistory(data);
+    
+    toast({
+      title: "✅ Automação concluída!",
+      description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
+      className: "bg-green-600 text-white border-none shadow-lg",
+    });
+
+    // Aguarda um pouco antes de desconectar para garantir que todos os eventos foram processados
+    setTimeout(() => {
+      disconnectSSE();
+      refreshProducts();
+      
+      // Reseta o status após carregar os produtos
+      setTimeout(() => {
+        setScrapingStatus({
+          ...getInitialScrapingStatus(),
+          recentHistory: newHistory
+        });
+        scrapingStartTimeRef.current = null;
+        sessionIdRef.current = null;
+        isCompletedRef.current = false;
+      }, 2000);
+    }, 1000);
+  };
+
+  // ═══════════════════════════════════════════════════════════
   // SSE - SERVER SENT EVENTS
   // ═══════════════════════════════════════════════════════════
   const connectSSE = (sessionId: string) => {
     disconnectSSE();
+    isCompletedRef.current = false;
 
     const sseUrl = `${API_BASE_URL}/api/scraping/progress/${sessionId}`;
     console.log('🔌 CONECTANDO SSE:', sseUrl);
@@ -271,51 +327,30 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('📊 ===== SSE RECEBIDO =====');
-        console.log('Progress:', data.progress);
-        console.log('Items:', data.itemsCollected, '/', data.totalItems);
-        console.log('Marketplace:', data.currentMarketplace);
-        console.log('Last Products:', data.lastProducts?.length || 0);
-        console.log('Live Products:', data.liveProducts?.length || 0);
-        console.log('Status:', data.status);
-        console.log('==========================');
+        console.log('📊 SSE:', {
+          progress: data.progress,
+          items: `${data.itemsCollected}/${data.totalItems}`,
+          status: data.status,
+          marketplace: data.currentMarketplace
+        });
 
+        // 🔥 ATUALIZAR STATUS SEMPRE (mantém loading ativo)
         setScrapingStatus(prev => ({
           ...prev,
-          isRunning: data.status === 'running',
-          progress: data.progress || 0,
+          isRunning: !checkIfCompleted(data), // Só para quando realmente completar
+          progress: Math.min(data.progress || 0, 100), // Cap em 100
           currentMarketplace: data.currentMarketplace 
             ? normalizeMarketplace(data.currentMarketplace)
-            : null,
+            : prev.currentMarketplace, // 🔥 Mantém marketplace anterior se não vier
           itemsCollected: data.itemsCollected || 0,
-          totalItems: data.totalItems || 0,
-          lastProducts: data.lastProducts || [],
-          liveProducts: data.liveProducts || []
+          totalItems: data.totalItems || prev.totalItems, // 🔥 Mantém total anterior
+          lastProducts: data.lastProducts || prev.lastProducts, // 🔥 Mantém últimos produtos
+          liveProducts: data.liveProducts || prev.liveProducts // 🔥 Mantém live products
         }));
 
-        // 🔥 SALVAR NO HISTÓRICO QUANDO COMPLETAR
-        if (data.status === 'completed') {
-          console.log('🎉 SCRAPING COMPLETADO!');
-          
-          const newHistory = saveToHistory(data);
-          
-          toast({
-            title: "✅ Automação concluída!",
-            description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
-            className: "bg-green-600 text-white border-none shadow-lg",
-          });
-
-          setTimeout(() => {
-            disconnectSSE();
-            refreshProducts();
-            
-            setTimeout(() => {
-              setScrapingStatus({
-                ...getInitialScrapingStatus(),
-                recentHistory: newHistory
-              });
-            }, 3000);
-          }, 1000);
+        // 🔥 VERIFICAR COMPLETION (só processa uma vez)
+        if (checkIfCompleted(data)) {
+          handleCompletion(data);
         }
       } catch (error) {
         console.error('❌ ERRO AO PROCESSAR SSE:', error, event.data);
@@ -327,8 +362,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       console.error('ReadyState:', eventSource.readyState);
       
       if (eventSource.readyState === EventSource.CLOSED) {
-        console.log('⚠️ SSE fechou, usando apenas polling...');
-        disconnectSSE();
+        console.log('⚠️ SSE fechou, confiando no backup polling...');
       }
     };
 
@@ -345,9 +379,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       clearInterval(backupPollingRef.current);
     }
 
-    console.log('🔄 Iniciando polling de backup (1s)...');
+    console.log('🔄 Iniciando polling de backup (2s)...');
 
     backupPollingRef.current = setInterval(async () => {
+      // 🔥 Se já completou, para o polling
+      if (isCompletedRef.current) {
+        stopBackupPolling();
+        return;
+      }
+
       try {
         const url = `${API_BASE_URL}/api/scraping/status`;
         const response = await fetch(url);
@@ -356,52 +396,35 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         if (json.success && json.data) {
           const data = json.data;
           
-          console.log('📡 BACKUP POLLING:', {
+          console.log('📡 BACKUP:', {
             progress: data.progress,
-            items: data.itemsCollected,
+            items: `${data.itemsCollected}/${data.totalItems}`,
             status: data.status
           });
 
+          // 🔥 ATUALIZAR STATUS
           setScrapingStatus(prev => ({
             ...prev,
-            isRunning: data.status === 'running',
-            progress: data.progress || 0,
+            isRunning: !checkIfCompleted(data),
+            progress: Math.min(data.progress || 0, 100),
             currentMarketplace: data.currentMarketplace 
               ? normalizeMarketplace(data.currentMarketplace)
-              : null,
+              : prev.currentMarketplace,
             itemsCollected: data.itemsCollected || 0,
-            totalItems: data.totalItems || 0,
-            lastProducts: data.lastProducts || [],
-            liveProducts: data.liveProducts || []
+            totalItems: data.totalItems || prev.totalItems,
+            lastProducts: data.lastProducts || prev.lastProducts,
+            liveProducts: data.liveProducts || prev.liveProducts
           }));
 
-          if (data.status === 'completed') {
-            stopBackupPolling();
-            disconnectSSE();
-            
-            const newHistory = saveToHistory(data);
-            
-            toast({
-              title: "✅ Automação concluída!",
-              description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
-              className: "bg-green-600 text-white border-none shadow-lg",
-            });
-
-            setTimeout(() => {
-              refreshProducts();
-              setTimeout(() => {
-                setScrapingStatus({
-                  ...getInitialScrapingStatus(),
-                  recentHistory: newHistory
-                });
-              }, 3000);
-            }, 1000);
+          // 🔥 VERIFICAR COMPLETION
+          if (checkIfCompleted(data)) {
+            handleCompletion(data);
           }
         }
       } catch (error) {
         console.error('❌ Erro backup polling:', error);
       }
-    }, 1000);
+    }, 2000); // 2 segundos (mais lento que antes para não sobrecarregar)
   };
 
   const stopBackupPolling = () => {
@@ -423,8 +446,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
 
     console.log('🔄 Iniciando fallback polling...');
+    isCompletedRef.current = false;
 
     pollingIntervalRef.current = setInterval(async () => {
+      if (isCompletedRef.current) {
+        stopFallbackPolling();
+        return;
+      }
+
       try {
         const url = `${API_BASE_URL}/api/scraping/status`;
         const response = await fetch(url);
@@ -435,43 +464,25 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           
           console.log('📡 POLLING:', {
             progress: data.progress,
-            items: data.itemsCollected,
+            items: `${data.itemsCollected}/${data.totalItems}`,
             status: data.status
           });
 
           setScrapingStatus(prev => ({
             ...prev,
-            isRunning: data.status === 'running',
-            progress: data.progress || 0,
+            isRunning: !checkIfCompleted(data),
+            progress: Math.min(data.progress || 0, 100),
             currentMarketplace: data.currentMarketplace 
               ? normalizeMarketplace(data.currentMarketplace)
-              : null,
+              : prev.currentMarketplace,
             itemsCollected: data.itemsCollected || 0,
-            totalItems: data.totalItems || 0,
-            lastProducts: data.lastProducts || [],
-            liveProducts: data.liveProducts || []
+            totalItems: data.totalItems || prev.totalItems,
+            lastProducts: data.lastProducts || prev.lastProducts,
+            liveProducts: data.liveProducts || prev.liveProducts
           }));
 
-          if (data.status === 'completed') {
-            stopFallbackPolling();
-            
-            const newHistory = saveToHistory(data);
-            
-            toast({
-              title: "✅ Automação concluída!",
-              description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
-              className: "bg-green-600 text-white border-none shadow-lg",
-            });
-
-            setTimeout(() => {
-              refreshProducts();
-              setTimeout(() => {
-                setScrapingStatus({
-                  ...getInitialScrapingStatus(),
-                  recentHistory: newHistory
-                });
-              }, 3000);
-            }, 1000);
+          if (checkIfCompleted(data)) {
+            handleCompletion(data);
           }
         }
       } catch (error) {
@@ -517,8 +528,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     console.log('🔄 Reset manual do status');
     disconnectSSE();
     scrapingStartTimeRef.current = null;
-    setScrapingStatus(getInitialScrapingStatus());
     sessionIdRef.current = null;
+    isCompletedRef.current = false;
+    setScrapingStatus(getInitialScrapingStatus());
     
     toast({
       title: "Status resetado",
@@ -535,7 +547,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       .filter(([_, mp]) => mp.enabled)
       .map(([key]) => key as Marketplace);
 
-    // 🔥 MARCAR INÍCIO DO SCRAPING
+    // 🔥 RESETAR FLAGS E MARCAR INÍCIO
+    isCompletedRef.current = false;
     scrapingStartTimeRef.current = Date.now();
 
     // Estado inicial otimista
@@ -590,6 +603,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('❌ Erro ao iniciar scraping:', error);
       scrapingStartTimeRef.current = null;
+      isCompletedRef.current = false;
       setScrapingStatus(getInitialScrapingStatus());
       throw error;
     }
