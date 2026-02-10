@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,8 @@ import axios from 'axios';
 
 const API_URL = 'http://localhost:3001/api';
 
+type Marketplace = 'mercadolivre' | 'amazon' | 'magalu' | 'shopee';
+
 interface Account {
   id: string;
   name: string;
@@ -23,24 +26,64 @@ interface Account {
   status: 'valid' | 'expired' | 'error';
 }
 
-interface MarketplaceStatus {
-  connected: boolean;
-  accounts: number;
-  activeAccount: Account | null;
-  validAccounts: number;
-  expiredAccounts: number;
-}
+const MARKETPLACE_COLORS = {
+  mercadolivre: '#FFE600',
+  amazon: '#FF9900',
+  magalu: '#0086FF',
+  shopee: '#EE4D2D',
+};
 
 export function SettingsPage() {
+  const location = useLocation();
   const { toast } = useToast();
   const [mlAccounts, setMlAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(false);
   const [openDialog, setOpenDialog] = useState(false);
   const [accountName, setAccountName] = useState('');
+  
+  // Refs para cada card de marketplace
+  const mlCardRef = useRef<HTMLDivElement>(null);
+  const amazonCardRef = useRef<HTMLDivElement>(null);
+  const magaluCardRef = useRef<HTMLDivElement>(null);
+  const shopeeCardRef = useRef<HTMLDivElement>(null);
+
+  const cardRefs: Record<Marketplace, React.RefObject<HTMLDivElement>> = {
+    mercadolivre: mlCardRef,
+    amazon: amazonCardRef,
+    magalu: magaluCardRef,
+    shopee: shopeeCardRef,
+  };
 
   useEffect(() => {
     loadMLAccounts();
   }, []);
+
+  // Efeito para highlight quando vier de outra página
+  useEffect(() => {
+    const state = location.state as { highlightMarketplace?: Marketplace } | null;
+    if (state?.highlightMarketplace) {
+      const marketplace = state.highlightMarketplace;
+      const cardRef = cardRefs[marketplace];
+      
+      setTimeout(() => {
+        if (cardRef.current) {
+          // Scroll suave até o card
+          cardRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+          
+          // Adiciona classe de animação
+          cardRef.current.classList.add('marketplace-highlight');
+          
+          // Remove a classe após a animação
+          setTimeout(() => {
+            cardRef.current?.classList.remove('marketplace-highlight');
+          }, 4000);
+        }
+      }, 300);
+    }
+  }, [location.state]);
 
   const loadMLAccounts = async () => {
     try {
@@ -125,12 +168,15 @@ export function SettingsPage() {
       </div>
 
       {/* MERCADO LIVRE */}
-      <Card>
+      <Card ref={mlCardRef} className="transition-all duration-300">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-[#FFE600]" />
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: MARKETPLACE_COLORS.mercadolivre }}
+                />
                 Mercado Livre
               </CardTitle>
               <CardDescription>Gerencie suas contas de afiliado</CardDescription>
@@ -214,12 +260,15 @@ export function SettingsPage() {
       </Card>
 
       {/* AMAZON - EM BREVE */}
-      <Card className="opacity-50">
+      <Card ref={amazonCardRef} className="opacity-50 transition-all duration-300">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-[#FF9900]" />
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: MARKETPLACE_COLORS.amazon }}
+                />
                 Amazon
               </CardTitle>
               <CardDescription>Em breve</CardDescription>
@@ -233,12 +282,15 @@ export function SettingsPage() {
       </Card>
 
       {/* MAGALU - EM BREVE */}
-      <Card className="opacity-50">
+      <Card ref={magaluCardRef} className="opacity-50 transition-all duration-300">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-[#0086FF]" />
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: MARKETPLACE_COLORS.magalu }}
+                />
                 Magazine Luiza
               </CardTitle>
               <CardDescription>Em breve</CardDescription>
@@ -252,12 +304,15 @@ export function SettingsPage() {
       </Card>
 
       {/* SHOPEE - EM BREVE */}
-      <Card className="opacity-50">
+      <Card ref={shopeeCardRef} className="opacity-50 transition-all duration-300">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-[#EE4D2D]" />
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: MARKETPLACE_COLORS.shopee }}
+                />
                 Shopee
               </CardTitle>
               <CardDescription>Em breve</CardDescription>
@@ -269,6 +324,34 @@ export function SettingsPage() {
           </div>
         </CardHeader>
       </Card>
+
+      {/* CSS para animação de highlight */}
+      <style>{`
+        @keyframes marketplace-pulse {
+          0%, 100% {
+            box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0);
+            transform: scale(1);
+          }
+          25% {
+            box-shadow: 0 0 0 8px rgba(var(--primary-rgb), 0.3);
+            transform: scale(1.01);
+          }
+          50% {
+            box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0);
+            transform: scale(1);
+          }
+        }
+        
+        .marketplace-highlight {
+          animation: marketplace-pulse 2s ease-out 2;
+          border-color: hsl(var(--primary)) !important;
+          border-width: 2px;
+        }
+        
+        :root {
+          --primary-rgb: 59, 130, 246; /* Azul primário padrão, ajuste conforme seu tema */
+        }
+      `}</style>
     </div>
   );
 }

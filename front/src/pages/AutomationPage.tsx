@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useDashboard, ScrapingConfig } from '@/contexts/DashboardContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,10 +11,11 @@ import { Slider } from '@/components/ui/slider';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { ScrapingLiveProducts } from '@/components/dashboard/ScrapingLiveProducts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Zap, Play, Settings2, Loader2, CheckCircle, Package, AlertCircle, Filter, Search, X, RotateCcw } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Zap, Play, Settings2, Loader2, CheckCircle, Package, AlertCircle, Filter, Search, X, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
-
+import { useMarketplaceConnections } from '@/hooks/useMarketplaceConnections';
 
 interface MarketplaceFilters {
   categoria?: string;
@@ -44,7 +46,6 @@ const MAGALU_CATEGORIES = [
   { value: 'domesticos', label: 'Domésticos', key: 'DOMESTICOS', icon: '🧹' },
 ];
 
-// ✅ CATEGORIAS EXATAS DO MERCADO LIVRE (sincronizado com categorias-ml.js)
 const MERCADOLIVRE_CATEGORIES = [
   { value: 'todas', label: 'Todas as Ofertas', icon: '🎯' },
   { value: 'celulares', label: 'Celulares', icon: '📱' },
@@ -63,7 +64,10 @@ const MERCADOLIVRE_CATEGORIES = [
 ];
 
 export function AutomationPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { runScraping, scrapingStatus, products, resetScrapingStatus } = useDashboard();
+  const { connections, loading: connectionsLoading, refresh: refreshConnections } = useMarketplaceConnections();
   const { toast } = useToast();
 
   const [config, setConfig] = useState<{
@@ -107,6 +111,26 @@ export function AutomationPage() {
   const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
   const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
 
+  // Verifica se veio de um redirecionamento da página de settings
+  useEffect(() => {
+    const state = location.state as { highlightMarketplace?: Marketplace } | null;
+    if (state?.highlightMarketplace) {
+      // Scroll suave para o marketplace
+      setTimeout(() => {
+        const element = document.getElementById(`marketplace-${state.highlightMarketplace}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Adiciona animação de pulso
+          element.classList.add('animate-pulse-slow');
+          setTimeout(() => element.classList.remove('animate-pulse-slow'), 3000);
+        }
+      }, 300);
+      
+      // Limpa o state para evitar repetir o efeito
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.state, navigate]);
+
   useEffect(() => {
     localStorage.setItem('automation_config', JSON.stringify(config));
   }, [config]);
@@ -129,6 +153,17 @@ export function AutomationPage() {
   }, [scrapingStatus.isRunning, scrapingStatus.progress, scrapingStatus.itemsCollected]);
 
   const handleMarketplaceToggle = (mp: Marketplace) => {
+    // Se não está conectado, redireciona para settings
+    if (!connections[mp]) {
+      toast({
+        title: "⚠️ Marketplace não conectado",
+        description: `Configure uma conta do ${getMarketplaceName(mp)} primeiro.`,
+        variant: "destructive",
+      });
+      navigate('/settings', { state: { highlightMarketplace: mp } });
+      return;
+    }
+
     setConfig(prev => ({
       ...prev,
       marketplaces: {
@@ -156,6 +191,17 @@ export function AutomationPage() {
   };
 
   const openFiltersModal = (mp: Marketplace) => {
+    // Verifica se está conectado antes de abrir filtros
+    if (!connections[mp]) {
+      toast({
+        title: "⚠️ Marketplace não conectado",
+        description: `Configure uma conta do ${getMarketplaceName(mp)} primeiro.`,
+        variant: "destructive",
+      });
+      navigate('/settings', { state: { highlightMarketplace: mp } });
+      return;
+    }
+
     setCurrentMarketplace(mp);
     setTempFilters(config.marketplaces[mp].filters || {});
     setConfigModalOpen(true);
@@ -191,12 +237,27 @@ export function AutomationPage() {
   };
 
   const handleStartScraping = async () => {
-    const enabledCount = Object.values(config.marketplaces).filter(m => m.enabled).length;
-    if (enabledCount === 0) {
+    const enabledMarketplaces = Object.entries(config.marketplaces).filter(([_, cfg]) => cfg.enabled);
+    
+    if (enabledMarketplaces.length === 0) {
       toast({
         title: "Selecione pelo menos um marketplace",
         description: "Você precisa selecionar ao menos um marketplace para iniciar a coleta.",
         variant: "destructive"
+      });
+      return;
+    }
+
+    // Verifica se os marketplaces selecionados estão conectados
+    const disconnectedMarketplaces = enabledMarketplaces
+      .filter(([mp]) => !connections[mp as Marketplace])
+      .map(([mp]) => getMarketplaceName(mp as Marketplace));
+
+    if (disconnectedMarketplaces.length > 0) {
+      toast({
+        title: "⚠️ Marketplaces desconectados",
+        description: `Configure suas contas: ${disconnectedMarketplaces.join(', ')}`,
+        variant: "destructive",
       });
       return;
     }
@@ -248,6 +309,10 @@ export function AutomationPage() {
     }
   };
 
+  const handleGoToSettings = (mp: Marketplace) => {
+    navigate('/settings', { state: { highlightMarketplace: mp } });
+  };
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -278,80 +343,109 @@ export function AutomationPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {(Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][]).map(([mp, mpConfig]) => (
-                <div 
-                  key={mp}
-                  className={`p-4 rounded-xl border-2 transition-all ${
-                    mpConfig.enabled 
-                      ? 'border-primary bg-primary/5' 
-                      : 'border-border bg-card hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <Checkbox
-                        id={mp}
-                        checked={mpConfig.enabled}
-                        onCheckedChange={() => handleMarketplaceToggle(mp)}
-                      />
-                      <MarketplaceBadge marketplace={mp} />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {hasActiveFilters(mpConfig.filters) && (
-                        <div className="w-2 h-2 bg-primary rounded-full" title="Filtros ativos" />
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => openFiltersModal(mp)}
-                      >
-                        <Settings2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
+              {(Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][]).map(([mp, mpConfig]) => {
+                const isConnected = connections[mp];
+                
+                return (
+                  <div 
+                    key={mp}
+                    id={`marketplace-${mp}`}
+                    className={`p-4 rounded-xl border-2 transition-all relative ${
+                      !isConnected
+                        ? 'border-yellow-500/50 bg-yellow-500/5'
+                        : mpConfig.enabled 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-border bg-card hover:border-muted-foreground/30'
+                    }`}
+                  >
+                    {/* Warning de desconectado */}
+                    {!isConnected && (
+                      <Alert className="mb-3 border-yellow-500 bg-yellow-500/10">
+                        <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                        <AlertDescription className="text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-yellow-700">Não conectado</span>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="h-auto p-0 text-xs text-yellow-700 underline"
+                              onClick={() => handleGoToSettings(mp)}
+                            >
+                              Configurar
+                            </Button>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    )}
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor={`qty-${mp}`} className="text-sm">Quantidade</Label>
-                      <span className="text-sm font-medium text-primary">{mpConfig.quantity} itens</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Slider
-                        min={1}
-                        max={300}
-                        step={1}
-                        value={[mpConfig.quantity]}
-                        onValueChange={([v]) => handleQuantityChange(mp, v)}
-                        disabled={!mpConfig.enabled}
-                        className="flex-1"
-                      />
-                      <Input
-                        type="number"
-                        min={1}
-                        max={1000}
-                        value={mpConfig.quantity}
-                        onChange={(e) => handleQuantityChange(mp, parseInt(e.target.value))}
-                        disabled={!mpConfig.enabled}
-                        className="w-20 h-8 text-center"
-                      />
-                    </div>
-                  </div>
-
-                  {mpConfig.filters && (
-                    <div className="mt-3 pt-3 border-t space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Desconto:</span>
-                        <span className="font-medium">{mpConfig.filters.minDiscount || 0}%+</span>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          id={mp}
+                          checked={mpConfig.enabled && isConnected}
+                          onCheckedChange={() => handleMarketplaceToggle(mp)}
+                          disabled={!isConnected}
+                        />
+                        <MarketplaceBadge marketplace={mp} />
                       </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Preço máx:</span>
-                        <span className="font-medium">R$ {(mpConfig.filters.maxPrice || 20000).toLocaleString('pt-BR')}</span>
+                      <div className="flex items-center gap-2">
+                        {hasActiveFilters(mpConfig.filters) && (
+                          <div className="w-2 h-2 bg-primary rounded-full" title="Filtros ativos" />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => openFiltersModal(mp)}
+                          disabled={!isConnected}
+                        >
+                          <Settings2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor={`qty-${mp}`} className="text-sm">Quantidade</Label>
+                        <span className="text-sm font-medium text-primary">{mpConfig.quantity} itens</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Slider
+                          min={1}
+                          max={300}
+                          step={1}
+                          value={[mpConfig.quantity]}
+                          onValueChange={([v]) => handleQuantityChange(mp, v)}
+                          disabled={!mpConfig.enabled || !isConnected}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={mpConfig.quantity}
+                          onChange={(e) => handleQuantityChange(mp, parseInt(e.target.value))}
+                          disabled={!mpConfig.enabled || !isConnected}
+                          className="w-20 h-8 text-center"
+                        />
+                      </div>
+                    </div>
+
+                    {mpConfig.filters && (
+                      <div className="mt-3 pt-3 border-t space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Desconto:</span>
+                          <span className="font-medium">{mpConfig.filters.minDiscount || 0}%+</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Preço máx:</span>
+                          <span className="font-medium">R$ {(mpConfig.filters.maxPrice || 20000).toLocaleString('pt-BR')}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             <div className="flex items-center justify-between p-4 bg-muted rounded-xl">
@@ -390,7 +484,6 @@ export function AutomationPage() {
                 Status da Execução
               </CardTitle>
               
-              {/* ✅ BOTÃO DE RESET DE EMERGÊNCIA */}
               {scrapingStatus.isRunning && (
                 <Button
                   variant="ghost"
@@ -463,17 +556,9 @@ export function AutomationPage() {
                   </div>
                 </div>
 
-                {/* ✅ PRODUTOS EM TEMPO REAL */}
                 {scrapingStatus.lastProducts && scrapingStatus.lastProducts.length > 0 && (
                   <div className="mt-4">
                     <ScrapingLiveProducts products={scrapingStatus.lastProducts} />
-                  </div>
-                )}
-                
-                {/* Debug - remover depois */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="text-xs text-muted-foreground mt-2">
-                    {scrapingStatus.lastProducts?.length || 0} produtos no buffer
                   </div>
                 )}
 
@@ -612,6 +697,23 @@ export function AutomationPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* CSS para animação de pulso lento */}
+      <style>{`
+        @keyframes pulse-slow {
+          0%, 100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+          50% {
+            opacity: 0.8;
+            transform: scale(1.02);
+          }
+        }
+        .animate-pulse-slow {
+          animation: pulse-slow 1.5s cubic-bezier(0.4, 0, 0.6, 1) 3;
+        }
+      `}</style>
     </div>
   );
 }
