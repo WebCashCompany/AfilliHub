@@ -42,11 +42,11 @@ class MercadoLivreScraper {
     if (!this.searchTerm) {
       this.categoriaInfo = getCategoria(this.categoriaKey);
       if (!this.categoriaInfo) {
-        this.categoriaInfo = getCategoria('todas');
+        this.categoriaInfo = getCategoria('informatica');
       }
     } else {
-      // 🔥 CORRIGIDO: Usa categoria "Todas" para busca
-      this.categoriaInfo = getCategoria('todas');
+      // 🔥 CORRIGIDO: Usa categoria válida "informatica" para busca
+      this.categoriaInfo = getCategoria('informatica');
     }
     
     try {
@@ -390,7 +390,7 @@ class MercadoLivreScraper {
         this.stats.affiliateLinksFailed++;
       }
 
-      // 🔥 CORRIGIDO: Sempre usa categoria "Todas" para produtos de busca
+      // 🔥 CORRIGIDO: Usa categoria válida do schema MongoDB
       const product = {
         nome: prodData.name,
         imagem: prodData.image,
@@ -401,7 +401,7 @@ class MercadoLivreScraper {
         preco_anterior: `R$ ${prodData.oldPrice}`,
         preco_de: String(prodData.oldPrice),
         preco_para: String(finalPrice),
-        categoria: this.searchTerm ? 'Todas' : this.categoriaInfo.nome,  // 🔥 CORRIGIDO
+        categoria: this.searchTerm ? 'Informática' : this.categoriaInfo.nome,  // 🔥 CORRIGIDO: Informatica é válida
         marketplace: 'ML',
         isActive: true
       };
@@ -465,10 +465,11 @@ class MercadoLivreScraper {
           
           await mainPage.goto(url, { 
             waitUntil: 'domcontentloaded', 
-            timeout: pageNum === 1 ? 20000 : 15000
+            timeout: pageNum === 1 ? 30000 : 15000  // 30s para primeira página
           });
 
-          await mainPage.waitForTimeout(pageNum === 1 ? 1200 : 800);
+          // Delay maior na primeira página para garantir carregamento
+          await mainPage.waitForTimeout(pageNum === 1 ? 3000 : 800);
 
           await mainPage.evaluate(async () => {
             for (let i = 0; i < 8; i++) {
@@ -492,7 +493,7 @@ class MercadoLivreScraper {
             window.scrollTo(0, 0);
           });
 
-          await mainPage.waitForTimeout(800);
+          await mainPage.waitForTimeout(1200);  // Delay final maior
 
           const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
             const cards = document.querySelectorAll('.poly-card, .ui-search-result');

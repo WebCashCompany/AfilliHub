@@ -153,8 +153,8 @@ class ScrapingService {
       if (searchTerm) {
         // Modo busca por termo
         scraper.searchTerm = searchTerm;
-        scraper.categoriaKey = 'todas';  // 🔥 CORRIGIDO
-        scraper.categoriaInfo = getCategoria('todas');  // 🔥 CORRIGIDO
+        scraper.categoriaKey = 'informatica';  // 🔥 CORRIGIDO
+        scraper.categoriaInfo = getCategoria('informatica');  // 🔥 CORRIGIDO
         console.log(`🔎 Modo BUSCA ativado: "${searchTerm}"`);
       } else if (categoria) {
         // Modo categoria
