@@ -2,11 +2,9 @@
  * ═══════════════════════════════════════════════════════════════════════
  * PRODUCTS MODEL - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
- * 
- * Model MongoDB profissional para produtos de múltiplos marketplaces
+ * * Model MongoDB profissional para produtos de múltiplos marketplaces
  * Sistema unificado com categorias dinâmicas
- * 
- * @version 2.0.0
+ * * @version 2.1.0
  * @author Dashboard Promoforia
  * @license Proprietary
  */
@@ -53,20 +51,28 @@ function normalizeMarketplaceName(marketplace) {
 // ═══════════════════════════════════════════════════════════════════════
 
 const BASE_CATEGORIES = [
-  // Mercado Livre
+  // Mercado Livre (Nomes exatos vindos do Scraper)
   'Celulares',
   'Eletrodomésticos',
   'Casa e Decoração',
   'Calçados e Roupas',
   'Joias e Relógios',
   'Ofertas Relâmpago',
+  'Esportes e Fitness',
+  'Eletrônicos, Áudio e Vídeo',
+  'Ferramentas',
+  'Informática',
+  'Acessórios para Veículos',
+  'Beleza e Cuidado Pessoal',
+  'Saúde',
+  'Brinquedos e Hobbies',
+  'Games',
   
-  // Compartilhadas
+  // Compartilhadas e Genéricas
   'Todas as Ofertas',
   'Ofertas do Dia',
   'Internacional',
   'Casa',
-  'Ferramentas',
   'Eletroportáteis',
   'Brinquedos',
   'Automotivo',
@@ -75,9 +81,7 @@ const BASE_CATEGORIES = [
   'Moda',
   'Beleza',
   'Esportes',
-  'Livros',
-  'Games',
-  'Informática'
+  'Livros'
 ];
 
 // Adiciona categorias dinâmicas do Magalu
@@ -117,7 +121,7 @@ const ProductSchema = new mongoose.Schema({
   link_afiliado: { 
     type: String, 
     required: true, 
-    unique: true
+    unique: true // Isso já cria o índice automaticamente
   },
   
   // Preços
@@ -152,7 +156,7 @@ const ProductSchema = new mongoose.Schema({
     type: String, 
     default: 'Ofertas do Dia', 
     index: true,
-    enum: ALL_CATEGORIES
+    enum: ALL_CATEGORIES // Agora inclui "Esportes e Fitness"
   },
   
   // Informações adicionais (opcionais)
@@ -213,18 +217,18 @@ const ProductSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
-  collection: undefined // Será definido dinamicamente
+  collection: undefined // Será definido dinamicamente no getProductModel
 });
 
 // ═══════════════════════════════════════════════════════════════════════
 // ÍNDICES COMPOSTOS PARA PERFORMANCE
 // ═══════════════════════════════════════════════════════════════════════
 
+// Nota: Removidos os índices individuais que causavam Duplicated Schema Warning
 ProductSchema.index({ marketplace: 1, desconto: -1 });
 ProductSchema.index({ categoria: 1, ultima_verificacao: -1 });
 ProductSchema.index({ isActive: 1, marketplace: 1 });
 ProductSchema.index({ marketplace: 1, categoria: 1 });
-ProductSchema.index({ link_afiliado: 1 }, { unique: true });
 
 // ═══════════════════════════════════════════════════════════════════════
 // HOOKS (Middleware)
@@ -298,8 +302,7 @@ const modelCache = {};
 
 /**
  * Retorna ou cria model para um marketplace específico
- * 
- * @param {string} marketplace - ML, shopee, amazon, ou magalu
+ * * @param {string} marketplace - ML, shopee, amazon, ou magalu
  * @param {Connection} connection - Conexão do database "produtos"
  * @returns {Model} Model do Mongoose
  */
@@ -332,42 +335,3 @@ module.exports = {
   getProductModel,
   normalizeMarketplaceName
 };
-
-// ═══════════════════════════════════════════════════════════════════════
-// EXEMPLO DE USO
-// ═══════════════════════════════════════════════════════════════════════
-
-/*
-const { getProductConnection } = require('../mongodb');
-const { getProductModel } = require('./Products');
-
-// Obter model do Mercado Livre
-const conn = getProductConnection();
-const ProductML = getProductModel('ML', conn);
-
-// Criar produto
-await ProductML.create({
-  nome: 'iPhone 15 Pro',
-  imagem: 'https://...',
-  link_original: 'https://...',
-  link_afiliado: 'https://...',
-  preco: 'R$ 5.999',
-  preco_anterior: 'R$ 7.999',
-  preco_de: '799900',
-  preco_para: '599900',
-  desconto: '25%',
-  categoria: 'Celulares',
-  marketplace: 'ML',
-  isActive: true
-});
-
-// Buscar produtos ativos
-const produtosAtivos = await ProductML.findActiveProducts({ categoria: 'Celulares' });
-
-// Buscar por desconto mínimo
-const ofertas = await ProductML.findByMinDiscount(30);
-
-// Desativar produtos antigos
-const desativados = await ProductML.deactivateOldProducts(7);
-console.log(`${desativados} produtos foram desativados`);
-*/
