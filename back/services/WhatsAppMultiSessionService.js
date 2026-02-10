@@ -1,4 +1,4 @@
-// back/services/WhatsAppMultiSessionService.js - COM MONGODB E SINCRONIZAÇÃO
+// back/services/WhatsAppMultiSessionService.js - VERSÃO CORRIGIDA COM PERSISTÊNCIA TOTAL
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
@@ -15,7 +15,7 @@ class WhatsAppSession {
         this.authFolder = path.join(__dirname, '..', 'baileys_sessions', sessionId);
         this.isConnecting = false;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 3;
+        this.maxReconnectAttempts = 5; // Aumentado de 3 para 5
         this.phoneNumber = null;
         this.connectedAt = null;
     }
@@ -32,18 +32,15 @@ class WhatsAppSession {
                 ...updates
             };
 
-            console.log(`💾 [${this.sessionId}] Salvando no MongoDB:`, JSON.stringify(data, null, 2));
-
-            const result = await this.sessionModel.findOneAndUpdate(
+            await this.sessionModel.findOneAndUpdate(
                 { sessionId: this.sessionId },
                 data,
                 { upsert: true, new: true }
             );
 
-            console.log(`✅ [${this.sessionId}] Salvo com sucesso no MongoDB! ID:`, result._id);
+            console.log(`💾 Sessão ${this.sessionId} salva no banco`);
         } catch (error) {
-            console.error(`❌ [${this.sessionId}] ERRO CRÍTICO ao salvar no MongoDB:`, error.message);
-            console.error('Stack:', error.stack);
+            console.error(`❌ Erro ao salvar sessão no banco:`, error);
         }
     }
 
@@ -52,12 +49,11 @@ class WhatsAppSession {
             const allSessions = await this.sessionModel.getAllSessions();
             const sessionsData = allSessions.map(s => s.toPublic());
 
-            console.log(`📡 [BROADCAST] Enviando para ${this.io.engine.clientsCount} clientes conectados`);
-            console.log(`📡 [BROADCAST] ${sessionsData.length} sessões:`, sessionsData.map(s => `${s.sessionId}:${s.status}`));
-
             this.io.emit('whatsapp:sessions-update', {
                 sessions: sessionsData
             });
+
+            console.log(`📡 [BROADCAST] Atualização de sessões enviada`);
         } catch (error) {
             console.error(`❌ Erro ao fazer broadcast:`, error);
         }
@@ -82,8 +78,10 @@ class WhatsAppSession {
         try {
             console.log(`\n🤖 Inicializando sessão: ${this.sessionId}`);
 
+            // 🔥 GARANTIR que a pasta existe
             if (!fs.existsSync(this.authFolder)) {
                 fs.mkdirSync(this.authFolder, { recursive: true });
+                console.log(`📁 Pasta criada: ${this.authFolder}`);
             }
 
             const { state, saveCreds } = await useMultiFileAuthState(this.authFolder);
@@ -92,7 +90,7 @@ class WhatsAppSession {
                 auth: state,
                 printQRInTerminal: false,
                 logger: pino({ level: 'silent' }),
-                browser: [`Bot ${this.sessionId}`, 'Chrome', '10.0.0'],
+                browser: [`AffiliateHub ${this.sessionId}`, 'Chrome', '10.0.0'],
                 defaultQueryTimeoutMs: 60000,
                 connectTimeoutMs: 60000,
                 keepAliveIntervalMs: 30000,
@@ -166,6 +164,7 @@ class WhatsAppSession {
 
                     await this.broadcastSessionsUpdate();
 
+                    // 🔥 LOGOUT MANUAL OU SESSÃO SUBSTITUÍDA = NÃO RECONECTAR
                     const dontReconnect = [
                         DisconnectReason.loggedOut,
                         DisconnectReason.badSession,
@@ -175,9 +174,11 @@ class WhatsAppSession {
 
                     if (dontReconnect.includes(statusCode)) {
                         console.log(`❌ Sessão ${this.sessionId} desconectada permanentemente.`);
+                        // 🔥 NÃO DELETAR ARQUIVOS - apenas marcar como offline
                         return;
                     }
 
+                    // 🔥 TENTAR RECONECTAR (sem deletar arquivos)
                     if (this.reconnectAttempts < this.maxReconnectAttempts) {
                         this.reconnectAttempts++;
                         const delayMs = this.reconnectAttempts * 5000;
@@ -188,6 +189,7 @@ class WhatsAppSession {
                         await this.initialize();
                     } else {
                         console.error(`❌ Sessão ${this.sessionId}: Máximo de tentativas atingido.`);
+                        console.log(`💡 Sessão ficará offline, mas pode ser reconectada manualmente.`);
                     }
                 }
             });
@@ -301,9 +303,53 @@ class WhatsAppSession {
         }
     }
 
-    async disconnect() {
+    // ═══════════════════════════════════════════════════════════
+    // 🔥 DESCONECTAR (SEM DELETAR ARQUIVOS)
+    // ═══════════════════════════════════════════════════════════
+    async softDisconnect() {
+        console.log(`🔌 Desconectando sessão ${this.sessionId} (arquivos preservados)`);
+        
         if (this.sock) {
             try {
+                // Apenas fechar conexão, NÃO fazer logout
+                await this.sock.end();
+            } catch (error) {
+                console.log(`Erro ao fechar conexão (sessão ${this.sessionId}):`, error.message);
+            }
+            
+            this.sock = null;
+            this.isReady = false;
+            this.isConnecting = false;
+            this.reconnectAttempts = 0;
+            
+            // 🔥 MANTER ARQUIVOS DO BAILEYS INTACTOS
+            // 🔥 Apenas atualizar status no banco
+            await this.saveToDatabase({
+                conectado: false,
+                status: 'offline',
+                disconnectedAt: new Date()
+            });
+            
+            console.log(`✅ Sessão ${this.sessionId} desconectada (pode ser reconectada)`);
+
+            this.io.emit('whatsapp:disconnected', {
+                sessionId: this.sessionId,
+                reason: 'Desconectado pelo usuário'
+            });
+            
+            await this.broadcastSessionsUpdate();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 🔥 EXCLUIR PERMANENTEMENTE (DELETAR TUDO)
+    // ═══════════════════════════════════════════════════════════
+    async hardDelete() {
+        console.log(`🗑️ EXCLUINDO PERMANENTEMENTE sessão ${this.sessionId}`);
+        
+        if (this.sock) {
+            try {
+                // Fazer logout completo
                 await this.sock.logout();
             } catch (error) {
                 console.log(`Erro ao fazer logout (sessão ${this.sessionId}):`, error.message);
@@ -313,22 +359,25 @@ class WhatsAppSession {
             this.isReady = false;
             this.isConnecting = false;
             this.reconnectAttempts = 0;
-            
-            if (fs.existsSync(this.authFolder)) {
-                fs.rmSync(this.authFolder, { recursive: true, force: true });
-            }
-
-            await this.sessionModel.deleteOne({ sessionId: this.sessionId });
-            
-            console.log(`🔌 Sessão ${this.sessionId} desconectada e dados removidos.`);
-
-            this.io.emit('whatsapp:disconnected', {
-                sessionId: this.sessionId,
-                reason: 'Sessão excluída pelo usuário'
-            });
-            
-            await this.broadcastSessionsUpdate();
         }
+        
+        // 🔥 DELETAR PASTA DE AUTENTICAÇÃO
+        if (fs.existsSync(this.authFolder)) {
+            fs.rmSync(this.authFolder, { recursive: true, force: true });
+            console.log(`📁 Pasta de autenticação deletada: ${this.authFolder}`);
+        }
+
+        // 🔥 REMOVER DO BANCO
+        await this.sessionModel.deleteOne({ sessionId: this.sessionId });
+        
+        console.log(`✅ Sessão ${this.sessionId} EXCLUÍDA PERMANENTEMENTE`);
+
+        this.io.emit('whatsapp:disconnected', {
+            sessionId: this.sessionId,
+            reason: 'Sessão excluída pelo usuário'
+        });
+        
+        await this.broadcastSessionsUpdate();
     }
 
     getStatus() {
@@ -361,22 +410,30 @@ class WhatsAppMultiSessionService {
             console.log(`📋 Encontradas ${savedSessions.length} sessões salvas`);
 
             for (const savedSession of savedSessions) {
-                if (savedSession.conectado) {
-                    console.log(`♻️ Tentando reconectar sessão: ${savedSession.sessionId}`);
+                console.log(`♻️ Restaurando sessão: ${savedSession.sessionId} (${savedSession.status})`);
+                
+                const session = this.createSession(savedSession.sessionId);
+                
+                // 🔥 SEMPRE TENTAR RECONECTAR (se tinha estado salvo no Baileys)
+                const authFolder = path.join(__dirname, '..', 'baileys_sessions', savedSession.sessionId);
+                
+                if (fs.existsSync(authFolder)) {
+                    console.log(`📁 Arquivos de autenticação encontrados para ${savedSession.sessionId}`);
                     
-                    const session = this.createSession(savedSession.sessionId);
-                    
+                    // Tentar reconectar automaticamente
                     session.initialize().catch(err => {
-                        console.error(`❌ Erro ao reconectar ${savedSession.sessionId}:`, err);
+                        console.error(`❌ Erro ao reconectar ${savedSession.sessionId}:`, err.message);
+                        console.log(`💡 Sessão ficará offline até reconexão manual`);
                     });
                 } else {
-                    console.log(`📝 Sessão offline no banco: ${savedSession.sessionId} (não reconectará automaticamente)`);
+                    console.log(`⚠️ Sem arquivos de autenticação para ${savedSession.sessionId} - precisará escanear QR Code novamente`);
                 }
             }
 
+            // Aguardar um pouco para conexões se estabelecerem
             setTimeout(() => {
                 this.broadcastSessionsUpdate();
-            }, 2000);
+            }, 3000);
 
             console.log('✅ Restauração de sessões concluída\n');
         } catch (error) {
@@ -389,12 +446,11 @@ class WhatsAppMultiSessionService {
             const allSessions = await this.sessionModel.getAllSessions();
             const sessionsData = allSessions.map(s => s.toPublic());
 
-            console.log(`📡 [BROADCAST] Enviando para ${this.io.engine.clientsCount} clientes conectados`);
-            console.log(`📡 [BROADCAST] ${sessionsData.length} sessões:`, sessionsData.map(s => `${s.sessionId}:${s.status}`));
-
             this.io.emit('whatsapp:sessions-update', {
                 sessions: sessionsData
             });
+
+            console.log(`📡 [BROADCAST] ${sessionsData.length} sessões sincronizadas`);
         } catch (error) {
             console.error(`❌ Erro ao fazer broadcast:`, error);
         }
@@ -424,24 +480,21 @@ class WhatsAppMultiSessionService {
         }
     }
 
+    // 🔥 DESCONECTAR (sem deletar)
+    async disconnectSession(sessionId) {
+        const session = this.sessions.get(sessionId);
+        if (session) {
+            await session.softDisconnect();
+            // NÃO remove da memória - apenas desconecta
+        }
+    }
+
+    // 🔥 EXCLUIR PERMANENTEMENTE
     async deleteSession(sessionId) {
         const session = this.sessions.get(sessionId);
         if (session) {
-            await session.disconnect();
+            await session.hardDelete();
             this.sessions.delete(sessionId);
-            
-            try {
-                const dbSessions = await this.sessionModel.getAllSessions();
-                const sessionsData = dbSessions.map(s => s.toPublic());
-                
-                this.io.emit('whatsapp:sessions-update', {
-                    sessions: sessionsData
-                });
-                
-                console.log(`📡 [BROADCAST] Sessão ${sessionId} removida - atualização enviada`);
-            } catch (error) {
-                console.error('Erro ao fazer broadcast após deletar:', error);
-            }
         }
     }
 

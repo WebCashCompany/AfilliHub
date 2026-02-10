@@ -1,10 +1,11 @@
-// src/App.tsx - COM ROTA WHATSAPP
+// src/App.tsx - COM PERSISTÊNCIA TOTAL
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { PersistenceProvider } from "@/contexts/PersistenceContext";
+import { UserPreferencesProvider } from "@/contexts/UserPreferencesContext";
 import { DashboardProvider } from "@/contexts/DashboardContext";
 import { WhatsAppProvider } from "@/contexts/WhatsAppContext";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
@@ -17,7 +18,6 @@ import { ReportsPage } from "@/pages/ReportsPage";
 import { GoalsPage } from "@/pages/GoalsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TrashPage } from "@/pages/TrashPage";
-import { WhatsAppManagementPage } from "@/pages/WhatsAppManagementPage"; // ⭐ NOVO
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,29 +26,31 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <PersistenceProvider>
-        <DashboardProvider>
-          <WhatsAppProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route element={<DashboardLayout />}>
-                  <Route path="/" element={<DashboardHome />} />
-                  <Route path="/analytics" element={<AnalyticsPage />} />
-                  <Route path="/automation" element={<AutomationPage />} />
-                  <Route path="/products" element={<ProductsPage />} />
-                  <Route path="/distribution" element={<DistributionPage />} />
-
-                  <Route path="/reports" element={<ReportsPage />} />
-                  <Route path="/goals" element={<GoalsPage />} />
-                  <Route path="/settings" element={<SettingsPage />} />
-                  <Route path="/trash" element={<TrashPage />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </WhatsAppProvider>
-        </DashboardProvider>
+        {/* 🔥 UserPreferencesProvider ANTES de tudo - gerencia tema, idioma, etc */}
+        <UserPreferencesProvider>
+          <DashboardProvider>
+            <WhatsAppProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <Routes>
+                  <Route element={<DashboardLayout />}>
+                    <Route path="/" element={<DashboardHome />} />
+                    <Route path="/analytics" element={<AnalyticsPage />} />
+                    <Route path="/automation" element={<AutomationPage />} />
+                    <Route path="/products" element={<ProductsPage />} />
+                    <Route path="/distribution" element={<DistributionPage />} />
+                    <Route path="/reports" element={<ReportsPage />} />
+                    <Route path="/goals" element={<GoalsPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="/trash" element={<TrashPage />} />
+                  </Route>
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </WhatsAppProvider>
+          </DashboardProvider>
+        </UserPreferencesProvider>
       </PersistenceProvider>
     </TooltipProvider>
   </QueryClientProvider>
