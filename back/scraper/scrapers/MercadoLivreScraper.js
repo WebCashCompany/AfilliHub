@@ -26,9 +26,6 @@ class MercadoLivreScraper {
     this.maxPrice = options.maxPrice ? parseInt(options.maxPrice) : null;
     this.categoriaKey = options.categoria || 'todas';
     
-    // ✅ CORREÇÃO 3: Headless configurável
-    this.headless = process.env.HEADLESS_MODE === 'true';
-    
     this.stats = {
       duplicatesIgnored: 0,
       productsCollected: 0,
@@ -162,7 +159,7 @@ class MercadoLivreScraper {
     }
 
     this.browser = await chromium.launch({
-      headless: this.headless,
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -226,7 +223,6 @@ class MercadoLivreScraper {
     const page = await this.context.newPage();
     
     try {
-      // ✅ CORREÇÃO: Delays otimizados
       const initialDelay = this.isFirstProduct ? 2000 : 600;
       
       await page.goto(productUrl, { 
@@ -240,17 +236,17 @@ class MercadoLivreScraper {
         this.isFirstProduct = false;
       }
 
-      // ✅ NOVO: Aguarda botão compartilhar estar visível
+      // Aguarda botão compartilhar estar visível
       try {
-        await page.waitForSelector('button[class*="share"], button[aria-label*="Compartilhar"], button:has-text("Compartilhar")', {
-          timeout: 5000,
+        await page.waitForSelector('button[class*="share"], button[aria-label*="Compartilhar"]', {
+          timeout: 3000,
           state: 'visible'
         });
       } catch (e) {
-        // Se não achar, tenta continuar mesmo assim
+        // Continua mesmo sem achar
       }
 
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(200);
 
       await page.evaluate(() => {
         try {
@@ -263,62 +259,23 @@ class MercadoLivreScraper {
       // Tab 4x para COMPARTILHAR
       for (let i = 0; i < 4; i++) {
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(120); // ✅ Aumentado de 80ms para 120ms
+        await page.waitForTimeout(100);
       }
       
-      // ✅ NOVO: Verifica se elemento tem focus antes de dar Enter
-      const hasFocus = await page.evaluate(() => {
-        const el = document.activeElement;
-        return el && (
-          el.getAttribute('aria-label')?.toLowerCase().includes('compartilhar') ||
-          el.textContent?.toLowerCase().includes('compartilhar') ||
-          el.className?.toLowerCase().includes('share')
-        );
-      });
-
-      if (!hasFocus) {
-        // Se não focou no botão certo, tenta localizar direto
-        try {
-          await page.click('button[class*="share"], button[aria-label*="Compartilhar"]', { timeout: 2000 });
-        } catch (e) {
-          await page.keyboard.press('Enter');
-        }
-      } else {
-        await page.keyboard.press('Enter');
-      }
-      
-      await page.waitForTimeout(1500); // ✅ Aumentado de 1200ms para 1500ms
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(1500);
 
       // Tab 4x para COPIAR LINK
       for (let i = 0; i < 4; i++) {
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(120); // ✅ Aumentado de 80ms para 120ms
+        await page.waitForTimeout(100);
       }
       
-      // ✅ NOVO: Verifica se focou no botão copiar
-      const hasCopyFocus = await page.evaluate(() => {
-        const el = document.activeElement;
-        return el && (
-          el.getAttribute('aria-label')?.toLowerCase().includes('copiar') ||
-          el.textContent?.toLowerCase().includes('copiar') ||
-          el.className?.toLowerCase().includes('copy')
-        );
-      });
-
-      if (!hasCopyFocus) {
-        // Tenta clicar direto no botão copiar
-        try {
-          await page.click('button:has-text("Copiar link"), button[class*="copy"]', { timeout: 2000 });
-        } catch (e) {
-          await page.keyboard.press('Enter');
-        }
-      } else {
-        await page.keyboard.press('Enter');
-      }
+      await page.keyboard.press('Enter');
       
-      // Aguarda clipboard com retry mais inteligente
+      // Aguarda clipboard
       let copiedLink = '';
-      for (let attempt = 1; attempt <= 10; attempt++) { // ✅ Aumentado de 8 para 10
+      for (let attempt = 1; attempt <= 10; attempt++) {
         await page.waitForTimeout(300);
         
         try {
@@ -477,24 +434,40 @@ class MercadoLivreScraper {
 
           await mainPage.waitForTimeout(pageNum === 1 ? 1500 : 1000);
 
-          // Scroll para carregar lazy loading
+          // Scroll agressivo para carregar TODOS os produtos
           await mainPage.evaluate(async () => {
-            await new Promise((resolve) => {
-              let totalHeight = 0;
-              const distance = 300;
-              const timer = setInterval(() => {
-                window.scrollBy(0, distance);
-                totalHeight += distance;
-                if (totalHeight >= document.body.scrollHeight) {
-                  clearInterval(timer);
-                  window.scrollTo(0, 0);
-                  resolve();
-                }
-              }, 100);
-            });
+            // Primeira passada: scroll rápido até o fim
+            for (let i = 0; i < 10; i++) {
+              window.scrollBy(0, window.innerHeight);
+              await new Promise(r => setTimeout(r, 200));
+            }
+            
+            // Segunda passada: vai direto pro final e espera
+            window.scrollTo(0, document.body.scrollHeight);
+            await new Promise(r => setTimeout(r, 800));
+            
+            // Terceira passada: scroll incremental com verificação
+            let lastHeight = document.body.scrollHeight;
+            let attempts = 0;
+            
+            while (attempts < 5) {
+              window.scrollTo(0, document.body.scrollHeight);
+              await new Promise(r => setTimeout(r, 600));
+              
+              const newHeight = document.body.scrollHeight;
+              if (newHeight === lastHeight) {
+                attempts++;
+              } else {
+                attempts = 0;
+                lastHeight = newHeight;
+              }
+            }
+            
+            // Volta pro topo
+            window.scrollTo(0, 0);
           });
 
-          await mainPage.waitForTimeout(1200);
+          await mainPage.waitForTimeout(1000);
 
           const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
             const cards = document.querySelectorAll('.poly-card, .ui-search-result');
