@@ -11,8 +11,7 @@ import { Slider } from '@/components/ui/slider';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { ScrapingLiveProducts } from '@/components/dashboard/ScrapingLiveProducts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Zap, Play, Settings2, Loader2, CheckCircle, Package, AlertCircle, Filter, Search, X, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Zap, Play, Settings2, Loader2, CheckCircle, Package, Filter, Search, X, RotateCcw, Lock, ArrowRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
 import { useMarketplaceConnections } from '@/hooks/useMarketplaceConnections';
@@ -111,22 +110,18 @@ export function AutomationPage() {
   const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
   const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
 
-  // Verifica se veio de um redirecionamento da página de settings
   useEffect(() => {
     const state = location.state as { highlightMarketplace?: Marketplace } | null;
     if (state?.highlightMarketplace) {
-      // Scroll suave para o marketplace
       setTimeout(() => {
         const element = document.getElementById(`marketplace-${state.highlightMarketplace}`);
         if (element) {
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          // Adiciona animação de pulso
           element.classList.add('animate-pulse-slow');
           setTimeout(() => element.classList.remove('animate-pulse-slow'), 3000);
         }
       }, 300);
       
-      // Limpa o state para evitar repetir o efeito
       navigate(location.pathname, { replace: true });
     }
   }, [location.state, navigate]);
@@ -153,7 +148,6 @@ export function AutomationPage() {
   }, [scrapingStatus.isRunning, scrapingStatus.progress, scrapingStatus.itemsCollected]);
 
   const handleMarketplaceToggle = (mp: Marketplace) => {
-    // Se não está conectado, redireciona para settings
     if (!connections[mp]) {
       toast({
         title: "⚠️ Marketplace não conectado",
@@ -191,7 +185,6 @@ export function AutomationPage() {
   };
 
   const openFiltersModal = (mp: Marketplace) => {
-    // Verifica se está conectado antes de abrir filtros
     if (!connections[mp]) {
       toast({
         title: "⚠️ Marketplace não conectado",
@@ -248,7 +241,6 @@ export function AutomationPage() {
       return;
     }
 
-    // Verifica se os marketplaces selecionados estão conectados
     const disconnectedMarketplaces = enabledMarketplaces
       .filter(([mp]) => !connections[mp as Marketplace])
       .map(([mp]) => getMarketplaceName(mp as Marketplace));
@@ -278,7 +270,7 @@ export function AutomationPage() {
   };
 
   const totalToCollect = Object.entries(config.marketplaces)
-    .filter(([_, cfg]) => cfg.enabled)
+    .filter(([mp, cfg]) => cfg.enabled && connections[mp as Marketplace])
     .reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
 
   const hasActiveFilters = (filters?: MarketplaceFilters) => {
@@ -350,99 +342,105 @@ export function AutomationPage() {
                   <div 
                     key={mp}
                     id={`marketplace-${mp}`}
-                    className={`p-4 rounded-xl border-2 transition-all relative ${
+                    className={`relative overflow-hidden rounded-xl border-2 transition-all ${
                       !isConnected
-                        ? 'border-yellow-500/50 bg-yellow-500/5'
+                        ? 'border-orange-500/30 bg-gradient-to-br from-orange-500/5 to-transparent'
                         : mpConfig.enabled 
                           ? 'border-primary bg-primary/5' 
                           : 'border-border bg-card hover:border-muted-foreground/30'
                     }`}
                   >
-                    {/* Warning de desconectado */}
+                    {/* OVERLAY para marketplaces desconectados */}
                     {!isConnected && (
-                      <Alert className="mb-3 border-yellow-500 bg-yellow-500/10">
-                        <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                        <AlertDescription className="text-xs">
-                          <div className="flex items-center justify-between">
-                            <span className="text-yellow-700">Não conectado</span>
-                            <Button
-                              variant="link"
-                              size="sm"
-                              className="h-auto p-0 text-xs text-yellow-700 underline"
-                              onClick={() => handleGoToSettings(mp)}
-                            >
-                              Configurar
-                            </Button>
-                          </div>
-                        </AlertDescription>
-                      </Alert>
-                    )}
-
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <Checkbox
-                          id={mp}
-                          checked={mpConfig.enabled && isConnected}
-                          onCheckedChange={() => handleMarketplaceToggle(mp)}
-                          disabled={!isConnected}
-                        />
-                        <MarketplaceBadge marketplace={mp} />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {hasActiveFilters(mpConfig.filters) && (
-                          <div className="w-2 h-2 bg-primary rounded-full" title="Filtros ativos" />
-                        )}
+                      <div className="absolute inset-0 bg-gradient-to-br from-black/60 via-black/50 to-black/40 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center p-6 text-center">
+                        <div className="w-16 h-16 rounded-full bg-orange-500/20 flex items-center justify-center mb-4 border-2 border-orange-500/30">
+                          <Lock className="w-8 h-8 text-orange-400" />
+                        </div>
+                        <h4 className="text-white font-semibold text-lg mb-2">
+                          Marketplace não conectado
+                        </h4>
+                        <p className="text-white/70 text-sm mb-6 max-w-[200px]">
+                          Configure sua conta para usar este marketplace
+                        </p>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => openFiltersModal(mp)}
-                          disabled={!isConnected}
+                          onClick={() => handleGoToSettings(mp)}
+                          className="bg-orange-500 hover:bg-orange-600 text-white gap-2 shadow-lg"
+                          size="sm"
                         >
-                          <Settings2 className="w-4 h-4" />
+                          Configurar agora
+                          <ArrowRight className="w-4 h-4" />
                         </Button>
                       </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor={`qty-${mp}`} className="text-sm">Quantidade</Label>
-                        <span className="text-sm font-medium text-primary">{mpConfig.quantity} itens</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Slider
-                          min={1}
-                          max={300}
-                          step={1}
-                          value={[mpConfig.quantity]}
-                          onValueChange={([v]) => handleQuantityChange(mp, v)}
-                          disabled={!mpConfig.enabled || !isConnected}
-                          className="flex-1"
-                        />
-                        <Input
-                          type="number"
-                          min={1}
-                          max={1000}
-                          value={mpConfig.quantity}
-                          onChange={(e) => handleQuantityChange(mp, parseInt(e.target.value))}
-                          disabled={!mpConfig.enabled || !isConnected}
-                          className="w-20 h-8 text-center"
-                        />
-                      </div>
-                    </div>
-
-                    {mpConfig.filters && (
-                      <div className="mt-3 pt-3 border-t space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Desconto:</span>
-                          <span className="font-medium">{mpConfig.filters.minDiscount || 0}%+</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Preço máx:</span>
-                          <span className="font-medium">R$ {(mpConfig.filters.maxPrice || 20000).toLocaleString('pt-BR')}</span>
-                        </div>
-                      </div>
                     )}
+
+                    {/* CONTEÚDO DO CARD - fica por baixo do overlay quando desconectado */}
+                    <div className={`p-4 ${!isConnected ? 'opacity-30' : ''}`}>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            id={mp}
+                            checked={mpConfig.enabled && isConnected}
+                            onCheckedChange={() => handleMarketplaceToggle(mp)}
+                            disabled={!isConnected}
+                          />
+                          <MarketplaceBadge marketplace={mp} />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {hasActiveFilters(mpConfig.filters) && (
+                            <div className="w-2 h-2 bg-primary rounded-full" title="Filtros ativos" />
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => openFiltersModal(mp)}
+                            disabled={!isConnected}
+                          >
+                            <Settings2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor={`qty-${mp}`} className="text-sm">Quantidade</Label>
+                          <span className="text-sm font-medium text-primary">{mpConfig.quantity} itens</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Slider
+                            min={1}
+                            max={300}
+                            step={1}
+                            value={[mpConfig.quantity]}
+                            onValueChange={([v]) => handleQuantityChange(mp, v)}
+                            disabled={!mpConfig.enabled || !isConnected}
+                            className="flex-1"
+                          />
+                          <Input
+                            type="number"
+                            min={1}
+                            max={1000}
+                            value={mpConfig.quantity}
+                            onChange={(e) => handleQuantityChange(mp, parseInt(e.target.value))}
+                            disabled={!mpConfig.enabled || !isConnected}
+                            className="w-20 h-8 text-center"
+                          />
+                        </div>
+                      </div>
+
+                      {mpConfig.filters && (
+                        <div className="mt-3 pt-3 border-t space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Desconto:</span>
+                            <span className="font-medium">{mpConfig.filters.minDiscount || 0}%+</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Preço máx:</span>
+                            <span className="font-medium">R$ {(mpConfig.filters.maxPrice || 20000).toLocaleString('pt-BR')}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
