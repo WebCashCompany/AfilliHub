@@ -437,6 +437,7 @@ class MercadoLivreScraper {
     let lastPageLinks = [];
     let samePageCount = 0;
     let emptyPageCount = 0;
+    let consecutiveNoNewProducts = 0;  // 🔥 NOVO: Contador de páginas sem produtos novos
 
     try {
       // 🔥 ATUALIZADO: Mostra informação de busca ou categoria
@@ -734,11 +735,23 @@ class MercadoLivreScraper {
           this.stats.filteredByPrice += pageData.filteredByPrice;
 
           if (newProducts.length === 0) {
+            consecutiveNoNewProducts++;  // 🔥 NOVO
+            console.log(`   ⚠️  Nenhum produto novo (${consecutiveNoNewProducts}/3 - todos duplicados)\n`);
+            
+            // 🔥 NOVO: Sai do loop após 3 páginas consecutivas sem produtos novos
+            if (consecutiveNoNewProducts >= 3) {
+              console.log(`   🛑 PARANDO: 3 páginas consecutivas sem produtos novos!\n`);
+              break;
+            }
+            
             this.stats.pagesScraped = pageNum;
             pageNum++;
             currentOffset += 48;
             continue;
           }
+          
+          // 🔥 NOVO: Reset do contador quando achar produtos novos
+          consecutiveNoNewProducts = 0;
 
           console.log(`   🔗 Obtendo links (serial)...\n`);
 
