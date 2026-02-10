@@ -80,11 +80,14 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer com a Logo da Empresa (Substituindo a Lixeira) */}
+      {/* Footer com a Logo da Empresa e Link Externo */}
       <div className="p-4 border-t border-border mt-auto flex justify-center items-center">
-        <div 
+        <a 
+          href="https://webcash.vercel.app"
+          target="_blank"
+          rel="noopener noreferrer"
           className={cn(
-            "transition-all duration-500 ease-in-out cursor-pointer flex flex-col items-center",
+            "transition-all duration-500 ease-in-out flex flex-col items-center no-underline",
             "opacity-30 hover:opacity-100 grayscale hover:grayscale-0"
           )}
         >
@@ -101,7 +104,7 @@ export function Sidebar() {
               Powered by
             </span>
           )}
-        </div>
+        </a>
       </div>
     </aside>
   );
