@@ -1,4 +1,4 @@
-// src/contexts/DashboardContext.tsx - COM SSE E SYNC REAL
+// src/contexts/DashboardContext.tsx - COM SSE E HISTÓRICO REAL
 
 import React, {
   createContext,
@@ -54,7 +54,7 @@ export interface ScrapingConfig {
   filters?: any;
 }
 
-// 1️⃣ INTERFACE ATUALIZADA COM liveProducts
+// 🔥 INTERFACE COMPLETA COM HISTÓRICO
 export interface ScrapingStatus {
   isRunning: boolean;
   progress: number;
@@ -68,7 +68,7 @@ export interface ScrapingStatus {
     oldPrice: number;
     discount: number;
   }>;
-  liveProducts?: Array<{  // 🔥 ADICIONADO
+  liveProducts?: Array<{
     name: string;
     image: string;
     price: number;
@@ -76,12 +76,35 @@ export interface ScrapingStatus {
     discount: number;
     status: 'processing' | 'saved' | 'error';
   }>;
+  recentHistory?: Array<{
+    id: string;
+    marketplace: Marketplace;
+    itemsCollected: number;
+    completedAt: Date;
+    duration: number;
+  }>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
 
-// 2️⃣ FUNÇÃO getInitialScrapingStatus ATUALIZADA
+// 🔥 CARREGAR HISTÓRICO DO LOCALSTORAGE
 function getInitialScrapingStatus(): ScrapingStatus {
+  const savedHistory = localStorage.getItem('scraping_history');
+  let recentHistory = [];
+  
+  if (savedHistory) {
+    try {
+      const parsed = JSON.parse(savedHistory);
+      // Converter strings de data de volta para objetos Date
+      recentHistory = parsed.map((item: any) => ({
+        ...item,
+        completedAt: new Date(item.completedAt)
+      }));
+    } catch (e) {
+      console.error('Erro ao carregar histórico:', e);
+    }
+  }
+
   return {
     isRunning: false,
     progress: 0,
@@ -89,7 +112,8 @@ function getInitialScrapingStatus(): ScrapingStatus {
     itemsCollected: 0,
     totalItems: 0,
     lastProducts: [],
-    liveProducts: []  // 🔥 ADICIONADO
+    liveProducts: [],
+    recentHistory: recentHistory
   };
 }
 
@@ -105,6 +129,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const scrapingStartTimeRef = useRef<number | null>(null);
 
   function normalizeMarketplace(mp: string): Marketplace {
     const map: Record<string, Marketplace> = {
@@ -120,6 +145,32 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   function formatNumber(num: number): string {
     return new Intl.NumberFormat('pt-BR').format(num);
   }
+
+  // 🔥 FUNÇÃO PARA SALVAR HISTÓRICO
+  const saveToHistory = (data: any) => {
+    const duration = scrapingStartTimeRef.current 
+      ? Math.floor((Date.now() - scrapingStartTimeRef.current) / 1000)
+      : data.duration || 0;
+
+    const completedSession = {
+      id: sessionIdRef.current || Date.now().toString(),
+      marketplace: data.currentMarketplace 
+        ? normalizeMarketplace(data.currentMarketplace)
+        : 'mercadolivre',
+      itemsCollected: data.itemsCollected || 0,
+      completedAt: new Date(),
+      duration: duration
+    };
+
+    // Atualizar histórico (máximo 10 itens)
+    const currentHistory = scrapingStatus.recentHistory || [];
+    const newHistory = [completedSession, ...currentHistory].slice(0, 10);
+    
+    // Salvar no localStorage
+    localStorage.setItem('scraping_history', JSON.stringify(newHistory));
+    
+    return newHistory;
+  };
 
   const refreshProducts = async () => {
     setIsLoading(true);
@@ -184,6 +235,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           if (backendStatus.status === 'running' && backendStatus.sessionId) {
             console.log('🔄 Scraping ativo detectado, conectando SSE...');
             sessionIdRef.current = backendStatus.sessionId;
+            scrapingStartTimeRef.current = Date.now();
             connectSSE(backendStatus.sessionId);
           }
         }
@@ -213,11 +265,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
     eventSource.onopen = () => {
       console.log('✅ SSE CONECTADO COM SUCESSO!');
-      // ✅ INICIA POLLING PARALELO COMO BACKUP
       startBackupPolling();
     };
 
-    // 3️⃣ eventSource.onmessage ATUALIZADO
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -226,11 +276,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         console.log('Items:', data.itemsCollected, '/', data.totalItems);
         console.log('Marketplace:', data.currentMarketplace);
         console.log('Last Products:', data.lastProducts?.length || 0);
-        console.log('Live Products:', data.liveProducts?.length || 0);  // 🔥 ADICIONADO
+        console.log('Live Products:', data.liveProducts?.length || 0);
         console.log('Status:', data.status);
         console.log('==========================');
 
-        setScrapingStatus({
+        setScrapingStatus(prev => ({
+          ...prev,
           isRunning: data.status === 'running',
           progress: data.progress || 0,
           currentMarketplace: data.currentMarketplace 
@@ -239,11 +290,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           itemsCollected: data.itemsCollected || 0,
           totalItems: data.totalItems || 0,
           lastProducts: data.lastProducts || [],
-          liveProducts: data.liveProducts || []  // 🔥 ADICIONADO
-        });
+          liveProducts: data.liveProducts || []
+        }));
 
+        // 🔥 SALVAR NO HISTÓRICO QUANDO COMPLETAR
         if (data.status === 'completed') {
           console.log('🎉 SCRAPING COMPLETADO!');
+          
+          const newHistory = saveToHistory(data);
           
           toast({
             title: "✅ Automação concluída!",
@@ -256,7 +310,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             refreshProducts();
             
             setTimeout(() => {
-              setScrapingStatus(getInitialScrapingStatus());
+              setScrapingStatus({
+                ...getInitialScrapingStatus(),
+                recentHistory: newHistory
+              });
             }, 3000);
           }, 1000);
         }
@@ -305,8 +362,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             status: data.status
           });
 
-          // 4️⃣ BACKUP POLLING ATUALIZADO
-          setScrapingStatus({
+          setScrapingStatus(prev => ({
+            ...prev,
             isRunning: data.status === 'running',
             progress: data.progress || 0,
             currentMarketplace: data.currentMarketplace 
@@ -315,12 +372,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             itemsCollected: data.itemsCollected || 0,
             totalItems: data.totalItems || 0,
             lastProducts: data.lastProducts || [],
-            liveProducts: data.liveProducts || []  // 🔥 ADICIONADO
-          });
+            liveProducts: data.liveProducts || []
+          }));
 
           if (data.status === 'completed') {
             stopBackupPolling();
             disconnectSSE();
+            
+            const newHistory = saveToHistory(data);
             
             toast({
               title: "✅ Automação concluída!",
@@ -331,7 +390,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             setTimeout(() => {
               refreshProducts();
               setTimeout(() => {
-                setScrapingStatus(getInitialScrapingStatus());
+                setScrapingStatus({
+                  ...getInitialScrapingStatus(),
+                  recentHistory: newHistory
+                });
               }, 3000);
             }, 1000);
           }
@@ -339,7 +401,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         console.error('❌ Erro backup polling:', error);
       }
-    }, 1000); // ✅ Polling agressivo de 1 segundo
+    }, 1000);
   };
 
   const stopBackupPolling = () => {
@@ -377,8 +439,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             status: data.status
           });
 
-          // 5️⃣ FALLBACK POLLING ATUALIZADO
-          setScrapingStatus({
+          setScrapingStatus(prev => ({
+            ...prev,
             isRunning: data.status === 'running',
             progress: data.progress || 0,
             currentMarketplace: data.currentMarketplace 
@@ -387,11 +449,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             itemsCollected: data.itemsCollected || 0,
             totalItems: data.totalItems || 0,
             lastProducts: data.lastProducts || [],
-            liveProducts: data.liveProducts || []  // 🔥 ADICIONADO
-          });
+            liveProducts: data.liveProducts || []
+          }));
 
           if (data.status === 'completed') {
             stopFallbackPolling();
+            
+            const newHistory = saveToHistory(data);
             
             toast({
               title: "✅ Automação concluída!",
@@ -402,7 +466,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             setTimeout(() => {
               refreshProducts();
               setTimeout(() => {
-                setScrapingStatus(getInitialScrapingStatus());
+                setScrapingStatus({
+                  ...getInitialScrapingStatus(),
+                  recentHistory: newHistory
+                });
               }, 3000);
             }, 1000);
           }
@@ -449,6 +516,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const resetScrapingStatus = () => {
     console.log('🔄 Reset manual do status');
     disconnectSSE();
+    scrapingStartTimeRef.current = null;
     setScrapingStatus(getInitialScrapingStatus());
     sessionIdRef.current = null;
     
@@ -467,16 +535,20 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       .filter(([_, mp]) => mp.enabled)
       .map(([key]) => key as Marketplace);
 
-    // 6️⃣ ESTADO INICIAL OTIMISTA ATUALIZADO
-    setScrapingStatus({
+    // 🔥 MARCAR INÍCIO DO SCRAPING
+    scrapingStartTimeRef.current = Date.now();
+
+    // Estado inicial otimista
+    setScrapingStatus(prev => ({
+      ...prev,
       isRunning: true,
       progress: 0,
       currentMarketplace: enabledMarketplaces[0] || null,
       itemsCollected: 0,
       totalItems,
       lastProducts: [],
-      liveProducts: []  // 🔥 ADICIONADO
-    });
+      liveProducts: []
+    }));
 
     try {
       const payload: ScrapingRequestPayload = {
@@ -517,6 +589,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('❌ Erro ao iniciar scraping:', error);
+      scrapingStartTimeRef.current = null;
       setScrapingStatus(getInitialScrapingStatus());
       throw error;
     }

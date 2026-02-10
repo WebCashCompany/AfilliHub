@@ -11,7 +11,7 @@ import { Slider } from '@/components/ui/slider';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { ScrapingLiveProducts } from '@/components/dashboard/ScrapingLiveProducts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Zap, Play, Settings2, Loader2, CheckCircle, Package, Filter, Search, X, RotateCcw, Lock, ArrowRight } from 'lucide-react';
+import { Zap, Play, Settings2, Loader2, CheckCircle, Package, Filter, Search, X, RotateCcw, Lock, ArrowRight, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
 import { useMarketplaceConnections } from '@/hooks/useMarketplaceConnections';
@@ -61,6 +61,29 @@ const MERCADOLIVRE_CATEGORIES = [
   { value: 'ferramentas', label: 'Ferramentas', icon: '🔧' },
   { value: 'calcados_roupas', label: 'Calçados e Roupas', icon: '👟' },
 ];
+
+// 🔥 HELPER PARA TEMPO RELATIVO
+function getTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffInMs = now.getTime() - new Date(date).getTime();
+  const diffInMinutes = Math.floor(diffInMs / 60000);
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  const diffInDays = Math.floor(diffInHours / 24);
+
+  if (diffInMinutes < 1) return 'Agora';
+  if (diffInMinutes < 60) return `Há ${diffInMinutes} min`;
+  if (diffInHours < 24) return `Há ${diffInHours}h`;
+  if (diffInDays < 7) return `Há ${diffInDays}d`;
+  return new Date(date).toLocaleDateString('pt-BR');
+}
+
+// 🔥 HELPER PARA FORMATAR DURAÇÃO
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${minutes}min ${secs}s`;
+}
 
 export function AutomationPage() {
   const navigate = useNavigate();
@@ -350,7 +373,6 @@ export function AutomationPage() {
                           : 'border-border bg-card hover:border-muted-foreground/30'
                     }`}
                   >
-                    {/* OVERLAY para marketplaces desconectados */}
                     {!isConnected && (
                       <div className="absolute inset-0 bg-gradient-to-br from-black/60 via-black/50 to-black/40 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center p-6 text-center">
                         <div className="w-16 h-16 rounded-full bg-orange-500/20 flex items-center justify-center mb-4 border-2 border-orange-500/30">
@@ -373,7 +395,6 @@ export function AutomationPage() {
                       </div>
                     )}
 
-                    {/* CONTEÚDO DO CARD - fica por baixo do overlay quando desconectado */}
                     <div className={`p-4 ${!isConnected ? 'opacity-30' : ''}`}>
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
@@ -554,7 +575,6 @@ export function AutomationPage() {
                   </div>
                 </div>
 
-                {/* 🔥 NOVO: Live Products (produtos sendo coletados em tempo real) */}
                 {scrapingStatus.liveProducts && scrapingStatus.liveProducts.length > 0 && (
                   <div className="mt-4 border-t pt-4">
                     <ScrapingLiveProducts products={scrapingStatus.liveProducts} />
@@ -583,34 +603,50 @@ export function AutomationPage() {
                   </p>
                 </div>
 
-                {/* Atividade Recente */}
+                {/* 🔥 ATIVIDADE RECENTE COM DADOS REAIS */}
                 <div className="pt-4 border-t">
                   <h4 className="font-medium mb-3 text-sm">Atividade Recente</h4>
                   <div className="space-y-3">
-                    {scrapingStatus.lastProducts && scrapingStatus.lastProducts.length > 0 ? (
-                      scrapingStatus.lastProducts.slice(0, 3).map((product, idx) => (
-                        <div key={idx} className="flex items-start gap-3 text-sm">
-                          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium truncate">{product.name}</p>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="font-semibold text-green-600">
-                                {(product.price / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                              </span>
-                              <span className="text-[10px]">
-                                {product.discount}% OFF
-                              </span>
+                    {scrapingStatus.recentHistory && scrapingStatus.recentHistory.length > 0 ? (
+                      scrapingStatus.recentHistory.slice(0, 3).map((session) => {
+                        const timeAgo = getTimeAgo(session.completedAt);
+                        
+                        return (
+                          <div key={session.id} className="flex items-start gap-3 text-sm">
+                            <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium">Scraping concluído</p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>{formatNumber(session.itemsCollected)} produtos</span>
+                                <span>•</span>
+                                <MarketplaceBadge marketplace={session.marketplace} />
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-1">
+                                <Clock className="w-3 h-3" />
+                                <span>{timeAgo}</span>
+                                {session.duration > 0 && (
+                                  <>
+                                    <span>•</span>
+                                    <span>{formatDuration(session.duration)}</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <div className="flex items-start gap-3 text-sm">
-                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                        <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center mt-0.5">
+                          <span className="text-[10px]">📦</span>
+                        </div>
                         <div>
-                          <p className="font-medium">Scraping concluído</p>
-                          <p className="text-muted-foreground text-xs">150 produtos - ML</p>
-                          <p className="text-[10px] text-muted-foreground">Há 2 horas</p>
+                          <p className="text-muted-foreground text-xs">
+                            Nenhuma atividade recente
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            Execute um scraping para ver o histórico
+                          </p>
                         </div>
                       </div>
                     )}
@@ -721,7 +757,7 @@ export function AutomationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* CSS para animação de pulso lento */}
+      {/* CSS para animação */}
       <style>{`
         @keyframes pulse-slow {
           0%, 100% {
