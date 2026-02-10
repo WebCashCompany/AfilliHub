@@ -554,16 +554,21 @@ export function AutomationPage() {
                   </div>
                 </div>
 
-                {scrapingStatus.lastProducts && scrapingStatus.lastProducts.length > 0 && (
-                  <div className="mt-4">
-                    <ScrapingLiveProducts products={scrapingStatus.lastProducts} />
+                {/* 🔥 NOVO: Live Products (produtos sendo coletados em tempo real) */}
+                {scrapingStatus.liveProducts && scrapingStatus.liveProducts.length > 0 && (
+                  <div className="mt-4 border-t pt-4">
+                    <ScrapingLiveProducts products={scrapingStatus.liveProducts} />
                   </div>
                 )}
 
                 <div className="text-center">
                   <div className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/10 text-blue-600 rounded-lg">
                     <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
-                    <p className="text-xs font-medium">Processando dados...</p>
+                    <p className="text-xs font-medium">
+                      {scrapingStatus.liveProducts && scrapingStatus.liveProducts.length > 0 
+                        ? 'Processando produtos em tempo real...' 
+                        : 'Conectando...'}
+                    </p>
                   </div>
                 </div>
               </>
@@ -578,17 +583,37 @@ export function AutomationPage() {
                   </p>
                 </div>
 
+                {/* Atividade Recente */}
                 <div className="pt-4 border-t">
                   <h4 className="font-medium mb-3 text-sm">Atividade Recente</h4>
                   <div className="space-y-3">
-                    <div className="flex items-start gap-3 text-sm">
-                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
-                      <div>
-                        <p className="font-medium">Scraping concluído</p>
-                        <p className="text-muted-foreground text-xs">150 produtos - ML</p>
-                        <p className="text-[10px] text-muted-foreground">Há 2 horas</p>
+                    {scrapingStatus.lastProducts && scrapingStatus.lastProducts.length > 0 ? (
+                      scrapingStatus.lastProducts.slice(0, 3).map((product, idx) => (
+                        <div key={idx} className="flex items-start gap-3 text-sm">
+                          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium truncate">{product.name}</p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="font-semibold text-green-600">
+                                {(product.price / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                              <span className="text-[10px]">
+                                {product.discount}% OFF
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex items-start gap-3 text-sm">
+                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                        <div>
+                          <p className="font-medium">Scraping concluído</p>
+                          <p className="text-muted-foreground text-xs">150 produtos - ML</p>
+                          <p className="text-[10px] text-muted-foreground">Há 2 horas</p>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </>

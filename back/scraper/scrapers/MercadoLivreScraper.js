@@ -1,11 +1,9 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - VERSÃO COM BUSCA POR TERMO 🚀
+ * MERCADO LIVRE SCRAPER - COM SSE REAL-TIME 🚀
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.4.1
- * ✅ CORRIGIDO: URL de busca agora usa /search (resultados relevantes)
- * ✅ CORRIGIDO: Categoria para busca agora é "Todas" (compatível com BD)
+ * @version 2.5.1 - ✅ OTIMIZADO: SSE em tempo real SEM perder performance
  */
 
 const { chromium } = require('playwright');
@@ -21,7 +19,10 @@ class MercadoLivreScraper {
     this.limit = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
     this.maxPrice = options.maxPrice ? parseInt(options.maxPrice) : null;
     this.categoriaKey = options.categoria || 'todas';
-    this.searchTerm = options.searchTerm || null;  // 🔥 NOVO
+    this.searchTerm = options.searchTerm || null;
+    
+    // 🔥 SSE Callback (não-bloqueante)
+    this.onProductCollected = options.onProductCollected || null;
     
     this.stats = {
       duplicatesIgnored: 0,
@@ -38,14 +39,12 @@ class MercadoLivreScraper {
     this.seenProductKeys = new Set();
     this.seenOriginalLinks = new Set();
     
-    // Só carrega categoria se não for busca por termo
     if (!this.searchTerm) {
       this.categoriaInfo = getCategoria(this.categoriaKey);
       if (!this.categoriaInfo) {
         this.categoriaInfo = getCategoria('informatica');
       }
     } else {
-      // 🔥 CORRIGIDO: Usa categoria válida "informatica" para busca
       this.categoriaInfo = getCategoria('informatica');
     }
     
@@ -63,16 +62,11 @@ class MercadoLivreScraper {
     this.isFirstProduct = true;
   }
 
-  /**
-   * 🔥 CORRIGIDO: Gera URL de busca baseada no termo
-   */
   getSearchUrl() {
     if (this.searchTerm) {
       const encodedTerm = encodeURIComponent(this.searchTerm);
-      // 🔥 CORRIGIDO: Usa lista.mercadolivre.com.br para busca
       return `https://lista.mercadolivre.com.br/${encodedTerm}`;
     }
-    
     return this.categoriaInfo.url;
   }
 
@@ -83,7 +77,6 @@ class MercadoLivreScraper {
       const conn = getProductConnection();
       const Product = getProductModel('ML', conn);
       
-      // 🔥 ATUALIZADO: Se for busca, não filtra por categoria
       const query = this.searchTerm 
         ? { isActive: true }
         : this.categoriaInfo && this.categoriaInfo.nome !== 'Todas'
@@ -390,7 +383,6 @@ class MercadoLivreScraper {
         this.stats.affiliateLinksFailed++;
       }
 
-      // 🔥 CORRIGIDO: Usa categoria válida do schema MongoDB
       const product = {
         nome: prodData.name,
         imagem: prodData.image,
@@ -401,7 +393,7 @@ class MercadoLivreScraper {
         preco_anterior: `R$ ${prodData.oldPrice}`,
         preco_de: String(prodData.oldPrice),
         preco_para: String(finalPrice),
-        categoria: this.searchTerm ? 'Informática' : this.categoriaInfo.nome,  // 🔥 CORRIGIDO: Informatica é válida
+        categoria: this.searchTerm ? 'Informática' : this.categoriaInfo.nome,
         marketplace: 'ML',
         isActive: true
       };
@@ -413,13 +405,24 @@ class MercadoLivreScraper {
         product.desconto_cupom = String(prodData.currentPrice - finalPrice);
       }
 
-      // 🔥 NOVO: Adiciona campo de termo de busca (metadata)
       if (this.searchTerm) {
         product.termo_busca = this.searchTerm;
       }
 
       this.stats.productsCollected++;
       allProducts.push(product);
+
+      // 🔥 SSE NÃO-BLOQUEANTE: Emite em background sem travar o scraping
+      if (this.onProductCollected && typeof this.onProductCollected === 'function') {
+        // Executa de forma assíncrona sem esperar (fire-and-forget)
+        setImmediate(() => {
+          try {
+            this.onProductCollected(product, allProducts.length, this.limit);
+          } catch (err) {
+            // Silenciosamente ignora erros de SSE para não travar o scraping
+          }
+        });
+      }
 
       if (allProducts.length >= this.limit) break;
     }
@@ -437,10 +440,9 @@ class MercadoLivreScraper {
     let lastPageLinks = [];
     let samePageCount = 0;
     let emptyPageCount = 0;
-    let consecutiveNoNewProducts = 0;  // 🔥 NOVO: Contador de páginas sem produtos novos
+    let consecutiveNoNewProducts = 0;
 
     try {
-      // 🔥 ATUALIZADO: Mostra informação de busca ou categoria
       console.log(`╔════════════════════════════════════════════════════╗`);
       if (this.searchTerm) {
         console.log(`║  🔎 BUSCA: "${this.searchTerm}"${' '.repeat(Math.max(0, 45 - this.searchTerm.length))} ║`);
@@ -454,7 +456,6 @@ class MercadoLivreScraper {
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
       while (allProducts.length < this.limit && pageNum <= 50) {
-        // 🔥 ATUALIZADO: Usa URL de busca ou categoria
         const baseUrl = this.getSearchUrl();
         const separator = baseUrl.includes('?') ? '&' : '?';
         const url = pageNum === 1 ? baseUrl : `${baseUrl}${separator}_Desde_${currentOffset + 1}&_NoIndex_true`;
@@ -466,10 +467,9 @@ class MercadoLivreScraper {
           
           await mainPage.goto(url, { 
             waitUntil: 'domcontentloaded', 
-            timeout: pageNum === 1 ? 30000 : 15000  // 30s para primeira página
+            timeout: pageNum === 1 ? 30000 : 15000
           });
 
-          // Delay maior na primeira página para garantir carregamento
           await mainPage.waitForTimeout(pageNum === 1 ? 3000 : 800);
 
           await mainPage.evaluate(async () => {
@@ -494,7 +494,7 @@ class MercadoLivreScraper {
             window.scrollTo(0, 0);
           });
 
-          await mainPage.waitForTimeout(1200);  // Delay final maior
+          await mainPage.waitForTimeout(1200);
 
           const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
             const cards = document.querySelectorAll('.poly-card, .ui-search-result');
@@ -735,10 +735,9 @@ class MercadoLivreScraper {
           this.stats.filteredByPrice += pageData.filteredByPrice;
 
           if (newProducts.length === 0) {
-            consecutiveNoNewProducts++;  // 🔥 NOVO
+            consecutiveNoNewProducts++;
             console.log(`   ⚠️  Nenhum produto novo (${consecutiveNoNewProducts}/3 - todos duplicados)\n`);
             
-            // 🔥 NOVO: Sai do loop após 3 páginas consecutivas sem produtos novos
             if (consecutiveNoNewProducts >= 3) {
               console.log(`   🛑 PARANDO: 3 páginas consecutivas sem produtos novos!\n`);
               break;
@@ -750,7 +749,6 @@ class MercadoLivreScraper {
             continue;
           }
           
-          // 🔥 NOVO: Reset do contador quando achar produtos novos
           consecutiveNoNewProducts = 0;
 
           console.log(`   🔗 Obtendo links (serial)...\n`);

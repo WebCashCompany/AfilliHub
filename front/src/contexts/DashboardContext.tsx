@@ -54,6 +54,7 @@ export interface ScrapingConfig {
   filters?: any;
 }
 
+// 1️⃣ INTERFACE ATUALIZADA COM liveProducts
 export interface ScrapingStatus {
   isRunning: boolean;
   progress: number;
@@ -67,10 +68,19 @@ export interface ScrapingStatus {
     oldPrice: number;
     discount: number;
   }>;
+  liveProducts?: Array<{  // 🔥 ADICIONADO
+    name: string;
+    image: string;
+    price: number;
+    oldPrice: number;
+    discount: number;
+    status: 'processing' | 'saved' | 'error';
+  }>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
 
+// 2️⃣ FUNÇÃO getInitialScrapingStatus ATUALIZADA
 function getInitialScrapingStatus(): ScrapingStatus {
   return {
     isRunning: false,
@@ -78,7 +88,8 @@ function getInitialScrapingStatus(): ScrapingStatus {
     currentMarketplace: null,
     itemsCollected: 0,
     totalItems: 0,
-    lastProducts: []
+    lastProducts: [],
+    liveProducts: []  // 🔥 ADICIONADO
   };
 }
 
@@ -206,6 +217,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       startBackupPolling();
     };
 
+    // 3️⃣ eventSource.onmessage ATUALIZADO
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -214,6 +226,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         console.log('Items:', data.itemsCollected, '/', data.totalItems);
         console.log('Marketplace:', data.currentMarketplace);
         console.log('Last Products:', data.lastProducts?.length || 0);
+        console.log('Live Products:', data.liveProducts?.length || 0);  // 🔥 ADICIONADO
         console.log('Status:', data.status);
         console.log('==========================');
 
@@ -225,7 +238,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             : null,
           itemsCollected: data.itemsCollected || 0,
           totalItems: data.totalItems || 0,
-          lastProducts: data.lastProducts || []
+          lastProducts: data.lastProducts || [],
+          liveProducts: data.liveProducts || []  // 🔥 ADICIONADO
         });
 
         if (data.status === 'completed') {
@@ -291,6 +305,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             status: data.status
           });
 
+          // 4️⃣ BACKUP POLLING ATUALIZADO
           setScrapingStatus({
             isRunning: data.status === 'running',
             progress: data.progress || 0,
@@ -299,7 +314,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
               : null,
             itemsCollected: data.itemsCollected || 0,
             totalItems: data.totalItems || 0,
-            lastProducts: data.lastProducts || []
+            lastProducts: data.lastProducts || [],
+            liveProducts: data.liveProducts || []  // 🔥 ADICIONADO
           });
 
           if (data.status === 'completed') {
@@ -361,6 +377,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             status: data.status
           });
 
+          // 5️⃣ FALLBACK POLLING ATUALIZADO
           setScrapingStatus({
             isRunning: data.status === 'running',
             progress: data.progress || 0,
@@ -369,7 +386,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
               : null,
             itemsCollected: data.itemsCollected || 0,
             totalItems: data.totalItems || 0,
-            lastProducts: data.lastProducts || []
+            lastProducts: data.lastProducts || [],
+            liveProducts: data.liveProducts || []  // 🔥 ADICIONADO
           });
 
           if (data.status === 'completed') {
@@ -449,14 +467,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       .filter(([_, mp]) => mp.enabled)
       .map(([key]) => key as Marketplace);
 
-    // Estado inicial otimista
+    // 6️⃣ ESTADO INICIAL OTIMISTA ATUALIZADO
     setScrapingStatus({
       isRunning: true,
       progress: 0,
       currentMarketplace: enabledMarketplaces[0] || null,
       itemsCollected: 0,
       totalItems,
-      lastProducts: []
+      lastProducts: [],
+      liveProducts: []  // 🔥 ADICIONADO
     });
 
     try {

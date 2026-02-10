@@ -1,10 +1,9 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * SCRAPING SERVICE - ENTERPRISE EDITION
+ * SCRAPING SERVICE - COM SSE REAL-TIME
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.5.1 - ✅ CORRIGIDO: Busca por termo agora salva corretamente
- * @author Dashboard Promoforia
+ * @version 2.6.0 - ✅ REAL-TIME: Callback SSE durante scraping
  */
 
 const { getProductConnection } = require('../../database/mongodb');
@@ -101,7 +100,8 @@ class ScrapingService {
       categoria = null,
       categoryKey = null,
       maxPrice = null,
-      searchTerm = null  // 🔥 NOVO: Termo de busca
+      searchTerm = null,
+      onProductCollected = null  // 🔥 NOVO: Callback SSE
     } = options;
 
     const marketplace = this.marketplaces.get(marketplaceName) || 
@@ -144,20 +144,20 @@ class ScrapingService {
       scraper.minDiscount = minDiscount;
       scraper.limit = limit;
       scraper.maxPrice = maxPrice;
+      
+      // 🔥 NOVO: Passar callback SSE para o scraper
+      if (onProductCollected) {
+        scraper.onProductCollected = onProductCollected;
+      }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 🔥 CORRIGIDO: Configuração para BUSCA POR TERMO
-    // ═══════════════════════════════════════════════════════════
     if (marketplace.code === 'ML') {
       if (searchTerm) {
-        // Modo busca por termo
         scraper.searchTerm = searchTerm;
-        scraper.categoriaKey = 'informatica';  // 🔥 CORRIGIDO
-        scraper.categoriaInfo = getCategoria('informatica');  // 🔥 CORRIGIDO
+        scraper.categoriaKey = 'informatica';
+        scraper.categoriaInfo = getCategoria('informatica');
         console.log(`🔎 Modo BUSCA ativado: "${searchTerm}"`);
       } else if (categoria) {
-        // Modo categoria
         const categoriaInfo = getCategoria(categoria);
         if (categoriaInfo) {
           scraper.categoriaKey = categoria;
@@ -175,9 +175,6 @@ class ScrapingService {
     
     console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
-    // ═══════════════════════════════════════════════════════════
-    // PROCESSAMENTO DE LINKS DE AFILIADO
-    // ═══════════════════════════════════════════════════════════
     if (products.length > 0) {
       console.log(`🔗 Validando ${products.length} links de afiliado...\n`);
       
