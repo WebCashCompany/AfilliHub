@@ -3,7 +3,7 @@
  * SCRAPING SERVICE - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.4.0 - CORREÇÃO: Logs otimizados + validação URL + stats
+ * @version 2.5.0 - ✅ NOVA FEATURE: Busca por termo (searchTerm)
  * @author Dashboard Promoforia
  */
 
@@ -51,11 +51,10 @@ class ScrapingService {
 
     if (MagaluScraper) {
       try {
-        // 🔥 NÃO inicializa o scraper aqui, cria sob demanda
         const magaluConfig = {
           name: 'Magazine Luiza',
           code: 'MAGALU',
-          scraper: null, // Será criado sob demanda
+          scraper: null,
           enabled: true
         };
         
@@ -101,7 +100,8 @@ class ScrapingService {
       limit = 50, 
       categoria = null,
       categoryKey = null,
-      maxPrice = null 
+      maxPrice = null,
+      searchTerm = null  // 🔥 NOVO: Termo de busca
     } = options;
 
     const marketplace = this.marketplaces.get(marketplaceName) || 
@@ -119,6 +119,7 @@ class ScrapingService {
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
     
     const filters = [];
+    if (searchTerm) filters.push(`🔎 Busca: "${searchTerm}"`);
     if (categoria) filters.push(`Categoria ML: ${categoria}`);
     if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
     if (maxPrice) filters.push(`Preço Máx: R$ ${maxPrice}`);
@@ -126,9 +127,6 @@ class ScrapingService {
       console.log(`🎯 FILTROS: ${filters.join(' | ')}`);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 🔥 MAGALU: CRIA SCRAPER COM CATEGORIA NO CONSTRUTOR
-    // ═══════════════════════════════════════════════════════════
     let scraper;
     
     if (marketplace.code === 'MAGALU') {
@@ -142,7 +140,6 @@ class ScrapingService {
       scraper.maxPrice = maxPrice;
       
     } else {
-      // Outros marketplaces usam scraper existente
       scraper = marketplace.scraper;
       scraper.minDiscount = minDiscount;
       scraper.limit = limit;
@@ -150,29 +147,36 @@ class ScrapingService {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // MERCADO LIVRE: Configuração de categoria
+    // 🔥 NOVO: Configuração para BUSCA POR TERMO
     // ═══════════════════════════════════════════════════════════
-    if (marketplace.code === 'ML' && categoria) {
-      const categoriaInfo = getCategoria(categoria);
-      if (categoriaInfo) {
-        scraper.categoriaKey = categoria;
-        scraper.categoriaInfo = categoriaInfo;
-      } else {
-        console.warn(`⚠️  Categoria "${categoria}" não encontrada, usando padrão`);
+    if (marketplace.code === 'ML') {
+      if (searchTerm) {
+        // Modo busca por termo
+        scraper.searchTerm = searchTerm;
+        scraper.categoriaKey = null;
+        scraper.categoriaInfo = null;
+        console.log(`🔎 Modo BUSCA ativado: "${searchTerm}"`);
+      } else if (categoria) {
+        // Modo categoria
+        const categoriaInfo = getCategoria(categoria);
+        if (categoriaInfo) {
+          scraper.categoriaKey = categoria;
+          scraper.categoriaInfo = categoriaInfo;
+          scraper.searchTerm = null;
+        } else {
+          console.warn(`⚠️  Categoria "${categoria}" não encontrada, usando padrão`);
+        }
       }
     }
     
     console.log('🟡 Iniciando Web Scraper (Playwright)...\n');
     
-    // ═══════════════════════════════════════════════════════════
-    // EXECUÇÃO DO SCRAPING
-    // ═══════════════════════════════════════════════════════════
     const products = await scraper.scrapeCategory();
     
     console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
     // ═══════════════════════════════════════════════════════════
-    // 🔥 PROCESSAMENTO DE LINKS DE AFILIADO - OTIMIZADO
+    // PROCESSAMENTO DE LINKS DE AFILIADO
     // ═══════════════════════════════════════════════════════════
     if (products.length > 0) {
       console.log(`🔗 Validando ${products.length} links de afiliado...\n`);
@@ -181,7 +185,6 @@ class ScrapingService {
       let invalidLinks = 0;
       
       for (const product of products) {
-        // 🔥 CORREÇÃO: Validação de URL
         const isValidUrl = this.isValidUrl(product.link_afiliado);
         
         if (!isValidUrl) {
@@ -220,7 +223,6 @@ class ScrapingService {
     return products;
   }
 
-  // 🔥 NOVO: Validação de URL
   isValidUrl(url) {
     if (!url || typeof url !== 'string' || url.length < 10) {
       return false;
@@ -251,7 +253,6 @@ class ScrapingService {
 
     for (const product of products) {
       try {
-        // 🔥 CORREÇÃO: Validação completa antes de salvar
         if (!product.link_afiliado || product.link_afiliado.length < 10 || !this.isValidUrl(product.link_afiliado)) {
           console.log(`   ❌ Link inválido: ${product.nome.substring(0, 30)}...`);
           stats.errors++;
@@ -337,7 +338,6 @@ class ScrapingService {
       }
     }
 
-    // 🔥 CORREÇÃO: TotalSaved inclui updates também
     stats.totalSaved = stats.inserted + stats.betterOffers + stats.updated;
 
     console.log(`\n╔═══════════════════════════════════════╗`);

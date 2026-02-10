@@ -3,11 +3,12 @@
  * MERCADO LIVRE WORKER - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.3.0 - ✅ CORRIGIDO: Validação de preço + percentual + loop
+ * @version 2.4.0 - ✅ NOVA FEATURE: Busca por termo (ex: creatina)
  * 
  * MODOS DE USO:
  * 1. Interativo: node workers/mlWorker.js
  * 2. Via argumentos: node workers/mlWorker.js --categorias=informatica --preco=50
+ * 3. Busca por termo: node workers/mlWorker.js --busca=creatina --preco=100
  */
 
 require('dotenv').config();
@@ -51,7 +52,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const question = (query) => new Promise((resolve) => rl.question(query, resolve));
 
 function parseArguments(args) {
-  const result = { categorias: null, maxPrice: null };
+  const result = { categorias: null, maxPrice: null, searchTerm: null };
   
   for (const arg of args) {
     if (arg.startsWith('--categorias=')) {
@@ -63,6 +64,8 @@ function parseArguments(args) {
       }
     } else if (arg.startsWith('--preco=')) {
       result.maxPrice = arg.split('=')[1];
+    } else if (arg.startsWith('--busca=')) {
+      result.searchTerm = arg.split('=')[1].trim();
     }
   }
   
@@ -74,7 +77,30 @@ async function selecionarInterativo() {
   console.log('║         🚀 WORKER MERCADO LIVRE 🚀                 ║');
   console.log('╚════════════════════════════════════════════════════╝\n');
   
-  console.log('📂 CATEGORIAS DISPONÍVEIS:\n');
+  console.log('🔍 MODO DE BUSCA:\n');
+  console.log('  1. 📂 Buscar por CATEGORIAS');
+  console.log('  2. 🔎 Buscar por TERMO (ex: creatina, notebook, etc)\n');
+  
+  const modeChoice = await question('Escolha o modo (1 ou 2): ');
+  
+  if (modeChoice === '2') {
+    // MODO BUSCA POR TERMO
+    const searchTerm = await question('\n🔎 Digite o termo de busca (ex: creatina): ');
+    
+    if (!searchTerm || searchTerm.trim().length < 2) {
+      console.log('⚠️  Termo inválido. Usando categorias.\n');
+      return await selecionarCategorias();
+    }
+    
+    return await selecionarBusca(searchTerm.trim());
+  }
+  
+  // MODO CATEGORIAS (padrão)
+  return await selecionarCategorias();
+}
+
+async function selecionarCategorias() {
+  console.log('\n📂 CATEGORIAS DISPONÍVEIS:\n');
   Object.entries(CATEGORIES).forEach(([num, cat]) => {
     console.log(`  ${num.padStart(2, ' ')}. ${cat.emoji} ${cat.name}`);
   });
@@ -94,6 +120,30 @@ async function selecionarInterativo() {
     selectedCats = Object.values(CATEGORIES).map(c => c.key);
   }
   
+  const maxPrice = await selecionarPreco();
+  
+  return { 
+    mode: 'categories',
+    categorias: selectedCats, 
+    maxPrice,
+    searchTerm: null 
+  };
+}
+
+async function selecionarBusca(searchTerm) {
+  console.log(`\n🔎 Termo de busca: "${searchTerm}"\n`);
+  
+  const maxPrice = await selecionarPreco();
+  
+  return { 
+    mode: 'search',
+    categorias: null,
+    maxPrice,
+    searchTerm 
+  };
+}
+
+async function selecionarPreco() {
   console.log('\n💰 FILTRO DE PREÇO:\n');
   Object.entries(PRICE_FILTERS).forEach(([num, filter]) => {
     console.log(`  ${num}. ${filter.label}`);
@@ -102,7 +152,6 @@ async function selecionarInterativo() {
   
   const priceChoice = await question('Escolha (0-3) ou digite o valor: ');
   
-  // 🔥 CORREÇÃO: Validação completa de entrada de preço
   let maxPrice = null;
   if (PRICE_FILTERS[priceChoice]) {
     maxPrice = PRICE_FILTERS[priceChoice].value;
@@ -113,25 +162,36 @@ async function selecionarInterativo() {
     }
   }
   
-  return { categorias: selectedCats, maxPrice };
+  return maxPrice;
 }
 
-function displayConfiguration(selectedCats, maxPrice) {
+function displayConfiguration(mode, selectedCats, maxPrice, searchTerm) {
   console.log('\n╔════════════════════════════════════════════════════╗');
   console.log('║              ⚙️  CONFIGURAÇÕES                      ║');
   console.log('╚════════════════════════════════════════════════════╝');
   console.log(`  🎯 Meta total: ${CONFIG.TARGET_PRODUCTS} produtos`);
   console.log(`  💯 Desconto mínimo: ${CONFIG.MIN_DISCOUNT}%`);
-  console.log(`  📁 Categorias: ${selectedCats.length}`);
+  
+  if (mode === 'search') {
+    console.log(`  🔎 Busca: "${searchTerm}"`);
+  } else {
+    console.log(`  📁 Categorias: ${selectedCats.length}`);
+  }
+  
   if (maxPrice) {
     console.log(`  💰 Preço máximo: R$ ${maxPrice}`);
   } else {
     console.log(`  💰 Preço máximo: Sem limite`);
   }
-  console.log(`  🔄 Tentativas por categoria: ${CONFIG.MAX_ATTEMPTS}`);
+  console.log(`  🔄 Tentativas: ${CONFIG.MAX_ATTEMPTS}`);
   
-  const limitPerCat = Math.max(1, Math.floor(CONFIG.TARGET_PRODUCTS / selectedCats.length));
-  console.log(`\n📊 Distribuição: ~${limitPerCat} produtos por categoria\n`);
+  const limitPerCat = mode === 'search' ? CONFIG.TARGET_PRODUCTS : Math.max(1, Math.floor(CONFIG.TARGET_PRODUCTS / selectedCats.length));
+  
+  if (mode === 'categories') {
+    console.log(`\n📊 Distribuição: ~${limitPerCat} produtos por categoria\n`);
+  } else {
+    console.log(`\n📊 Limite: ${limitPerCat} produtos no total\n`);
+  }
   
   return limitPerCat;
 }
@@ -161,7 +221,6 @@ async function processCategory(scrapingService, categoria, limitPerCat, maxPrice
         consecutiveZeros++;
         console.log(`⚠️  Nenhum produto coletado. (${consecutiveZeros}ª vez)\n`);
         
-        // 🔥 CORREÇÃO: Para após 3 tentativas vazias (não 2)
         if (consecutiveZeros >= 3) {
           console.log(`⏭️  Encerrando categoria após 3 tentativas vazias.\n`);
           break;
@@ -195,7 +254,6 @@ async function processCategory(scrapingService, categoria, limitPerCat, maxPrice
     }
   }
   
-  // 🔥 CORREÇÃO: Percentual limitado a 100%
   const percentual = Math.min(100, Math.round((savedInCategory / limitPerCat) * 100));
   
   return {
@@ -207,7 +265,76 @@ async function processCategory(scrapingService, categoria, limitPerCat, maxPrice
   };
 }
 
-function displayFinalReport(resultados, totalSaved, totalCollected, selectedCats, startTime) {
+async function processSearch(scrapingService, searchTerm, limit, maxPrice) {
+  console.log(`\n${'═'.repeat(70)}`);
+  console.log(`🔎 BUSCA: "${searchTerm.toUpperCase()}"`);
+  console.log(`🎯 Meta: ${limit} produtos`);
+  if (maxPrice) console.log(`💰 Preço máximo: R$ ${maxPrice}`);
+  console.log(`${'═'.repeat(70)}\n`);
+  
+  let savedTotal = 0, collectedTotal = 0, attempt = 0, consecutiveZeros = 0;
+  
+  while (savedTotal < limit && attempt < CONFIG.MAX_ATTEMPTS) {
+    attempt++;
+    console.log(`🔄 TENTATIVA ${attempt}/${CONFIG.MAX_ATTEMPTS} | Salvos: ${savedTotal}/${limit}\n`);
+    
+    try {
+      const products = await scrapingService.collectFromMarketplace('ML', {
+        minDiscount: CONFIG.MIN_DISCOUNT,
+        limit: limit - savedTotal,
+        searchTerm: searchTerm,
+        maxPrice: maxPrice
+      });
+      
+      if (!products || products.length === 0) {
+        consecutiveZeros++;
+        console.log(`⚠️  Nenhum produto coletado. (${consecutiveZeros}ª vez)\n`);
+        
+        if (consecutiveZeros >= 3) {
+          console.log(`⏭️  Encerrando busca após 3 tentativas vazias.\n`);
+          break;
+        }
+        continue;
+      }
+      
+      consecutiveZeros = 0;
+      collectedTotal += products.length;
+      console.log(`📦 ${products.length} produtos coletados, salvando...\n`);
+      
+      const result = await scrapingService.saveProducts(products, 'ML');
+      savedTotal += result.inserted + result.betterOffers;
+      
+      console.log(`\n📊 Resultado: Novos: ${result.inserted} | Melhores: ${result.betterOffers}`);
+      console.log(`📈 Progresso: ${savedTotal}/${limit} (${Math.round((savedTotal/limit)*100)}%)\n`);
+      
+      if (savedTotal >= limit) {
+        console.log(`✅ Meta atingida!\n`);
+        break;
+      }
+      
+      if (savedTotal < limit && attempt < CONFIG.MAX_ATTEMPTS) {
+        console.log(`⏳ Aguardando ${CONFIG.RETRY_DELAY/1000}s...\n`);
+        await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+      }
+      
+    } catch (error) {
+      console.error(`\n❌ Erro: ${error.message}\n`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+  
+  const percentual = Math.min(100, Math.round((savedTotal / limit) * 100));
+  
+  return {
+    meta: limit,
+    salvos: savedTotal,
+    coletados: collectedTotal,
+    tentativas: attempt,
+    percentual: percentual
+  };
+}
+
+function displayFinalReport(resultados, totalSaved, totalCollected, mode, selectedCats, searchTerm, startTime) {
   const duration = ((Date.now() - startTime) / 1000).toFixed(2);
   
   console.log(`\n${'═'.repeat(70)}`);
@@ -217,15 +344,22 @@ function displayFinalReport(resultados, totalSaved, totalCollected, selectedCats
   console.log(`📦 Total coletados: ${totalCollected}`);
   console.log(`⏱️  Tempo: ${duration}s`);
   
-  // 🔥 CORREÇÃO: Taxa limitada a 100%
   const taxa = Math.min(100, Math.round((totalSaved/CONFIG.TARGET_PRODUCTS)*100));
   console.log(`⚡ Taxa: ${taxa}%`);
   
-  console.log(`\n📊 RESULTADOS POR CATEGORIA:\n`);
-  for (const [categoria, res] of Object.entries(resultados)) {
-    const status = res.salvos >= res.meta ? '✅' : res.salvos > 0 ? '⚠️' : '❌';
-    const catInfo = Object.values(CATEGORIES).find(c => c.key === categoria);
-    console.log(`   ${status} ${catInfo?.emoji || '📦'} ${categoria.padEnd(22)} ${res.salvos}/${res.meta} (${res.percentual}%)`);
+  if (mode === 'categories') {
+    console.log(`\n📊 RESULTADOS POR CATEGORIA:\n`);
+    for (const [categoria, res] of Object.entries(resultados)) {
+      const status = res.salvos >= res.meta ? '✅' : res.salvos > 0 ? '⚠️' : '❌';
+      const catInfo = Object.values(CATEGORIES).find(c => c.key === categoria);
+      console.log(`   ${status} ${catInfo?.emoji || '📦'} ${categoria.padEnd(22)} ${res.salvos}/${res.meta} (${res.percentual}%)`);
+    }
+  } else {
+    console.log(`\n📊 RESULTADO DA BUSCA:\n`);
+    console.log(`   🔎 Termo: "${searchTerm}"`);
+    console.log(`   ✨ Salvos: ${resultados.search.salvos}/${resultados.search.meta}`);
+    console.log(`   📦 Coletados: ${resultados.search.coletados}`);
+    console.log(`   ⚡ Taxa: ${resultados.search.percentual}%`);
   }
   
   if (totalSaved >= CONFIG.TARGET_PRODUCTS) {
@@ -250,36 +384,47 @@ function displayFinalReport(resultados, totalSaved, totalCollected, selectedCats
     let config;
     const argsConfig = parseArguments(process.argv);
     
-    if (argsConfig.categorias) {
+    if (argsConfig.categorias || argsConfig.searchTerm) {
       config = argsConfig;
+      config.mode = argsConfig.searchTerm ? 'search' : 'categories';
       console.log('\n📋 Config via argumentos\n');
     } else {
       config = await selecionarInterativo();
       rl.close();
     }
     
-    const { categorias: selectedCats, maxPrice } = config;
-    const limitPerCat = displayConfiguration(selectedCats, maxPrice);
+    const { mode, categorias: selectedCats, maxPrice, searchTerm } = config;
+    const limitPerCat = displayConfiguration(mode, selectedCats, maxPrice, searchTerm);
     const scrapingService = new ScrapingService();
     
     let totalSaved = 0, totalCollected = 0;
     const resultados = {};
     
-    for (const [index, categoria] of selectedCats.entries()) {
-      if (index > 0) scrapingService.clearScraperCache('ML');
+    if (mode === 'search') {
+      // MODO BUSCA POR TERMO
+      const resultado = await processSearch(scrapingService, searchTerm, limitPerCat, maxPrice);
+      resultados.search = resultado;
+      totalSaved = resultado.salvos;
+      totalCollected = resultado.coletados;
       
-      const resultado = await processCategory(scrapingService, categoria, limitPerCat, maxPrice, index + 1, selectedCats.length);
-      resultados[categoria] = resultado;
-      totalSaved += resultado.salvos;
-      totalCollected += resultado.coletados;
-      
-      if (totalSaved >= CONFIG.TARGET_PRODUCTS) {
-        console.log(`\n🎯 META GLOBAL ATINGIDA! ${totalSaved}/${CONFIG.TARGET_PRODUCTS}\n`);
-        break;
+    } else {
+      // MODO CATEGORIAS
+      for (const [index, categoria] of selectedCats.entries()) {
+        if (index > 0) scrapingService.clearScraperCache('ML');
+        
+        const resultado = await processCategory(scrapingService, categoria, limitPerCat, maxPrice, index + 1, selectedCats.length);
+        resultados[categoria] = resultado;
+        totalSaved += resultado.salvos;
+        totalCollected += resultado.coletados;
+        
+        if (totalSaved >= CONFIG.TARGET_PRODUCTS) {
+          console.log(`\n🎯 META GLOBAL ATINGIDA! ${totalSaved}/${CONFIG.TARGET_PRODUCTS}\n`);
+          break;
+        }
       }
     }
     
-    displayFinalReport(resultados, totalSaved, totalCollected, selectedCats, startTime);
+    displayFinalReport(resultados, totalSaved, totalCollected, mode, selectedCats, searchTerm, startTime);
     process.exit(0);
     
   } catch (error) {
