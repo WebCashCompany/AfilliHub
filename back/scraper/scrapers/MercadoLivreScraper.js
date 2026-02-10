@@ -9,10 +9,10 @@
  * ✅ 3. Headless: Configurável via ENV
  * ✅ 4. Filtro de preço: Aplicado antes da coleta de afiliado
  * ✅ 5. Loop infinito: Detecção melhorada de fim de ofertas
+ * ✅ 6. Retry: Recarrega a mesma página e recomeça o processo
  */
 
 const { chromium } = require('playwright');
-
 const path = require('path');
 const { getProductConnection } = require('../../database/mongodb');
 const { getProductModel } = require('../../database/models/Products');
@@ -39,7 +39,6 @@ class MercadoLivreScraper {
     
     this.seenLinks = new Set();
     this.seenProductKeys = new Set();
-    // ✅ CORREÇÃO 1: Novo set para links originais
     this.seenOriginalLinks = new Set();
     
     this.categoriaInfo = getCategoria(this.categoriaKey);
@@ -99,21 +98,18 @@ class MercadoLivreScraper {
     }
   }
 
-  // ✅ CORREÇÃO 1: Chave melhorada para reduzir duplicados
   generateProductKey(name) {
-    // Remove números de modelo/versão que podem variar
     const cleanName = name.toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\b\d+gb\b|\b\d+tb\b|\d{4,}/gi, '') // Remove capacidade e anos
+      .replace(/\b\d+gb\b|\b\d+tb\b|\d{4,}/gi, '')
       .replace(/[^\w\s]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
     
-    // Pega palavras principais (mínimo 3 caracteres)
     const words = cleanName.split(' ')
       .filter(word => word.length >= 3)
-      .slice(0, 8); // Aumentado para 8 palavras
+      .slice(0, 8);
     
     return words.join('_');
   }
@@ -121,22 +117,18 @@ class MercadoLivreScraper {
   checkDuplicate(product) {
     const productKey = this.generateProductKey(product.nome);
     
-    // ✅ CORREÇÃO 1: Verifica memória
     if (this.seenProductKeys.has(productKey)) {
       return { isDuplicate: true, reason: 'duplicate_in_memory' };
     }
     
-    // ✅ CORREÇÃO 1: Verifica link afiliado
     if (this.seenLinks.has(product.link_afiliado)) {
       return { isDuplicate: true, reason: 'duplicate_affiliate_link' };
     }
     
-    // ✅ CORREÇÃO 1: Verifica link original
     if (this.seenOriginalLinks.has(product.link_original)) {
       return { isDuplicate: true, reason: 'duplicate_original_link' };
     }
     
-    // Verifica banco de dados
     const existing = this.existingProductsMap.get(productKey);
     if (existing) {
       const newDiscount = parseInt(product.desconto) || 0;
@@ -195,7 +187,6 @@ class MercadoLivreScraper {
 
     this.context = await this.browser.newContext(contextOptions);
     
-    // Mascara webdriver detection
     await this.context.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', {
         get: () => undefined
@@ -219,15 +210,19 @@ class MercadoLivreScraper {
     return { browser: this.browser, context: this.context };
   }
 
+  /**
+   * ✅ MÉTODO CORRIGIDO: Retry recarrega a mesma página
+   */
   async getAffiliateLink(productUrl) {
     const page = await this.context.newPage();
     
     try {
-      const initialDelay = this.isFirstProduct ? 2000 : 600;
+      const initialDelay = this.isFirstProduct ? 1500 : 400;
       
+      // Carrega a página inicial
       await page.goto(productUrl, { 
         waitUntil: 'domcontentloaded',
-        timeout: 10000
+        timeout: 8000
       });
 
       await page.waitForTimeout(initialDelay);
@@ -236,73 +231,110 @@ class MercadoLivreScraper {
         this.isFirstProduct = false;
       }
 
-      // Aguarda botão compartilhar estar visível
-      try {
-        await page.waitForSelector('button[class*="share"], button[aria-label*="Compartilhar"]', {
-          timeout: 3000,
-          state: 'visible'
+      // Função auxiliar para executar o processo de obtenção do link
+      const tryGetLink = async (isRetry = false) => {
+        // Aguarda botão compartilhar
+        try {
+          await page.waitForSelector('button[class*="share"], button[aria-label*="Compartilhar"]', {
+            timeout: 2000,
+            state: 'visible'
+          });
+        } catch (e) {
+          // Continua mesmo se não encontrar
+        }
+
+        await page.waitForTimeout(100);
+
+        // Limpa clipboard
+        await page.evaluate(() => {
+          try {
+            navigator.clipboard.writeText('');
+          } catch(e) {}
         });
-      } catch (e) {
-        // Continua mesmo sem achar
-      }
 
-      await page.waitForTimeout(200);
-
-      await page.evaluate(() => {
-        try {
-          navigator.clipboard.writeText('');
-        } catch(e) {}
-      });
-
-      await page.waitForTimeout(150);
-
-      // Tab 4x para COMPARTILHAR
-      for (let i = 0; i < 4; i++) {
-        await page.keyboard.press('Tab');
         await page.waitForTimeout(100);
-      }
-      
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(1500);
 
-      // Tab 4x para COPIAR LINK
-      for (let i = 0; i < 4; i++) {
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(100);
-      }
-      
-      await page.keyboard.press('Enter');
-      
-      // Aguarda clipboard
-      let copiedLink = '';
-      for (let attempt = 1; attempt <= 10; attempt++) {
-        await page.waitForTimeout(300);
+        // Tab 4x para COMPARTILHAR
+        for (let i = 0; i < 4; i++) {
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(80);
+        }
         
-        try {
-          copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(1200);
+
+        // Tab 4x para COPIAR LINK
+        for (let i = 0; i < 4; i++) {
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(80);
+        }
+        
+        await page.keyboard.press('Enter');
+        
+        // Aguarda clipboard
+        let copiedLink = '';
+        const maxAttempts = isRetry ? 8 : 12;
+        
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          await page.waitForTimeout(200);
           
-          if (copiedLink && 
-              copiedLink.trim().length > 20 && 
-              (copiedLink.includes('/sec/') || copiedLink.includes('mercadolivre.com'))) {
-            break;
-          }
-        } catch (e) {}
-      }
+          try {
+            copiedLink = await page.evaluate(() => navigator.clipboard.readText());
+            
+            if (copiedLink && 
+                copiedLink.trim().length > 20 && 
+                (copiedLink.includes('/sec/') || copiedLink.includes('mercadolivre.com'))) {
+              break;
+            }
+          } catch (e) {}
+        }
 
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(200);
-      await page.close();
+        // Fecha modal
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
 
+        return copiedLink;
+      };
+
+      // PRIMEIRA TENTATIVA
+      let copiedLink = await tryGetLink(false);
+
+      // Valida resultado
       if (copiedLink && copiedLink.trim() && copiedLink.length > 20) {
         const cleanLink = copiedLink.trim();
         if (cleanLink.includes('/sec/')) {
+          await page.close();
           return cleanLink;
         }
         if (cleanLink.includes('mercadolivre.com') && !cleanLink.includes('mclics')) {
+          await page.close();
           return cleanLink;
         }
       }
 
+      // ✅ RETRY: Recarrega a MESMA página e recomeça
+      console.log(`      🔄 Retry...`);
+      await page.waitForTimeout(500);
+      
+      // Recarrega a página
+      await page.reload({ 
+        waitUntil: 'domcontentloaded', 
+        timeout: 8000 
+      });
+      await page.waitForTimeout(800);
+      
+      // SEGUNDA TENTATIVA na mesma página
+      copiedLink = await tryGetLink(true);
+      
+      // Fecha a página
+      await page.close();
+      
+      // Valida resultado final
+      if (copiedLink && copiedLink.trim() && copiedLink.includes('/sec/')) {
+        return copiedLink.trim();
+      }
+
+      // Se ainda falhou, retorna link original
       return productUrl;
 
     } catch (error) {
@@ -334,13 +366,13 @@ class MercadoLivreScraper {
         this.stats.couponsApplied++;
       }
 
-      // ✅ CORREÇÃO 4: Filtro de preço ANTES da coleta de link de afiliado
+      // Filtro de preço ANTES da coleta de link de afiliado
       if (this.maxPrice && finalPrice > this.maxPrice) {
         this.stats.filteredByPrice++;
         continue;
       }
 
-      // ✅ CORREÇÃO 1: Verifica duplicados com link original também
+      // Verifica duplicados
       if (this.seenLinks.has(prodData.link) || this.seenOriginalLinks.has(prodData.link)) {
         this.stats.duplicatesIgnored++;
         continue;
@@ -405,7 +437,6 @@ class MercadoLivreScraper {
     let currentOffset = 0;
     let lastPageLinks = [];
     let samePageCount = 0;
-    // ✅ CORREÇÃO 5: Contador de páginas vazias consecutivas
     let emptyPageCount = 0;
 
     try {
@@ -432,42 +463,32 @@ class MercadoLivreScraper {
             timeout: pageNum === 1 ? 20000 : 15000
           });
 
-          await mainPage.waitForTimeout(pageNum === 1 ? 1500 : 1000);
+          await mainPage.waitForTimeout(pageNum === 1 ? 1200 : 800);
 
-          // Scroll agressivo para carregar TODOS os produtos
+          // Scroll otimizado
           await mainPage.evaluate(async () => {
-            // Primeira passada: scroll rápido até o fim
-            for (let i = 0; i < 10; i++) {
+            for (let i = 0; i < 8; i++) {
               window.scrollBy(0, window.innerHeight);
-              await new Promise(r => setTimeout(r, 200));
+              await new Promise(r => setTimeout(r, 150));
             }
             
-            // Segunda passada: vai direto pro final e espera
             window.scrollTo(0, document.body.scrollHeight);
-            await new Promise(r => setTimeout(r, 800));
+            await new Promise(r => setTimeout(r, 600));
             
-            // Terceira passada: scroll incremental com verificação
             let lastHeight = document.body.scrollHeight;
-            let attempts = 0;
-            
-            while (attempts < 5) {
+            for (let i = 0; i < 3; i++) {
               window.scrollTo(0, document.body.scrollHeight);
-              await new Promise(r => setTimeout(r, 600));
+              await new Promise(r => setTimeout(r, 400));
               
               const newHeight = document.body.scrollHeight;
-              if (newHeight === lastHeight) {
-                attempts++;
-              } else {
-                attempts = 0;
-                lastHeight = newHeight;
-              }
+              if (newHeight === lastHeight) break;
+              lastHeight = newHeight;
             }
             
-            // Volta pro topo
             window.scrollTo(0, 0);
           });
 
-          await mainPage.waitForTimeout(1000);
+          await mainPage.waitForTimeout(800);
 
           const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
             const cards = document.querySelectorAll('.poly-card, .ui-search-result');
@@ -681,11 +702,10 @@ class MercadoLivreScraper {
           console.log(`   📊 ${pageData.products.length} produtos encontrados`);
           console.log(`   🔍 ${pageData.filteredByDiscount} desc | ${pageData.filteredByPrice} preço\n`);
 
-          // ✅ CORREÇÃO 5: Detecção melhorada de loop
+          // Detecção de loop
           const currentPageLinks = (pageData.allPageLinks || []).sort();
           const lastLinks = lastPageLinks.sort();
           
-          // Verifica se é a mesma página
           if (currentPageLinks.length > 0 && lastLinks.length > 0 &&
               JSON.stringify(currentPageLinks) === JSON.stringify(lastLinks)) {
             samePageCount++;
@@ -699,7 +719,7 @@ class MercadoLivreScraper {
             lastPageLinks = currentPageLinks;
           }
 
-          // ✅ CORREÇÃO 5: Verifica páginas vazias
+          // Verifica páginas vazias
           if (pageData.products.length === 0) {
             emptyPageCount++;
             console.log(`   ⚠️  Página vazia (${emptyPageCount}/3)\n`);
