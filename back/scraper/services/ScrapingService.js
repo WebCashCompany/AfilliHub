@@ -3,7 +3,7 @@
  * SCRAPING SERVICE - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.5.0 - ✅ NOVA FEATURE: Busca por termo (searchTerm)
+ * @version 2.5.1 - ✅ CORRIGIDO: Busca por termo agora salva corretamente
  * @author Dashboard Promoforia
  */
 
@@ -147,14 +147,14 @@ class ScrapingService {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // 🔥 NOVO: Configuração para BUSCA POR TERMO
+    // 🔥 CORRIGIDO: Configuração para BUSCA POR TERMO
     // ═══════════════════════════════════════════════════════════
     if (marketplace.code === 'ML') {
       if (searchTerm) {
         // Modo busca por termo
         scraper.searchTerm = searchTerm;
-        scraper.categoriaKey = null;
-        scraper.categoriaInfo = null;
+        scraper.categoriaKey = 'todas';  // 🔥 CORRIGIDO
+        scraper.categoriaInfo = getCategoria('todas');  // 🔥 CORRIGIDO
         console.log(`🔎 Modo BUSCA ativado: "${searchTerm}"`);
       } else if (categoria) {
         // Modo categoria

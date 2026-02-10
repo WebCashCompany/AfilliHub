@@ -3,9 +3,9 @@
  * MERCADO LIVRE SCRAPER - VERSÃO COM BUSCA POR TERMO 🚀
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.4.0
- * ✅ NOVA FEATURE: Busca por termo (ex: creatina, notebook, etc)
- * ✅ Mantém todas as funcionalidades anteriores
+ * @version 2.4.1
+ * ✅ CORRIGIDO: URL de busca agora usa /search (resultados relevantes)
+ * ✅ CORRIGIDO: Categoria para busca agora é "Todas" (compatível com BD)
  */
 
 const { chromium } = require('playwright');
@@ -45,7 +45,8 @@ class MercadoLivreScraper {
         this.categoriaInfo = getCategoria('todas');
       }
     } else {
-      this.categoriaInfo = null;
+      // 🔥 CORRIGIDO: Usa categoria "Todas" para busca
+      this.categoriaInfo = getCategoria('todas');
     }
     
     try {
@@ -63,12 +64,13 @@ class MercadoLivreScraper {
   }
 
   /**
-   * 🔥 NOVO: Gera URL de busca baseada no termo
+   * 🔥 CORRIGIDO: Gera URL de busca baseada no termo
    */
   getSearchUrl() {
     if (this.searchTerm) {
       const encodedTerm = encodeURIComponent(this.searchTerm);
-      return `https://www.mercadolivre.com.br/ofertas?q=${encodedTerm}`;
+      // 🔥 CORRIGIDO: Usa lista.mercadolivre.com.br para busca
+      return `https://lista.mercadolivre.com.br/${encodedTerm}`;
     }
     
     return this.categoriaInfo.url;
@@ -388,6 +390,7 @@ class MercadoLivreScraper {
         this.stats.affiliateLinksFailed++;
       }
 
+      // 🔥 CORRIGIDO: Sempre usa categoria "Todas" para produtos de busca
       const product = {
         nome: prodData.name,
         imagem: prodData.image,
@@ -398,7 +401,7 @@ class MercadoLivreScraper {
         preco_anterior: `R$ ${prodData.oldPrice}`,
         preco_de: String(prodData.oldPrice),
         preco_para: String(finalPrice),
-        categoria: this.searchTerm ? `Busca: ${this.searchTerm}` : this.categoriaInfo.nome,  // 🔥 ATUALIZADO
+        categoria: this.searchTerm ? 'Todas' : this.categoriaInfo.nome,  // 🔥 CORRIGIDO
         marketplace: 'ML',
         isActive: true
       };
@@ -408,6 +411,11 @@ class MercadoLivreScraper {
         product.cupom_texto = couponText;
         product.preco_sem_cupom = String(prodData.currentPrice);
         product.desconto_cupom = String(prodData.currentPrice - finalPrice);
+      }
+
+      // 🔥 NOVO: Adiciona campo de termo de busca (metadata)
+      if (this.searchTerm) {
+        product.termo_busca = this.searchTerm;
       }
 
       this.stats.productsCollected++;
