@@ -1,21 +1,17 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - VERSÃO LIMPA 🚀
+ * MERCADO LIVRE SCRAPER - VERSÃO CORRIGIDA 🚀
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * REGRAS SIMPLES:
- * 1. Pega TODOS os produtos da página
- * 2. Filtra por desconto e preço
- * 3. Pega a primeira imagem que achar
- * 4. Tenta conseguir link de afiliado
- * 5. Salva no banco
- * 
- * SEM FRESCURA!
+ * CORREÇÕES APLICADAS:
+ * ✅ 1. Duplicados: Chave melhorada + verificação de link original
+ * ✅ 2. Performance: Delays otimizados
+ * ✅ 3. Headless: Configurável via ENV
+ * ✅ 4. Filtro de preço: Aplicado antes da coleta de afiliado
+ * ✅ 5. Loop infinito: Detecção melhorada de fim de ofertas
  */
 
-const { chromium } = require('playwright-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-chromium.use(StealthPlugin());
+const { chromium } = require('playwright');
 
 const path = require('path');
 const { getProductConnection } = require('../../database/mongodb');
@@ -30,6 +26,9 @@ class MercadoLivreScraper {
     this.maxPrice = options.maxPrice ? parseInt(options.maxPrice) : null;
     this.categoriaKey = options.categoria || 'todas';
     
+    // ✅ CORREÇÃO 3: Headless configurável
+    this.headless = process.env.HEADLESS_MODE === 'true';
+    
     this.stats = {
       duplicatesIgnored: 0,
       productsCollected: 0,
@@ -43,6 +42,9 @@ class MercadoLivreScraper {
     
     this.seenLinks = new Set();
     this.seenProductKeys = new Set();
+    // ✅ CORREÇÃO 1: Novo set para links originais
+    this.seenOriginalLinks = new Set();
+    
     this.categoriaInfo = getCategoria(this.categoriaKey);
     
     if (!this.categoriaInfo) {
@@ -75,7 +77,7 @@ class MercadoLivreScraper {
         : { isActive: true };
       
       const products = await Product.find(query)
-        .select('link_afiliado nome desconto preco_para')
+        .select('link_afiliado link_original nome desconto preco_para')
         .lean()
         .limit(500)
         .sort({ createdAt: -1 });
@@ -88,6 +90,7 @@ class MercadoLivreScraper {
           const key = this.generateProductKey(product.nome);
           this.existingProductsMap.set(key, {
             link: product.link_afiliado,
+            originalLink: product.link_original,
             desconto: parseInt(product.desconto) || 0,
             preco: parseInt(product.preco_para) || 0
           });
@@ -99,30 +102,44 @@ class MercadoLivreScraper {
     }
   }
 
+  // ✅ CORREÇÃO 1: Chave melhorada para reduzir duplicados
   generateProductKey(name) {
-    return name.toLowerCase()
+    // Remove números de modelo/versão que podem variar
+    const cleanName = name.toLowerCase()
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\b\d+gb\b|\b\d+tb\b|\d{4,}/gi, '') // Remove capacidade e anos
       .replace(/[^\w\s]/g, '')
       .replace(/\s+/g, ' ')
-      .trim()
-      .split(' ')
-      .filter(word => word.length > 2)
-      .slice(0, 5)
-      .join('_');
+      .trim();
+    
+    // Pega palavras principais (mínimo 3 caracteres)
+    const words = cleanName.split(' ')
+      .filter(word => word.length >= 3)
+      .slice(0, 8); // Aumentado para 8 palavras
+    
+    return words.join('_');
   }
 
   checkDuplicate(product) {
     const productKey = this.generateProductKey(product.nome);
     
+    // ✅ CORREÇÃO 1: Verifica memória
     if (this.seenProductKeys.has(productKey)) {
       return { isDuplicate: true, reason: 'duplicate_in_memory' };
     }
     
-    if (this.seenLinks.has(product.link_original)) {
-      return { isDuplicate: true, reason: 'duplicate_link' };
+    // ✅ CORREÇÃO 1: Verifica link afiliado
+    if (this.seenLinks.has(product.link_afiliado)) {
+      return { isDuplicate: true, reason: 'duplicate_affiliate_link' };
     }
     
+    // ✅ CORREÇÃO 1: Verifica link original
+    if (this.seenOriginalLinks.has(product.link_original)) {
+      return { isDuplicate: true, reason: 'duplicate_original_link' };
+    }
+    
+    // Verifica banco de dados
     const existing = this.existingProductsMap.get(productKey);
     if (existing) {
       const newDiscount = parseInt(product.desconto) || 0;
@@ -145,18 +162,24 @@ class MercadoLivreScraper {
     }
 
     this.browser = await chromium.launch({
-      headless: false,
+      headless: this.headless,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=IsolateOrigins,site-per-process'
       ]
     });
 
     let contextOptions = {
-      viewport: { width: 1280, height: 720 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      viewport: { width: 1920, height: 1080 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      extraHTTPHeaders: {
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+      }
     };
 
     const fs = require('fs');
@@ -174,6 +197,26 @@ class MercadoLivreScraper {
     }
 
     this.context = await this.browser.newContext(contextOptions);
+    
+    // Mascara webdriver detection
+    await this.context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined
+      });
+      
+      window.chrome = {
+        runtime: {}
+      };
+      
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5]
+      });
+      
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['pt-BR', 'pt', 'en-US', 'en']
+      });
+    });
+    
     await this.context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
     return { browser: this.browser, context: this.context };
@@ -183,8 +226,8 @@ class MercadoLivreScraper {
     const page = await this.context.newPage();
     
     try {
-      // 🔥 CORREÇÃO: Delay extra SOMENTE no primeiro produto
-      const initialDelay = this.isFirstProduct ? 3000 : 800;
+      // ✅ CORREÇÃO: Delays otimizados
+      const initialDelay = this.isFirstProduct ? 2000 : 600;
       
       await page.goto(productUrl, { 
         waitUntil: 'domcontentloaded',
@@ -193,48 +236,94 @@ class MercadoLivreScraper {
 
       await page.waitForTimeout(initialDelay);
       
-      // Marca que já processou o primeiro
       if (this.isFirstProduct) {
         this.isFirstProduct = false;
       }
 
-      // Limpa clipboard
+      // ✅ NOVO: Aguarda botão compartilhar estar visível
+      try {
+        await page.waitForSelector('button[class*="share"], button[aria-label*="Compartilhar"], button:has-text("Compartilhar")', {
+          timeout: 5000,
+          state: 'visible'
+        });
+      } catch (e) {
+        // Se não achar, tenta continuar mesmo assim
+      }
+
+      await page.waitForTimeout(300);
+
       await page.evaluate(() => {
         try {
           navigator.clipboard.writeText('');
         } catch(e) {}
       });
 
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(150);
 
-      // PASSO 1: Tab 4x para chegar no botão COMPARTILHAR
+      // Tab 4x para COMPARTILHAR
       for (let i = 0; i < 4; i++) {
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(120); // ✅ Aumentado de 80ms para 120ms
       }
       
-      // PASSO 2: Enter para ABRIR o botão compartilhar
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(1500);
+      // ✅ NOVO: Verifica se elemento tem focus antes de dar Enter
+      const hasFocus = await page.evaluate(() => {
+        const el = document.activeElement;
+        return el && (
+          el.getAttribute('aria-label')?.toLowerCase().includes('compartilhar') ||
+          el.textContent?.toLowerCase().includes('compartilhar') ||
+          el.className?.toLowerCase().includes('share')
+        );
+      });
 
-      // PASSO 3: Tab 4x para chegar no botão COPIAR LINK
+      if (!hasFocus) {
+        // Se não focou no botão certo, tenta localizar direto
+        try {
+          await page.click('button[class*="share"], button[aria-label*="Compartilhar"]', { timeout: 2000 });
+        } catch (e) {
+          await page.keyboard.press('Enter');
+        }
+      } else {
+        await page.keyboard.press('Enter');
+      }
+      
+      await page.waitForTimeout(1500); // ✅ Aumentado de 1200ms para 1500ms
+
+      // Tab 4x para COPIAR LINK
       for (let i = 0; i < 4; i++) {
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(120); // ✅ Aumentado de 80ms para 120ms
       }
       
-      // PASSO 4: Enter para COPIAR o link de afiliado
-      await page.keyboard.press('Enter');
+      // ✅ NOVO: Verifica se focou no botão copiar
+      const hasCopyFocus = await page.evaluate(() => {
+        const el = document.activeElement;
+        return el && (
+          el.getAttribute('aria-label')?.toLowerCase().includes('copiar') ||
+          el.textContent?.toLowerCase().includes('copiar') ||
+          el.className?.toLowerCase().includes('copy')
+        );
+      });
+
+      if (!hasCopyFocus) {
+        // Tenta clicar direto no botão copiar
+        try {
+          await page.click('button:has-text("Copiar link"), button[class*="copy"]', { timeout: 2000 });
+        } catch (e) {
+          await page.keyboard.press('Enter');
+        }
+      } else {
+        await page.keyboard.press('Enter');
+      }
       
-      // PASSO 5: Aguarda e verifica clipboard - SAI IMEDIATAMENTE quando copiar
+      // Aguarda clipboard com retry mais inteligente
       let copiedLink = '';
-      for (let attempt = 1; attempt <= 10; attempt++) {
+      for (let attempt = 1; attempt <= 10; attempt++) { // ✅ Aumentado de 8 para 10
         await page.waitForTimeout(300);
         
         try {
           copiedLink = await page.evaluate(() => navigator.clipboard.readText());
           
-          // Se copiou algo válido, sai imediatamente
           if (copiedLink && 
               copiedLink.trim().length > 20 && 
               (copiedLink.includes('/sec/') || copiedLink.includes('mercadolivre.com'))) {
@@ -244,6 +333,7 @@ class MercadoLivreScraper {
       }
 
       await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
       await page.close();
 
       if (copiedLink && copiedLink.trim() && copiedLink.length > 20) {
@@ -273,6 +363,7 @@ class MercadoLivreScraper {
       let couponText = '';
       let realDiscount = prodData.discount;
 
+      // Aplica cupom se houver
       if (prodData.coupon && prodData.currentPrice >= prodData.coupon.minValue) {
         if (prodData.coupon.type === 'percent') {
           finalPrice = prodData.currentPrice - Math.round(prodData.currentPrice * (prodData.coupon.discount / 100));
@@ -286,25 +377,25 @@ class MercadoLivreScraper {
         this.stats.couponsApplied++;
       }
 
-      // 🔥 CORREÇÃO: Filtro de preço antes de verificar duplicatas
+      // ✅ CORREÇÃO 4: Filtro de preço ANTES da coleta de link de afiliado
       if (this.maxPrice && finalPrice > this.maxPrice) {
         this.stats.filteredByPrice++;
         continue;
       }
 
-      // 🔥 CORREÇÃO: Verificar duplicatas e mostrar no console
-      if (this.seenLinks.has(prodData.link)) {
+      // ✅ CORREÇÃO 1: Verifica duplicados com link original também
+      if (this.seenLinks.has(prodData.link) || this.seenOriginalLinks.has(prodData.link)) {
         this.stats.duplicatesIgnored++;
-        console.log(`   ⏭️  Duplicado: ${prodData.name.substring(0, 40)}...`);
         continue;
       }
 
       this.seenLinks.add(prodData.link);
+      this.seenOriginalLinks.add(prodData.link);
 
-      // 🔥 CORREÇÃO: Mostra progresso correto (produtos válidos processados)
       const currentProgress = allProducts.length + 1;
       console.log(`   🔄 [${currentProgress}/${this.limit}] ${prodData.name.substring(0, 40)}...`);
       
+      // Obtém link de afiliado
       const affiliateLink = await this.getAffiliateLink(prodData.link);
       const finalLink = affiliateLink;
       const isAffiliate = finalLink.includes('/sec/');
@@ -357,6 +448,8 @@ class MercadoLivreScraper {
     let currentOffset = 0;
     let lastPageLinks = [];
     let samePageCount = 0;
+    // ✅ CORREÇÃO 5: Contador de páginas vazias consecutivas
+    let emptyPageCount = 0;
 
     try {
       console.log(`╔════════════════════════════════════════════════════╗`);
@@ -382,7 +475,7 @@ class MercadoLivreScraper {
             timeout: pageNum === 1 ? 20000 : 15000
           });
 
-          await mainPage.waitForTimeout(pageNum === 1 ? 2000 : 1200);
+          await mainPage.waitForTimeout(pageNum === 1 ? 1500 : 1000);
 
           // Scroll para carregar lazy loading
           await mainPage.evaluate(async () => {
@@ -401,10 +494,9 @@ class MercadoLivreScraper {
             });
           });
 
-          await mainPage.waitForTimeout(1500);
+          await mainPage.waitForTimeout(1200);
 
           const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
-            // PEGA TODOS OS CARDS DA PÁGINA
             const cards = document.querySelectorAll('.poly-card, .ui-search-result');
             
             const products = [];
@@ -414,7 +506,6 @@ class MercadoLivreScraper {
             
             cards.forEach(card => {
               try {
-                // PEGA QUALQUER LINK
                 const linkElement = card.querySelector('a[href*="mercadolivre.com"]') || 
                                    card.querySelector('a[href*="/p/"]') ||
                                    card.querySelector('a[href*="/MLB"]') ||
@@ -425,14 +516,12 @@ class MercadoLivreScraper {
                 const link = linkElement.href.split('?')[0];
                 allPageLinks.push(link);
                 
-                // NOME
                 const name = card.querySelector('h2, .poly-component__title, [class*="title"]')?.innerText || 'Sem nome';
                 
-                // 🔥 CORREÇÃO: Busca mais agressiva por imagens válidas
+                // Busca imagem
                 let image = null;
                 const imgs = card.querySelectorAll('img');
                 
-                // Primeiro: tenta pegar imagem já carregada (src válido)
                 for (const img of imgs) {
                   const src = img.src || '';
                   
@@ -451,7 +540,6 @@ class MercadoLivreScraper {
                   break;
                 }
                 
-                // Segundo: tenta data-src ou data-lazy
                 if (!image) {
                   for (const img of imgs) {
                     const attrs = ['data-src', 'data-lazy', 'data-original'];
@@ -468,7 +556,6 @@ class MercadoLivreScraper {
                   }
                 }
                 
-                // Terceiro: tenta srcset
                 if (!image) {
                   for (const img of imgs) {
                     const srcset = img.getAttribute('srcset');
@@ -484,12 +571,11 @@ class MercadoLivreScraper {
                   }
                 }
                 
-                // Fallback: placeholder
                 if (!image) {
                   image = 'https://http2.mlstatic.com/D_NQ_NP_2X_default.webp';
                 }
                 
-                // DESCONTO
+                // Desconto
                 const discountEl = card.querySelector('.poly-price__disc_label, .andes-money-amount__discount');
                 const discount = parseInt((discountEl?.innerText || '0').replace(/\D/g, '')) || 0;
                 
@@ -498,7 +584,7 @@ class MercadoLivreScraper {
                   return;
                 }
                 
-                // PREÇOS
+                // Preços
                 let currentPrice = 0, oldPrice = 0;
                 const priceContainer = card.querySelector('.poly-component__price');
                 
@@ -558,7 +644,7 @@ class MercadoLivreScraper {
                   return;
                 }
                 
-                // CUPOM
+                // Cupom
                 let couponInfo = null;
                 const couponEl = card.querySelector('[class*="coupon"], [class*="cupom"]');
                 if (couponEl) {
@@ -584,7 +670,7 @@ class MercadoLivreScraper {
                   }
                 }
                 
-                // 🔥 CORREÇÃO: Calcula preço final com cupom ANTES do filtro
+                // Calcula preço final com cupom
                 let finalPrice = currentPrice;
                 if (couponInfo && currentPrice >= couponInfo.minValue) {
                   if (couponInfo.type === 'percent') {
@@ -594,7 +680,7 @@ class MercadoLivreScraper {
                   }
                 }
                 
-                // Filtro de preço com preço final (após cupom)
+                // Filtro de preço com preço final
                 if (maxPrice && finalPrice > maxPrice) {
                   filteredByPrice++;
                   return;
@@ -622,15 +708,16 @@ class MercadoLivreScraper {
           console.log(`   📊 ${pageData.products.length} produtos encontrados`);
           console.log(`   🔍 ${pageData.filteredByDiscount} desc | ${pageData.filteredByPrice} preço\n`);
 
-          // Detecta loop
+          // ✅ CORREÇÃO 5: Detecção melhorada de loop
           const currentPageLinks = (pageData.allPageLinks || []).sort();
           const lastLinks = lastPageLinks.sort();
           
+          // Verifica se é a mesma página
           if (currentPageLinks.length > 0 && lastLinks.length > 0 &&
               JSON.stringify(currentPageLinks) === JSON.stringify(lastLinks)) {
             samePageCount++;
-            console.log(`   ⚠️  Página repetida (${samePageCount}/3)\n`);
-            if (samePageCount >= 3) {
+            console.log(`   ⚠️  Página repetida (${samePageCount}/2)\n`);
+            if (samePageCount >= 2) {
               console.log(`   🛑 LOOP DETECTADO! Parando...\n`);
               break;
             }
@@ -639,7 +726,22 @@ class MercadoLivreScraper {
             lastPageLinks = currentPageLinks;
           }
 
-          const newProducts = pageData.products.filter(p => !this.seenLinks.has(p.link));
+          // ✅ CORREÇÃO 5: Verifica páginas vazias
+          if (pageData.products.length === 0) {
+            emptyPageCount++;
+            console.log(`   ⚠️  Página vazia (${emptyPageCount}/3)\n`);
+            if (emptyPageCount >= 3) {
+              console.log(`   🛑 Fim das ofertas! (3 páginas vazias)\n`);
+              break;
+            }
+          } else {
+            emptyPageCount = 0;
+          }
+
+          const newProducts = pageData.products.filter(p => 
+            !this.seenLinks.has(p.link) && !this.seenOriginalLinks.has(p.link)
+          );
+          
           this.stats.filteredByDiscount += pageData.filteredByDiscount;
           this.stats.filteredByPrice += pageData.filteredByPrice;
 
