@@ -2,7 +2,7 @@
  * ═══════════════════════════════════════════════════════════════════════
  * MERCADO LIVRE SCRAPER - COM SSE REAL-TIME & AFILIAÇÃO ATIVA 🚀
  * ═══════════════════════════════════════════════════════════════════════
- * * @version 2.5.2 - ✅ CORRIGIDO: Categorias Enterprise + Links de Afiliado
+ * * @version 2.5.3 - ✅ CORRIGIDO: Extração precisa de preços
  */
 
 const { chromium } = require('playwright');
@@ -375,11 +375,39 @@ class MercadoLivreScraper {
               const discount = parseInt(discountEl?.innerText.replace(/\D/g, '') || '0');
 
               if (discount >= minDiscount) {
-                const fractions = Array.from(card.querySelectorAll('.andes-money-amount__fraction'));
-                if (fractions.length >= 1) {
-                  const currentPrice = parseInt(fractions[fractions.length - 1].innerText.replace(/\./g, ''));
-                  const oldPrice = fractions.length > 1 ? parseInt(fractions[0].innerText.replace(/\./g, '')) : Math.round(currentPrice / (1 - discount/100));
-                  
+                // 🎯 PREÇO ATUAL - buscar especificamente dentro de .poly-price__current
+                let currentPrice = 0;
+                const currentPriceContainer = card.querySelector('.poly-price__current');
+                
+                if (currentPriceContainer) {
+                  const currentFractions = Array.from(currentPriceContainer.querySelectorAll('.andes-money-amount__fraction'));
+                  if (currentFractions.length > 0) {
+                    // Pega só os reais (primeiro fraction dentro do container de preço atual)
+                    currentPrice = parseInt(currentFractions[0].innerText.replace(/\./g, '').replace(/\D/g, ''));
+                  }
+                }
+                
+                // Fallback: se não achou, tenta o seletor mais genérico
+                if (!currentPrice) {
+                  const fractions = Array.from(card.querySelectorAll('.andes-money-amount__fraction'));
+                  if (fractions.length >= 1) {
+                    currentPrice = parseInt(fractions[fractions.length - 1].innerText.replace(/\./g, ''));
+                  }
+                }
+
+                // 🎯 PREÇO ANTIGO - buscar no elemento riscado (.andes-money-amount--previous)
+                let oldPrice = 0;
+                const oldPriceEl = card.querySelector('.andes-money-amount--previous .andes-money-amount__fraction');
+                
+                if (oldPriceEl) {
+                  oldPrice = parseInt(oldPriceEl.innerText.replace(/\./g, '').replace(/\D/g, ''));
+                } else if (currentPrice) {
+                  // Se não achar o preço antigo, calcula baseado no desconto
+                  oldPrice = Math.round(currentPrice / (1 - discount/100));
+                }
+                
+                // ✅ Só adiciona se tiver preços válidos
+                if (currentPrice > 0 && oldPrice > currentPrice) {
                   products.push({ link, name, image: img, discount, currentPrice, oldPrice });
                 }
               }
