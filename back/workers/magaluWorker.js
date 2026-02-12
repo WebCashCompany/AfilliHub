@@ -1,4 +1,5 @@
 require('dotenv').config();
+const mongoose = require('mongoose'); // Necessário para operar queries diretas se não tiver o model importado
 const { connectDB } = require('../database/mongodb');
 const ScrapingService = require('../scraper/services/ScrapingService');
 const { getEnabledCategories } = require('../config/categorias-magalu');
@@ -7,16 +8,29 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
  * ═══════════════════════════════════════════════════════════
  * WORKER: MAGAZINE LUIZA COM MÚLTIPLAS CATEGORIAS
  * ═══════════════════════════════════════════════════════════
- * 
- * Este worker coleta produtos de TODAS as categorias do Magalu
- * de forma distribuída e organizada
- * 
- * CATEGORIAS COM SUBCATEGORIAS:
- * - CASA tem 3 subcategorias (Utilidades, Construção, Móveis)
- *   Todas salvam no banco como "Casa"
- * 
- * ═══════════════════════════════════════════════════════════
  */
+
+// Função auxiliar para obter o ID do afiliado (Banco > ENV)
+async function getMagaluAffiliateId() {
+  try {
+    // Tenta buscar na coleção de integrações/settings (ajuste o nome da collection conforme seu DB)
+    const db = mongoose.connection.db;
+    if (db) {
+      const config = await db.collection('integrations').findOne({ provider: 'magalu' });
+      if (config && config.affiliateId) {
+        console.log(`🆔 ID do Afiliado carregado do Banco: ${config.affiliateId}`);
+        return config.affiliateId;
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️ Não foi possível ler configurações do banco, usando .env');
+  }
+  
+  // Fallback para o arquivo .env
+  const envId = process.env.MAGALU_AFFILIATE_ID;
+  console.log(`🆔 ID do Afiliado carregado do .env: ${envId || 'Não definido'}`);
+  return envId;
+}
 
 (async () => {
   const startTime = Date.now();
@@ -32,38 +46,39 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     // CONFIGURAÇÕES
     // ═══════════════════════════════════════════════════════════
     
+    // 🆕 Carrega o ID do Afiliado Dinâmico
+    const AFFILIATE_ID = await getMagaluAffiliateId();
+
+    if (!AFFILIATE_ID) {
+        throw new Error('❌ Magalu Affiliate ID não configurado (Nem no Banco, nem no .env)');
+    }
+
     const MIN_DISCOUNT = Number(process.env.MIN_DISCOUNT || 30);
     const TOTAL_PRODUCTS = Number(process.env.MAX_PRODUCTS_PER_CATEGORY || 50);
     const MODE = process.env.SCRAPING_MODE || 'auto';
     
     // Estratégia de distribuição:
-    // 'equal' = Divide igualmente entre todas as categorias/subcategorias
-    // 'priority' = Mais produtos nas categorias de alta prioridade
     const DISTRIBUTION_MODE = process.env.DISTRIBUTION_MODE || 'equal';
     
     const scrapingService = new ScrapingService();
-    
-    // 🆕 getEnabledCategories() retorna TODAS (incluindo subcategorias)
     const categories = getEnabledCategories();
-    
+
     console.log(`📋 Categorias/Subcategorias habilitadas: ${categories.length}`);
     console.log(`🎯 Meta total: ${TOTAL_PRODUCTS} produtos NOVOS`);
     console.log(`📊 Modo de distribuição: ${DISTRIBUTION_MODE}\n`);
-    
+
     // ═══════════════════════════════════════════════════════════
     // CÁLCULO DE DISTRIBUIÇÃO
     // ═══════════════════════════════════════════════════════════
     
     let productsPerCategory = {};
-    
+
     if (DISTRIBUTION_MODE === 'equal') {
-      // Distribui igualmente entre TODAS (incluindo subcategorias)
       const perCat = Math.ceil(TOTAL_PRODUCTS / categories.length);
       categories.forEach(cat => {
         productsPerCategory[cat.key] = perCat;
       });
     } else {
-      // Distribui por prioridade (alta prioridade = mais produtos)
       const totalPriority = categories.reduce((sum, cat) => sum + (10 - cat.priority), 0);
       categories.forEach(cat => {
         const weight = (10 - cat.priority) / totalPriority;
@@ -87,7 +102,6 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     
     for (const category of categories) {
       const categoryStart = Date.now();
-      
       const displayName = category.isSubcategory 
         ? `🏠 ${category.name}` 
         : `📂 ${category.name}`;
@@ -106,19 +120,20 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
       
       while (savedInCategory < targetProducts && attempt < MAX_ATTEMPTS) {
         attempt++;
-        
         const remainingProducts = targetProducts - savedInCategory;
         
         console.log(`📌 Tentativa ${attempt}/${MAX_ATTEMPTS} | Faltam ${remainingProducts} produtos\n`);
-        
+
         // Coleta produtos da categoria/subcategoria específica
+        // 🆕 PASSANDO O AFFILIATE_ID DINÂMICO AQUI
         const products = await scrapingService.collectFromMarketplace('magalu', {
           minDiscount: MIN_DISCOUNT,
           limit: remainingProducts,
           mode: MODE,
-          categoryKey: category.key // 🆕 Passa a chave (ex: 'CASA_UTILIDADES')
+          categoryKey: category.key,
+          affiliateId: AFFILIATE_ID // ID injetado para uso no gerador de links
         });
-        
+
         if (!products || products.length === 0) {
           console.log(`⚠️  Nenhum produto encontrado nesta tentativa.\n`);
           break;
@@ -126,13 +141,12 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
         
         // Salva produtos
         const result = await scrapingService.saveProducts(products, 'MAGALU');
-        
         const savedThisRound = result.inserted + result.betterOffers;
         savedInCategory += savedThisRound;
         totalSaved += savedThisRound;
         
         console.log(`📊 Progresso: ${savedInCategory}/${targetProducts} produtos salvos`);
-        
+
         if (savedInCategory >= targetProducts) {
           console.log(`✅ Meta atingida!\n`);
           break;
@@ -151,7 +165,6 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
       }
       
       const categoryDuration = ((Date.now() - categoryStart) / 1000).toFixed(2);
-      
       resultsByCategory[category.name] = {
         target: targetProducts,
         saved: savedInCategory,
@@ -160,7 +173,7 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
         isSubcategory: category.isSubcategory || false,
         savedAs: category.categoryName || category.name
       };
-      
+
       console.log(`\n✅ "${category.name}" finalizada em ${categoryDuration}s`);
       console.log(`   ${savedInCategory}/${targetProducts} produtos salvos (${attempt} tentativas)\n`);
     }
@@ -170,7 +183,7 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     // ═══════════════════════════════════════════════════════════
     
     const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
-    
+
     console.log(`\n${'═'.repeat(60)}`);
     console.log(`🏁 PROCESSO FINALIZADO`);
     console.log(`${'═'.repeat(60)}`);
@@ -185,7 +198,7 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
       
       console.log(`${prefix}${name.padEnd(32)} ${stats.saved}/${stats.target} (${percentage}%) - ${stats.duration}s${suffix}`);
     });
-    
+
     if (totalSaved < TOTAL_PRODUCTS) {
       console.log(`\n⚠️  ATENÇÃO: Não foi possível atingir a meta de ${TOTAL_PRODUCTS} produtos.`);
       console.log(`   Foram salvos ${totalSaved} produtos novos.`);
@@ -198,7 +211,6 @@ const { getEnabledCategories } = require('../config/categorias-magalu');
     console.log(`${'═'.repeat(60)}\n`);
     
     process.exit(0);
-
   } catch (error) {
     console.error('\n❌ ERRO CRÍTICO:', error.message);
     console.error(error.stack);

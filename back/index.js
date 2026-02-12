@@ -29,9 +29,10 @@ app.use(express.json());
 let whatsappService = null;
 let sessionModel = null;
 let preferencesModel = null;
+let integrationModel = null; // Modelo para Magalu/Outros
 
 console.log('\n╔════════════════════════════════════════════════════╗');
-console.log('║     🚀 AFFILIATE HUB PRO - API SERVER 🚀         ║');
+console.log('║    🚀 AFFILIATE HUB PRO - API SERVER 🚀          ║');
 console.log('╚════════════════════════════════════════════════════╝\n');
 
 async function startServer() {
@@ -46,10 +47,14 @@ async function startServer() {
     console.log('✅ Modelo WhatsAppSession carregado');
     
     preferencesModel = getUserPreferencesModel(connection);
-    console.log('✅ Modelo UserPreferences carregado\n');
+    console.log('✅ Modelo UserPreferences carregado');
+
+    // Inicializa o modelo de Integrações (Magalu) com a conexão ativa
+    integrationModel = require('./models/Integration')(connection);
+    console.log('✅ Modelo Integration carregado\n');
 
     // ═══════════════════════════════════════════════════════════
-    // INICIALIZAR WHATSAPP SERVICE (COM PERSISTÊNCIA)
+    // INICIALIZAR WHATSAPP SERVICE
     // ═══════════════════════════════════════════════════════════
     const WhatsAppMultiSessionService = require('./services/WhatsAppMultiSessionService');
     whatsappService = new WhatsAppMultiSessionService(io, sessionModel);
@@ -60,20 +65,16 @@ async function startServer() {
     // ═══════════════════════════════════════════════════════════
     io.on('connection', (socket) => {
       console.log(`\n🔌 [SOCKET] Cliente conectado: ${socket.id}`);
-      console.log(`👥 [SOCKET] Total de clientes conectados: ${io.engine.clientsCount}`);
-
-      // Enviar lista de sessões ao conectar
+      
       socket.on('whatsapp:request-sessions', async () => {
         try {
           const sessions = await whatsappService.getAllSessions();
-          console.log(`📤 [SOCKET] Enviando ${sessions.length} sessões para ${socket.id}`);
           socket.emit('whatsapp:sessions-list', { sessions });
         } catch (error) {
-          console.error('❌ [SOCKET] Erro ao enviar lista de sessões:', error);
+          console.error('❌ [SOCKET] Erro ao enviar sessões:', error);
         }
       });
 
-      // Solicitar preferências
       socket.on('preferences:request', async (data) => {
         try {
           const userId = data?.userId || 'default';
@@ -86,107 +87,47 @@ async function startServer() {
 
       socket.on('disconnect', () => {
         console.log(`❌ [SOCKET] Cliente desconectado: ${socket.id}`);
-        console.log(`👥 [SOCKET] Clientes restantes: ${io.engine.clientsCount}`);
       });
     });
 
     // ═══════════════════════════════════════════════════════════
-    // HEALTH CHECK
-    // ═══════════════════════════════════════════════════════════
-    app.get('/api/health', async (req, res) => {
-      try {
-        const activeSessions = await whatsappService.getActiveSessions();
-        
-        res.json({ 
-          status: 'OK', 
-          message: 'Servidor rodando',
-          timestamp: new Date().toISOString(),
-          whatsapp: {
-            activeSessions: activeSessions.length,
-            totalSessions: whatsappService.sessions.size
-          },
-          socketConnections: io.engine.clientsCount,
-          database: 'Connected'
-        });
-      } catch (error) {
-        res.status(500).json({
-          status: 'ERROR',
-          error: error.message
-        });
-      }
-    });
-
-    // ═══════════════════════════════════════════════════════════
-    // DEBUG ENDPOINT
-    // ═══════════════════════════════════════════════════════════
-    app.get('/api/test-sessions', async (req, res) => {
-      try {
-        const fromMemory = Array.from(whatsappService.sessions.values()).map(s => s.getStatus());
-        const fromDatabase = await whatsappService.getAllSessions();
-        
-        res.json({
-          success: true,
-          memory: { count: fromMemory.length, sessions: fromMemory },
-          database: { count: fromDatabase.length, sessions: fromDatabase },
-          socketClients: io.engine.clientsCount
-        });
-      } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-      }
-    });
-
-    // ═══════════════════════════════════════════════════════════
-    // ROTAS
+    // ROTAS DA API
     // ═══════════════════════════════════════════════════════════
     console.log('📂 Carregando rotas...\n');
 
-    const productsRoutes = require('./routes/products.routes');
-    app.use('/api/products', productsRoutes);
-    console.log('✅ Rotas /api/products registradas');
+    // Rota de Health Check
+    app.get('/api/health', async (req, res) => {
+      const activeSessions = await whatsappService.getActiveSessions();
+      res.json({ status: 'OK', whatsapp: { active: activeSessions.length } });
+    });
 
-    const scrapingRoutes = require('./routes/scraping.routes');
-    app.use('/api/scraping', scrapingRoutes);
-    console.log('✅ Rotas /api/scraping registradas');
+    // Rotas de Produtos e Scraping
+    app.use('/api/products', require('./routes/products.routes'));
+    app.use('/api/scraping', require('./routes/scraping.routes'));
+    
+    // Rota de Divulgação (precisa do whatsappService)
+    app.use('/api/divulgacao', require('./routes/divulgacao.routes')(whatsappService));
+    
+    // Sessões e Preferências
+    app.use('/api/sessions', require('./routes/sessions.routes'));
+    app.use('/api/preferences', require('./routes/preferences.routes')(preferencesModel, io));
 
-    const divulgacaoRoutes = require('./routes/divulgacao.routes')(whatsappService);
-    app.use('/api/divulgacao', divulgacaoRoutes);
-    console.log('✅ Rotas /api/divulgacao registradas');
+    // 🆕 Nova Rota de Integrações (Injetando o modelo Magalu)
+    app.use('/api/integrations', require('./routes/integrations')(integrationModel));
 
-    const sessionsRoutes = require('./routes/sessions.routes');
-    app.use('/api/sessions', sessionsRoutes);
-    console.log('✅ Rotas /api/sessions registradas');
-
-    const preferencesRoutes = require('./routes/preferences.routes')(preferencesModel, io);
-    app.use('/api/preferences', preferencesRoutes);
-    console.log('✅ Rotas /api/preferences registradas\n');
+    console.log('✅ Todas as rotas registadas com sucesso');
 
     // ═══════════════════════════════════════════════════════════
-    // START SERVER
+    // INICIALIZAÇÃO DO SERVIDOR
     // ═══════════════════════════════════════════════════════════
     server.listen(PORT, () => {
       console.log('\n╔════════════════════════════════════════════════════╗');
-      console.log(`║  ✅ Servidor rodando na porta ${PORT}              ║`);
-      console.log('╚════════════════════════════════════════════════════╝\n');
-      console.log(`📡 API disponível em: http://localhost:${PORT}`);
-      console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
-      console.log(`📦 Produtos: http://localhost:${PORT}/api/products`);
-      console.log(`🔍 Scraping: http://localhost:${PORT}/api/scraping`);
-      console.log(`📱 Divulgação: http://localhost:${PORT}/api/divulgacao`);
-      console.log(`🔐 Sessões: http://localhost:${PORT}/api/sessions`);
-      console.log(`⚙️  Preferências: http://localhost:${PORT}/api/preferences`);
-      console.log(`🌐 CORS: Habilitado (porta 8080)`);
-      console.log(`⚡ Socket.IO: Ativo`);
-      console.log(`💾 MongoDB: Conectado\n`);
-      console.log('╔════════════════════════════════════════════════════╗');
-      console.log('║  🤖 WhatsApp Bot: Persistência Total Ativada      ║');
-      console.log('║  💡 Sessões nunca expiram até exclusão manual     ║');
-      console.log('║  🔄 Sincronização cross-device em tempo real      ║');
-      console.log('║  💾 Preferências salvas permanentemente           ║');
+      console.log(`║   ✅ Servidor a rodar na porta ${PORT}              ║`);
       console.log('╚════════════════════════════════════════════════════╝\n');
     });
 
   } catch (error) {
-    console.error('❌ Erro ao iniciar servidor:', error);
+    console.error('❌ Erro crítico ao iniciar servidor:', error);
     process.exit(1);
   }
 }
@@ -194,25 +135,19 @@ async function startServer() {
 startServer();
 
 // ═══════════════════════════════════════════════════════════
-// GRACEFUL SHUTDOWN
+// ENCERRAMENTO GRACIOSO (Graceful Shutdown)
 // ═══════════════════════════════════════════════════════════
 process.on('SIGINT', async () => {
-  console.log('\n\n🛑 Encerrando servidor graciosamente...');
-  
+  console.log('\n\n🛑 A encerrar servidor...');
   if (whatsappService) {
-    console.log('🔌 Desconectando sessões do WhatsApp (preservando dados)...');
-    
     for (const [sessionId, session] of whatsappService.sessions) {
       try {
-        // Apenas desconectar, NÃO deletar
         await session.softDisconnect();
-        console.log(`✅ ${sessionId} desconectado (dados preservados)`);
-      } catch (error) {
-        console.error(`❌ Erro ao desconectar ${sessionId}:`, error.message);
+        console.log(`✅ ${sessionId} desconectado.`);
+      } catch (e) {
+        console.error(`Erro ao desligar ${sessionId}`);
       }
     }
   }
-  
-  console.log('✅ Servidor encerrado com sucesso');
   process.exit(0);
 });

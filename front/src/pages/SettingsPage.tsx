@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { 
-  Settings, Plus, Trash2, CheckCircle, XCircle, Clock, Power
+  Settings, Plus, Trash2, CheckCircle, XCircle, Clock, Power, Store
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
@@ -36,11 +36,19 @@ const MARKETPLACE_COLORS = {
 export function SettingsPage() {
   const location = useLocation();
   const { toast } = useToast();
+  
+  // Mercado Livre State
   const [mlAccounts, setMlAccounts] = useState<Account[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [openDialog, setOpenDialog] = useState(false);
+  const [openMlDialog, setOpenMlDialog] = useState(false);
   const [accountName, setAccountName] = useState('');
   
+  // Magalu State
+  const [magaluId, setMagaluId] = useState('');
+  const [savedMagaluId, setSavedMagaluId] = useState(''); // Estado para mostrar o que está salvo
+  const [openMagaluDialog, setOpenMagaluDialog] = useState(false);
+  
+  const [loading, setLoading] = useState(false);
+
   // Refs para cada card de marketplace
   const mlCardRef = useRef<HTMLDivElement>(null);
   const amazonCardRef = useRef<HTMLDivElement>(null);
@@ -56,6 +64,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     loadMLAccounts();
+    loadMagaluConfig();
   }, []);
 
   // Efeito para highlight quando vier de outra página
@@ -67,16 +76,11 @@ export function SettingsPage() {
       
       setTimeout(() => {
         if (cardRef.current) {
-          // Scroll suave até o card
           cardRef.current.scrollIntoView({ 
             behavior: 'smooth', 
             block: 'center' 
           });
-          
-          // Adiciona classe de animação
           cardRef.current.classList.add('marketplace-highlight');
-          
-          // Remove a classe após a animação
           setTimeout(() => {
             cardRef.current?.classList.remove('marketplace-highlight');
           }, 4000);
@@ -85,12 +89,13 @@ export function SettingsPage() {
     }
   }, [location.state]);
 
+  // --- MERCADO LIVRE ACTIONS ---
   const loadMLAccounts = async () => {
     try {
       const { data } = await axios.get(`${API_URL}/sessions/ml`);
       setMlAccounts(data.accounts || []);
     } catch (error) {
-      console.error('Erro ao carregar contas:', error);
+      console.error('Erro ao carregar contas ML:', error);
     }
   };
 
@@ -103,15 +108,12 @@ export function SettingsPage() {
     setLoading(true);
     try {
       const { data } = await axios.post(`${API_URL}/sessions/ml/create`, { name: accountName });
-      
       toast({
         title: "Navegador aberto!",
         description: "Faça login no Mercado Livre. Quando fechar o navegador, a sessão será salva.",
       });
-
-      setOpenDialog(false);
+      setOpenMlDialog(false);
       setAccountName('');
-      
       setTimeout(() => loadMLAccounts(), 3000);
     } catch (error) {
       toast({ title: "Erro", description: "Falha ao criar conta", variant: "destructive" });
@@ -150,6 +152,57 @@ export function SettingsPage() {
     }
   };
 
+  // --- MAGALU ACTIONS ---
+  const loadMagaluConfig = async () => {
+    try {
+      const { data } = await axios.get(`${API_URL}/integrations/magalu`);
+      if (data && data.affiliateId) {
+        setSavedMagaluId(data.affiliateId);
+        setMagaluId(data.affiliateId);
+        
+        // 🔥 DISPARA EVENTO CUSTOMIZADO PARA ATUALIZAR HOOK
+        window.dispatchEvent(new CustomEvent('magalu-config-updated', { 
+          detail: { affiliateId: data.affiliateId } 
+        }));
+      }
+    } catch (error) {
+      console.log('Nenhuma configuração do Magalu encontrada ou erro na API');
+    }
+  };
+
+  const saveMagaluConfig = async () => {
+    if (!magaluId.trim()) {
+      toast({ title: "Erro", description: "Digite o ID do Parceiro Magalu", variant: "destructive" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await axios.post(`${API_URL}/integrations/magalu`, { 
+        provider: 'magalu',
+        affiliateId: magaluId 
+      });
+      
+      setSavedMagaluId(magaluId);
+      setOpenMagaluDialog(false);
+      
+      // 🔥 DISPARA EVENTO CUSTOMIZADO PARA ATUALIZAR HOOK
+      window.dispatchEvent(new CustomEvent('magalu-config-updated', { 
+        detail: { affiliateId: magaluId } 
+      }));
+      
+      toast({ 
+        title: "✅ Sucesso!", 
+        description: `ID "${magaluId}" salvo. Os próximos scrapings usarão este ID.`,
+        className: "bg-green-600 text-white border-none",
+      });
+    } catch (error) {
+      toast({ title: "Erro", description: "Falha ao salvar configuração", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const styles = {
       valid: { color: 'bg-green-500', text: 'Válida' },
@@ -182,7 +235,7 @@ export function SettingsPage() {
               <CardDescription>Gerencie suas contas de afiliado</CardDescription>
             </div>
             
-            <Dialog open={openDialog} onOpenChange={setOpenDialog}>
+            <Dialog open={openMlDialog} onOpenChange={setOpenMlDialog}>
               <DialogTrigger asChild>
                 <Button className="gap-2">
                   <Plus className="w-4 h-4" />
@@ -259,6 +312,83 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* MAGALU - AGORA HABILITADO */}
+      <Card ref={magaluCardRef} className="transition-all duration-300">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: MARKETPLACE_COLORS.magalu }}
+                />
+                Magazine Luiza
+              </CardTitle>
+              <CardDescription>Configure o ID do Parceiro Magalu</CardDescription>
+            </div>
+            
+            <Dialog open={openMagaluDialog} onOpenChange={setOpenMagaluDialog}>
+              <DialogTrigger asChild>
+                <Button className="gap-2" variant={savedMagaluId ? "outline" : "default"}>
+                  <Settings className="w-4 h-4" />
+                  {savedMagaluId ? "Alterar ID" : "Configurar ID"}
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Configuração Magazine Luiza</DialogTitle>
+                  <DialogDescription>
+                    Insira o ID da sua loja (ex: magazinepromoforia). Este ID será usado para gerar os links de afiliado.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <Label>ID do Parceiro / Loja</Label>
+                    <div className="relative">
+                      <Store className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        className="pl-9"
+                        placeholder="ex: magazinepromoforia"
+                        value={magaluId}
+                        onChange={(e) => setMagaluId(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && saveMagaluConfig()}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      O ID deve ser exatamente como aparece na URL da sua loja Magalu.
+                    </p>
+                  </div>
+                  <Button onClick={saveMagaluConfig} disabled={loading} className="w-full">
+                    {loading ? 'Salvando...' : 'Salvar Configuração'}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {savedMagaluId ? (
+            <div className="flex items-center justify-between p-4 border rounded-lg bg-blue-50/50 dark:bg-blue-950/20">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 dark:bg-blue-900/50 p-2 rounded-full">
+                  <Store className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">ID Ativo</p>
+                  <p className="font-bold text-lg">{savedMagaluId}</p>
+                </div>
+              </div>
+              <Badge className="bg-green-500 hover:bg-green-600 text-white">CONECTADO</Badge>
+            </div>
+          ) : (
+            <div className="text-center py-6 text-muted-foreground">
+              <p>Nenhum ID configurado.</p>
+              <p className="text-sm">Os links serão gerados usando o padrão do sistema ou falharão.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* AMAZON - EM BREVE */}
       <Card ref={amazonCardRef} className="opacity-50 transition-all duration-300">
         <CardHeader>
@@ -270,28 +400,6 @@ export function SettingsPage() {
                   style={{ backgroundColor: MARKETPLACE_COLORS.amazon }}
                 />
                 Amazon
-              </CardTitle>
-              <CardDescription>Em breve</CardDescription>
-            </div>
-            <Button disabled className="gap-2">
-              <Plus className="w-4 h-4" />
-              Conectar Conta
-            </Button>
-          </div>
-        </CardHeader>
-      </Card>
-
-      {/* MAGALU - EM BREVE */}
-      <Card ref={magaluCardRef} className="opacity-50 transition-all duration-300">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <div 
-                  className="w-3 h-3 rounded-full" 
-                  style={{ backgroundColor: MARKETPLACE_COLORS.magalu }}
-                />
-                Magazine Luiza
               </CardTitle>
               <CardDescription>Em breve</CardDescription>
             </div>
@@ -349,7 +457,8 @@ export function SettingsPage() {
         }
         
         :root {
-          --primary-rgb: 59, 130, 246; /* Azul primário padrão, ajuste conforme seu tema */
+          --primary-rgb: 59, 130, 246;
+          /* Azul primário padrão, ajuste conforme seu tema */
         }
       `}</style>
     </div>

@@ -27,10 +27,14 @@ export function useMarketplaceConnections() {
       const mlResponse = await axios.get(`${API_URL}/sessions/ml`);
       const hasActiveMl = mlResponse.data.accounts?.some((acc: any) => acc.isActive && acc.status === 'valid');
 
+      // 🔥 VERIFICA MAGALU - Busca o ID do Parceiro
+      const magaluResponse = await axios.get(`${API_URL}/integrations/magalu`).catch(() => ({ data: null }));
+      const hasMagalu = !!(magaluResponse.data && magaluResponse.data.affiliateId);
+
       setConnections({
         mercadolivre: hasActiveMl,
         amazon: false, // Em breve
-        magalu: false, // Em breve
+        magalu: hasMagalu, // 🔥 AGORA VERIFICA SE TEM ID CONFIGURADO
         shopee: false, // Em breve
       });
     } catch (error) {
@@ -48,9 +52,20 @@ export function useMarketplaceConnections() {
 
   useEffect(() => {
     checkConnections();
+    
+    // 🔥 ESCUTA EVENTO CUSTOMIZADO disparado quando salva config do Magalu
+    const handleMagaluUpdate = () => {
+      checkConnections();
+    };
+    window.addEventListener('magalu-config-updated', handleMagaluUpdate);
+
     // Revalidar a cada 30 segundos
     const interval = setInterval(checkConnections, 30000);
-    return () => clearInterval(interval);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('magalu-config-updated', handleMagaluUpdate);
+    };
   }, []);
 
   return {

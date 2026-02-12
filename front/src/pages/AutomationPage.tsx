@@ -171,7 +171,9 @@ export function AutomationPage() {
   }, [scrapingStatus.isRunning, scrapingStatus.progress, scrapingStatus.itemsCollected]);
 
   const handleMarketplaceToggle = (mp: Marketplace) => {
-    if (!connections[mp]) {
+    const isConnected = connections[mp];
+    
+    if (!isConnected) {
       toast({
         title: "⚠️ Marketplace não conectado",
         description: `Configure uma conta do ${getMarketplaceName(mp)} primeiro.`,
@@ -208,7 +210,9 @@ export function AutomationPage() {
   };
 
   const openFiltersModal = (mp: Marketplace) => {
-    if (!connections[mp]) {
+    const isConnected = connections[mp];
+    
+    if (!isConnected) {
       toast({
         title: "⚠️ Marketplace não conectado",
         description: `Configure uma conta do ${getMarketplaceName(mp)} primeiro.`,
@@ -253,38 +257,36 @@ export function AutomationPage() {
   };
 
   const handleStartScraping = async () => {
-    const enabledMarketplaces = Object.entries(config.marketplaces).filter(([_, cfg]) => cfg.enabled);
+    // 🔥 FILTRA APENAS MARKETPLACES HABILITADOS E CONECTADOS
+    const enabledAndConnectedMarketplaces = Object.entries(config.marketplaces)
+      .filter(([mp, cfg]) => cfg.enabled && connections[mp as Marketplace]);
     
-    if (enabledMarketplaces.length === 0) {
+    if (enabledAndConnectedMarketplaces.length === 0) {
       toast({
-        title: "Selecione pelo menos um marketplace",
-        description: "Você precisa selecionar ao menos um marketplace para iniciar a coleta.",
+        title: "⚠️ Nenhum marketplace disponível",
+        description: "Habilite e configure pelo menos um marketplace para iniciar a coleta.",
         variant: "destructive"
       });
       return;
     }
 
-    const disconnectedMarketplaces = enabledMarketplaces
-      .filter(([mp]) => !connections[mp as Marketplace])
-      .map(([mp]) => getMarketplaceName(mp as Marketplace));
-
-    if (disconnectedMarketplaces.length > 0) {
-      toast({
-        title: "⚠️ Marketplaces desconectados",
-        description: `Configure suas contas: ${disconnectedMarketplaces.join(', ')}`,
-        variant: "destructive",
-      });
-      return;
-    }
+    // 🔥 DESABILITA AUTOMATICAMENTE MARKETPLACES NÃO CONECTADOS
+    const marketplacesConfig = { ...config.marketplaces };
+    Object.keys(marketplacesConfig).forEach((mp) => {
+      const marketplace = mp as Marketplace;
+      if (marketplacesConfig[marketplace].enabled && !connections[marketplace]) {
+        marketplacesConfig[marketplace].enabled = false;
+      }
+    });
 
     toast({
       title: "🚀 Automação Iniciada",
-      description: "A coleta de produtos foi iniciada. Acompanhe o progresso em tempo real.",
+      description: `Coletando de ${enabledAndConnectedMarketplaces.length} marketplace(s).`,
       className: "bg-zinc-900 text-white border-primary",
     });
 
     const scrapingConfig: ScrapingConfig = {
-      marketplaces: config.marketplaces as any,
+      marketplaces: marketplacesConfig as any,
       minDiscount: 20,
       maxPrice: 20000,
     };
@@ -491,6 +493,33 @@ export function AutomationPage() {
                 )}
               </Button>
             </div>
+
+            {/* 🔥 ALERTA QUANDO HÁ MARKETPLACES HABILITADOS MAS NÃO CONECTADOS */}
+            {(() => {
+              const enabledButDisconnected = Object.entries(config.marketplaces)
+                .filter(([mp, cfg]) => cfg.enabled && !connections[mp as Marketplace])
+                .map(([mp]) => getMarketplaceName(mp as Marketplace));
+              
+              if (enabledButDisconnected.length > 0) {
+                return (
+                  <div className="flex items-start gap-3 p-4 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                    <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-orange-500 text-xs">⚠</span>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-orange-600 dark:text-orange-400">
+                        Marketplaces não configurados
+                      </p>
+                      <p className="text-xs text-orange-600/80 dark:text-orange-400/80 mt-1">
+                        {enabledButDisconnected.join(', ')} {enabledButDisconnected.length === 1 ? 'está habilitado mas não configurado' : 'estão habilitados mas não configurados'}. 
+                        {enabledButDisconnected.length === 1 ? ' Ele será' : ' Eles serão'} ignorado{enabledButDisconnected.length === 1 ? '' : 's'} automaticamente.
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </CardContent>
         </Card>
 
