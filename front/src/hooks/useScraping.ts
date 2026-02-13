@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { scrapingService } from '@/api/services/scraping.service';
 import type { ScrapingRequestPayload, ScrapingResponse, ApiError } from '@/types/api.types';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 
 interface UseScrapingReturn {
   startScraping: (payload: ScrapingRequestPayload) => Promise<ScrapingResponse | null>;

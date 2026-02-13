@@ -16,7 +16,7 @@ import type {
   ProductFromDB,
   ApiError,
 } from '@/types/api.types';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 
 interface UseProductsReturn {
   products: ProductFromDB[];
