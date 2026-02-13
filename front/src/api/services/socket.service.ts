@@ -1,4 +1,3 @@
-// front/src/api/services/socket.service.ts - VERSÃO PRODUÇÃO
 import { io, Socket } from 'socket.io-client';
 
 class SocketService {
@@ -12,10 +11,10 @@ class SocketService {
       return;
     }
 
-    // AJUSTE CRÍTICO: Removido o "/api" se existir na variável, pois o Socket.io conecta na raiz
-    let BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    // Pega a URL da variável de ambiente ou usa o padrão local
+    let BACKEND_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001';
     
-    // Se a URL vier com "/api" no final (comum em envs de REST), nós limpamos para o Socket
+    // Limpa o /api do final se existir, pois o Socket.io usa a raiz
     BACKEND_URL = BACKEND_URL.replace(/\/api$/, '');
     
     console.log('🔌 Conectando Socket.IO em:', BACKEND_URL);
@@ -26,8 +25,7 @@ class SocketService {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       timeout: 10000,
-      // Necessário para manter cookies/sessão se você habilitar no futuro
-      withCredentials: true 
+      withCredentials: true
     });
 
     this.socket.on('connect', () => {
