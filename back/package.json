@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "build": "npm install && npx playwright install --with-deps chromium"
+    "build": "npm install && npx playwright install chromium"
   },
   "keywords": [],
   "author": "",
