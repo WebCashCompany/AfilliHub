@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: afillihub-backend
+    runtime: docker
+    dockerfilePath: ./back/Dockerfile
+    dockerContext: ./back
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
