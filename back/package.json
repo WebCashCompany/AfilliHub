@@ -1,11 +1,12 @@
 {
   "name": "back",
   "version": "1.0.0",
-  "description": "",
+  "description": "Affiliate Hub Pro Backend",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "build": "npm install && npx playwright install --with-deps chromium"
   },
   "keywords": [],
   "author": "",
@@ -14,7 +15,6 @@
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "axios": "^1.13.2",
-    "axxios": "^0.1.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",

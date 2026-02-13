@@ -1,8 +1,6 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════
- * MERCADO LIVRE SCRAPER - COM SSE REAL-TIME & AFILIAÇÃO ATIVA 🚀
- * ═══════════════════════════════════════════════════════════════════════
- * * @version 2.5.3 - ✅ CORRIGIDO: Extração precisa de preços
+ * MERCADO LIVRE SCRAPER - INTEGRAL E PROFISSIONAL
+ * @version 2.5.3 - ✅ CORRIGIDO: Extração precisa de preços
  */
 
 const { chromium } = require('playwright');
@@ -20,7 +18,6 @@ class MercadoLivreScraper {
     this.categoriaKey = options.categoria || 'todas';
     this.searchTerm = options.searchTerm || null;
     
-    // 🔥 SSE Callback (não-bloqueante)
     this.onProductCollected = options.onProductCollected || null;
     
     this.stats = {
@@ -39,10 +36,7 @@ class MercadoLivreScraper {
     this.seenOriginalLinks = new Set();
     
     if (!this.searchTerm) {
-      this.categoriaInfo = getCategoria(this.categoriaKey);
-      if (!this.categoriaInfo) {
-        this.categoriaInfo = getCategoria('informatica');
-      }
+      this.categoriaInfo = getCategoria(this.categoriaKey) || getCategoria('informatica');
     } else {
       this.categoriaInfo = getCategoria('informatica');
     }
@@ -51,7 +45,6 @@ class MercadoLivreScraper {
       this.sessionManager = new MLSessionManager();
       const activeSessionPath = this.sessionManager.getActiveSessionPath();
       this.sessionPath = activeSessionPath || path.join(process.cwd(), 'ml-session.json');
-      console.log(activeSessionPath ? '✅ Usando sessão ativa do gerenciador' : '⚠️  Usando sessão padrão');
     } catch (error) {
       this.sessionPath = path.join(process.cwd(), 'ml-session.json');
     }
@@ -70,8 +63,6 @@ class MercadoLivreScraper {
   }
 
   async loadExistingProducts() {
-    console.log('🔍 Carregando produtos existentes...');
-    
     try {
       const conn = getProductConnection();
       const Product = getProductModel('ML', conn);
@@ -88,8 +79,6 @@ class MercadoLivreScraper {
         .limit(500)
         .sort({ createdAt: -1 });
       
-      console.log(`   📊 ${products.length} produtos no banco\n`);
-      
       this.existingProductsMap = new Map();
       for (const product of products) {
         if (product.link_afiliado) {
@@ -102,7 +91,6 @@ class MercadoLivreScraper {
           });
         }
       }
-      
     } catch (error) {
       this.existingProductsMap = new Map();
     }
@@ -129,6 +117,7 @@ class MercadoLivreScraper {
       try { await this.browser.close(); } catch (e) {}
     }
 
+    // ARGS AJUSTADOS PARA AMBIENTE LINUX/RENDER
     this.browser = await chromium.launch({
       headless: true,
       args: [
@@ -136,42 +125,25 @@ class MercadoLivreScraper {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-blink-features=AutomationControlled',
-        '--disable-features=IsolateOrigins,site-per-process'
+        '--disable-blink-features=AutomationControlled'
       ]
     });
 
     let contextOptions = {
-      viewport: { width: 1920, height: 1080 },
+      viewport: { width: 1280, height: 720 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-      extraHTTPHeaders: {
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-      }
     };
 
     const fs = require('fs');
     if (fs.existsSync(this.sessionPath)) {
       try {
         const sessionData = JSON.parse(fs.readFileSync(this.sessionPath, 'utf-8'));
-        if (sessionData.cookies) {
-          contextOptions.storageState = sessionData;
-          console.log('   ✅ Sessão carregada (cookies restaurados)\n');
-        }
-      } catch (error) {
-        console.log('   ⚠️  Erro ao carregar sessão\n');
-      }
+        if (sessionData.cookies) contextOptions.storageState = sessionData;
+      } catch (error) {}
     }
 
     this.context = await this.browser.newContext(contextOptions);
-    
-    await this.context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-      window.chrome = { runtime: {} };
-    });
-    
     await this.context.grantPermissions(['clipboard-read', 'clipboard-write']);
-
     return { browser: this.browser, context: this.context };
   }
 
@@ -179,7 +151,7 @@ class MercadoLivreScraper {
     const page = await this.context.newPage();
     try {
       const initialDelay = this.isFirstProduct ? 1500 : 400;
-      await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 8000 });
+      await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
       await page.waitForTimeout(initialDelay);
       
       this.isFirstProduct = false;
@@ -210,10 +182,10 @@ class MercadoLivreScraper {
         await page.keyboard.press('Enter');
         
         let copiedLink = '';
-        const maxAttempts = isRetry ? 8 : 12;
+        const maxAttempts = isRetry ? 10 : 15;
         
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          await page.waitForTimeout(200);
+          await page.waitForTimeout(300);
           try {
             copiedLink = await page.evaluate(() => navigator.clipboard.readText());
             if (copiedLink && copiedLink.trim().length > 20 && (copiedLink.includes('/sec/') || copiedLink.includes('mercadolivre.com'))) {
@@ -229,7 +201,6 @@ class MercadoLivreScraper {
       let copiedLink = await tryGetLink(false);
 
       if (!copiedLink || !copiedLink.includes('/sec/')) {
-        console.log(`      🔄 Retry Affiliate Link...`);
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 8000 });
         await page.waitForTimeout(800);
         copiedLink = await tryGetLink(true);
@@ -253,7 +224,6 @@ class MercadoLivreScraper {
       let couponText = '';
       let realDiscount = prodData.discount;
 
-      // Lógica de Cupom
       if (prodData.coupon && prodData.currentPrice >= prodData.coupon.minValue) {
         if (prodData.coupon.type === 'percent') {
           finalPrice = prodData.currentPrice - Math.round(prodData.currentPrice * (prodData.coupon.discount / 100));
@@ -277,21 +247,13 @@ class MercadoLivreScraper {
       }
 
       this.seenLinks.add(prodData.link);
-      const currentProgress = allProducts.length + 1;
-      console.log(`   🔄 [${currentProgress}/${this.limit}] ${prodData.name.substring(0, 40)}...`);
       
       const affiliateLink = await this.getAffiliateLink(prodData.link);
       const isAffiliate = affiliateLink.includes('/sec/');
 
-      if (isAffiliate) {
-        console.log(`      ✅ Afiliado`);
-        this.stats.affiliateLinksSuccess++;
-      } else {
-        console.log(`      ⚠️  Original (Falha no link de afiliado)`);
-        this.stats.affiliateLinksFailed++;
-      }
+      if (isAffiliate) this.stats.affiliateLinksSuccess++;
+      else this.stats.affiliateLinksFailed++;
 
-      // IMPORTANTE: Normalização da categoria para bater com o ENUM do Model
       let categoriaFinal = this.searchTerm ? 'Informática' : this.categoriaInfo.nome;
       if (categoriaFinal === 'esportes') categoriaFinal = 'Esportes e Fitness';
 
@@ -320,7 +282,6 @@ class MercadoLivreScraper {
       this.stats.productsCollected++;
       allProducts.push(product);
 
-      // 🔥 SSE NÃO-BLOQUEANTE
       if (this.onProductCollected) {
         setImmediate(() => {
           try {
@@ -332,36 +293,28 @@ class MercadoLivreScraper {
   }
 
   async scrapeCategory() {
-    const startTime = Date.now();
     await this.loadExistingProducts();
     const { browser, context } = await this.createBrowserContext();
-   
+    
     let allProducts = [];
     let pageNum = 1;
     let currentOffset = 0;
 
     try {
-      console.log(`╔════════════════════════════════════════════════════╗`);
-      console.log(`║  🚀 MERCADO LIVRE - MODO AFILIADO ATIVO            ║`);
-      console.log(`║  🎯 META: ${this.limit} produtos (${this.minDiscount}%+)           ║`);
-      console.log(`╚════════════════════════════════════════════════════╝\n`);
-
       while (allProducts.length < this.limit && pageNum <= 15) {
         const baseUrl = this.getSearchUrl();
         const url = pageNum === 1 ? baseUrl : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}_Desde_${currentOffset + 1}`;
-        console.log(`📄 Página ${pageNum} [${allProducts.length}/${this.limit}]`);
-       
+        
         const mainPage = await context.newPage();
-        await mainPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await mainPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
         await mainPage.waitForTimeout(1000);
 
-        // Scroll para carregar imagens
         await mainPage.evaluate(async () => {
           window.scrollTo(0, document.body.scrollHeight);
           await new Promise(r => setTimeout(r, 500));
         });
 
-        const pageData = await mainPage.evaluate(({ minDiscount, maxPrice }) => {
+        const pageData = await mainPage.evaluate(({ minDiscount }) => {
           const cards = document.querySelectorAll('.poly-card, .ui-search-result');
           const products = [];
           cards.forEach(card => {
@@ -375,38 +328,28 @@ class MercadoLivreScraper {
               const discount = parseInt(discountEl?.innerText.replace(/\D/g, '') || '0');
 
               if (discount >= minDiscount) {
-                // 🎯 PREÇO ATUAL - buscar especificamente dentro de .poly-price__current
                 let currentPrice = 0;
                 const currentPriceContainer = card.querySelector('.poly-price__current');
-                
                 if (currentPriceContainer) {
                   const currentFractions = Array.from(currentPriceContainer.querySelectorAll('.andes-money-amount__fraction'));
                   if (currentFractions.length > 0) {
-                    // Pega só os reais (primeiro fraction dentro do container de preço atual)
                     currentPrice = parseInt(currentFractions[0].innerText.replace(/\./g, '').replace(/\D/g, ''));
                   }
                 }
                 
-                // Fallback: se não achou, tenta o seletor mais genérico
                 if (!currentPrice) {
                   const fractions = Array.from(card.querySelectorAll('.andes-money-amount__fraction'));
-                  if (fractions.length >= 1) {
-                    currentPrice = parseInt(fractions[fractions.length - 1].innerText.replace(/\./g, ''));
-                  }
+                  if (fractions.length >= 1) currentPrice = parseInt(fractions[fractions.length - 1].innerText.replace(/\./g, ''));
                 }
 
-                // 🎯 PREÇO ANTIGO - buscar no elemento riscado (.andes-money-amount--previous)
                 let oldPrice = 0;
                 const oldPriceEl = card.querySelector('.andes-money-amount--previous .andes-money-amount__fraction');
-                
                 if (oldPriceEl) {
                   oldPrice = parseInt(oldPriceEl.innerText.replace(/\./g, '').replace(/\D/g, ''));
                 } else if (currentPrice) {
-                  // Se não achar o preço antigo, calcula baseado no desconto
                   oldPrice = Math.round(currentPrice / (1 - discount/100));
                 }
                 
-                // ✅ Só adiciona se tiver preços válidos
                 if (currentPrice > 0 && oldPrice > currentPrice) {
                   products.push({ link, name, image: img, discount, currentPrice, oldPrice });
                 }
@@ -414,7 +357,7 @@ class MercadoLivreScraper {
             } catch (e) {}
           });
           return { products };
-        }, { minDiscount: this.minDiscount, maxPrice: this.maxPrice });
+        }, { minDiscount: this.minDiscount });
 
         await mainPage.close();
         
@@ -428,12 +371,9 @@ class MercadoLivreScraper {
       }
 
       await browser.close();
-      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`\n🏁 FINALIZADO EM ${duration}s | Sucesso: ${this.stats.affiliateLinksSuccess}`);
       return allProducts;
 
     } catch (error) {
-      console.error('❌ Erro crítico:', error.message);
       if (this.browser) await this.browser.close();
       return allProducts;
     }
