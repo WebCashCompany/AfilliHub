@@ -24,7 +24,9 @@ async function main() {
   } catch (error) {
     console.error('\n❌ ERRO NO TESTE:', error);
     process.exit(1);
-  }
+  } 
 }
-
-main();
+ 
+main();  
+ 
+  
