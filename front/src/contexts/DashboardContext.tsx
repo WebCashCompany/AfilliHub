@@ -23,7 +23,7 @@ import {
 import { parsePriceToCents, getDiscount } from '@/lib/priceUtils';
 import { scrapingService } from '@/api/services/scraping.service';
 import type { ScrapingRequestPayload } from '@/types/api.types';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 

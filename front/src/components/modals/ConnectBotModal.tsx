@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Loader2, MessageCircle, Send, CheckCircle, X } from 'lucide-react';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import QRCode from 'react-qr-code';

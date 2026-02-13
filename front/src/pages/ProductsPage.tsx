@@ -63,7 +63,7 @@ import {
   Link2,
   ShoppingCart
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import { formatNumber, Marketplace, ProductStatus } from '@/lib/mockData';
 import { productsService } from '@/api/services/products.service';
 import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib/priceUtils';

@@ -9,7 +9,7 @@ import {
   Target, TrendingUp, TrendingDown, Edit2, Save, Plus,
   DollarSign, MousePointer, ShoppingCart, Calendar
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import { formatCurrency, formatNumber } from '@/lib/mockData';
 
 interface Goal {

@@ -13,7 +13,7 @@ import {
   FileText, Download, Calendar, Clock, Mail, FileSpreadsheet,
   FileText as FilePdf, Table, Send, CheckCircle
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import { formatCurrency, formatNumber } from '@/lib/mockData';
 
 export function ReportsPage() {

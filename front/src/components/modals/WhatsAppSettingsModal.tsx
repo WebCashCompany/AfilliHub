@@ -1,7 +1,7 @@
 // src/components/modals/WhatsAppSettingsModal.tsx - CORRIGIDO: LIXEIRA = EXCLUIR / RADIO = CONECTAR/DESCONECTAR
 import { useState, useEffect } from 'react';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

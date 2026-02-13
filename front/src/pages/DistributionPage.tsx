@@ -25,7 +25,7 @@ import {
   Send, MessageCircle, Search, CheckCircle, Eye, Copy,
   Smartphone, Zap, Bot, Settings, Loader2
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import { Product } from '@/lib/mockData';
 import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';

@@ -15,7 +15,7 @@ import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { 
   Trash2, RotateCcw, AlertTriangle, Package, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import { formatCurrency, formatNumber } from '@/lib/mockData';
 
 export function TrashPage() {

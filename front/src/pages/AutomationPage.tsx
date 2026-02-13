@@ -12,9 +12,9 @@ import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { ScrapingLiveProducts } from '@/components/dashboard/ScrapingLiveProducts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Zap, Play, Settings2, Loader2, CheckCircle, Package, Filter, Search, X, RotateCcw, Lock, ArrowRight, Clock } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
-import { useMarketplaceConnections } from '@/hooks/useMarketplaceConnections';
+import { useMarketplaceConnections } from '@/hooks/useMarketplaceConnections.ts';
 
 interface MarketplaceFilters {
   categoria?: string;

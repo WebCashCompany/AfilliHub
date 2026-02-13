@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { 
   Settings, Plus, Trash2, CheckCircle, XCircle, Clock, Power, Store
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 import axios from 'axios';
 
 const API_URL = 'http://localhost:3001/api';

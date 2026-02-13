@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, Users, Search, X } from 'lucide-react';
 import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/useToast';
 
 interface SelectGroupsModalProps {
   open: boolean;
