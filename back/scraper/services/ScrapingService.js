@@ -1,13 +1,14 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * SCRAPING SERVICE - COM SSE REAL-TIME
+ * SCRAPING SERVICE - COM SSE REAL-TIME & AFFILIATE ID DINÂMICO
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.6.0 - ✅ REAL-TIME: Callback SSE durante scraping
+ * @version 2.7.0 - ✅ MAGALU: Affiliate ID do banco de dados
  */
 
 const { getProductConnection } = require('../../database/mongodb');
 const { getProductModel } = require('../../database/models/Products');
+const IntegrationModel = require('../../models/Integration');
 const MercadoLivreScraper = require('../scrapers/MercadoLivreScraper');
 const { getCategoria } = require('../../config/categorias-ml');
 
@@ -93,6 +94,30 @@ class ScrapingService {
     }
   }
 
+  /**
+   * 🔥 NOVO: Busca o affiliateId do Magalu no banco de dados
+   */
+  async getMagaluAffiliateId() {
+    try {
+      const conn = getProductConnection();
+      const Integration = IntegrationModel(conn);
+      
+      const config = await Integration.findOne({ provider: 'magalu' });
+      
+      if (config && config.affiliateId) {
+        console.log(`🏪 Magalu Affiliate ID (DB): ${config.affiliateId}`);
+        return config.affiliateId;
+      }
+      
+      console.log('⚠️  Nenhum Affiliate ID do Magalu no banco, usando padrão');
+      return null;
+      
+    } catch (error) {
+      console.error('❌ Erro ao buscar Affiliate ID do Magalu:', error.message);
+      return null;
+    }
+  }
+
   async collectFromMarketplace(marketplaceName, options = {}) {
     const { 
       minDiscount = 30, 
@@ -101,7 +126,7 @@ class ScrapingService {
       categoryKey = null,
       maxPrice = null,
       searchTerm = null,
-      onProductCollected = null  // 🔥 NOVO: Callback SSE
+      onProductCollected = null
     } = options;
 
     const marketplace = this.marketplaces.get(marketplaceName) || 
@@ -130,10 +155,18 @@ class ScrapingService {
     let scraper;
     
     if (marketplace.code === 'MAGALU') {
+      // 🔥 BUSCAR AFFILIATE ID DO BANCO
+      const affiliateId = await this.getMagaluAffiliateId();
+      
+      const scraperOptions = { 
+        categoryKey,
+        affiliateId // 🔥 PASSA O ID DO BANCO PARA O SCRAPER
+      };
+      
       if (categoryKey) {
-        scraper = new MagaluScraper(minDiscount, { categoryKey });
+        scraper = new MagaluScraper(minDiscount, scraperOptions);
       } else {
-        scraper = new MagaluScraper(minDiscount);
+        scraper = new MagaluScraper(minDiscount, scraperOptions);
       }
       
       scraper.limit = limit;
@@ -145,7 +178,6 @@ class ScrapingService {
       scraper.limit = limit;
       scraper.maxPrice = maxPrice;
       
-      // 🔥 NOVO: Passar callback SSE para o scraper
       if (onProductCollected) {
         scraper.onProductCollected = onProductCollected;
       }
@@ -198,11 +230,10 @@ class ScrapingService {
           }
         } 
         else if (marketplace.code === 'MAGALU') {
-          const affiliateId = process.env.MAGALU_AFFILIATE_ID || 'magazinepromoforia';
-          
-          if (!product.link_afiliado || !product.link_afiliado.includes(affiliateId)) {
-            const separator = product.link_original.includes('?') ? '&' : '?';
-            product.link_afiliado = `${product.link_original}${separator}utm_source=webcash&utm_medium=affiliate`;
+          // 🔥 USAR O AFFILIATE ID QUE JÁ FOI APLICADO PELO SCRAPER
+          // O scraper já inseriu o affiliateId correto na URL
+          if (!product.link_afiliado) {
+            product.link_afiliado = product.link_original;
           }
           
         } else if (marketplace.code === 'shopee') {

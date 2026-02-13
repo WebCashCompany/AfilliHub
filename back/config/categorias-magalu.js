@@ -263,35 +263,3 @@ module.exports = {
   isValidCategory,
   getCategoryStats
 };
-
-// ═══════════════════════════════════════════════════════════
-// EXEMPLO DE USO:
-// ═══════════════════════════════════════════════════════════
-
-/*
-const { 
-  getCategoryUrl, 
-  getCategoryName,
-  getEnabledCategories,
-  getSubcategories
-} = require('./categorias-magalu');
-
-// Obter URL de uma subcategoria
-const url = getCategoryUrl('CASA_UTILIDADES', 'magazinepromoforia', 1);
-console.log(url);
-// → "https://www.magazinevoce.com.br/magazinepromoforia/utilidades-domesticas/l/ud/"
-
-// Obter nome da categoria principal (para salvar no banco)
-const categoryName = getCategoryName('CASA_UTILIDADES');
-console.log(categoryName);
-// → "Casa"
-
-// Listar todas as subcategorias de CASA
-const casaSubs = getSubcategories('CASA');
-console.log(casaSubs);
-// → [{ key: 'CASA_UTILIDADES', ... }, { key: 'CASA_CONSTRUCAO', ... }, ...]
-
-// Listar todas as categorias habilitadas (inclui subcategorias)
-const all = getEnabledCategories();
-console.log(all.length); // → 10 (incluindo as 3 subcategorias de CASA)
-*/
