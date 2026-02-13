@@ -45,7 +45,7 @@ export function SettingsPage() {
   
   // Magalu State
   const [magaluId, setMagaluId] = useState('');
-  const [savedMagaluId, setSavedMagaluId] = useState(''); // Estado para mostrar o que está salvo
+  const [savedMagaluId, setSavedMagaluId] = useState('');
   const [openMagaluDialog, setOpenMagaluDialog] = useState(false);
   
   const [loading, setLoading] = useState(false);
@@ -161,13 +161,12 @@ export function SettingsPage() {
         setSavedMagaluId(data.affiliateId);
         setMagaluId(data.affiliateId);
         
-        // 🔥 DISPARA EVENTO CUSTOMIZADO PARA ATUALIZAR HOOK
         window.dispatchEvent(new CustomEvent('magalu-config-updated', { 
           detail: { affiliateId: data.affiliateId } 
         }));
       }
     } catch (error) {
-      console.log('Nenhuma configuração do Magalu encontrada ou erro na API');
+      console.log('Nenhuma configuração do Magalu encontrada');
     }
   };
 
@@ -187,14 +186,13 @@ export function SettingsPage() {
       setSavedMagaluId(magaluId);
       setOpenMagaluDialog(false);
       
-      // 🔥 DISPARA EVENTO CUSTOMIZADO PARA ATUALIZAR HOOK
       window.dispatchEvent(new CustomEvent('magalu-config-updated', { 
         detail: { affiliateId: magaluId } 
       }));
       
       toast({ 
-        title: "✅ Sucesso!", 
-        description: `ID "${magaluId}" salvo. Os próximos scrapings usarão este ID.`,
+        title: "✅ Configuração salva!", 
+        description: `ID "${magaluId}" será usado nos próximos scrapings.`,
         className: "bg-green-600 text-white border-none",
       });
     } catch (error) {
@@ -313,7 +311,7 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* MAGALU - AGORA HABILITADO */}
+      {/* MAGALU */}
       <Card ref={magaluCardRef} className="transition-all duration-300">
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -382,9 +380,10 @@ export function SettingsPage() {
               <Badge className="bg-green-500 hover:bg-green-600 text-white">CONECTADO</Badge>
             </div>
           ) : (
-            <div className="text-center py-6 text-muted-foreground">
-              <p>Nenhum ID configurado.</p>
-              <p className="text-sm">Os links serão gerados usando o padrão do sistema ou falharão.</p>
+            <div className="text-center py-8 text-muted-foreground">
+              <Settings className="w-12 h-12 mx-auto mb-2 opacity-20" />
+              <p>Nenhum ID configurado</p>
+              <p className="text-sm">Clique em "Configurar ID" para adicionar</p>
             </div>
           )}
         </CardContent>
@@ -434,7 +433,6 @@ export function SettingsPage() {
         </CardHeader>
       </Card>
 
-      {/* CSS para animação de highlight */}
       <style>{`
         @keyframes marketplace-pulse {
           0%, 100% {
@@ -459,7 +457,6 @@ export function SettingsPage() {
         
         :root {
           --primary-rgb: 59, 130, 246;
-          /* Azul primário padrão, ajuste conforme seu tema */
         }
       `}</style>
     </div>
