@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { ENV } from '@/config/environment';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = `${ENV.API_BASE_URL}/api`;
 
 export type Marketplace = 'mercadolivre' | 'amazon' | 'magalu' | 'shopee';
 

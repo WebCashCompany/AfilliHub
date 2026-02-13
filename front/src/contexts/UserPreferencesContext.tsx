@@ -1,8 +1,9 @@
 // src/contexts/UserPreferencesContext.tsx
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { socketService } from '@/api/services/socket.service';
+import { ENV } from '@/config/environment';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+const API_BASE_URL = ENV.API_BASE_URL;
 
 export interface UserPreferences {
   userId: string;
@@ -100,7 +101,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
   const loadPreferences = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/preferences?userId=default`);
+      const response = await fetch(`${API_BASE_URL}/api/preferences?userId=default`);
       const data = await response.json();
       
       if (data.success && data.preferences) {
@@ -192,7 +193,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('user_preferences', JSON.stringify(newPreferences));
 
     try {
-      const response = await fetch(`${API_BASE}/api/preferences`, {
+      const response = await fetch(`${API_BASE_URL}/api/preferences`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -257,7 +258,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
   const resetPreferences = useCallback(async () => {
     setIsSyncing(true);
     try {
-      const response = await fetch(`${API_BASE}/api/preferences?userId=default`, {
+      const response = await fetch(`${API_BASE_URL}/api/preferences?userId=default`, {
         method: 'DELETE'
       });
 

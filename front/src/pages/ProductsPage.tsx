@@ -70,7 +70,8 @@ import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib
 
 type CleanupType = 'all' | 'marketplace' | 'old' | 'selected';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+import { ENV } from '@/config/environment';
+const API_BASE_URL = ENV.API_BASE_URL;
 
 export function ProductsPage() {
   const { products, deleteProducts, refreshProducts, isLoading } = useDashboard();

@@ -1,7 +1,8 @@
 // src/api/services/whatsapp.service.ts
 import { io, Socket } from 'socket.io-client';
+import { ENV } from '@/config/environment';
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = ENV.API_BASE_URL;
 
 export interface WhatsAppSession {
   sessionId: string;

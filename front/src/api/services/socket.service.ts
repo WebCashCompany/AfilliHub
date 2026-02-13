@@ -1,5 +1,6 @@
 // front/src/api/services/socket.service.ts - VERSÃO INTEGRAL CORRIGIDA
 import { io, Socket } from 'socket.io-client';
+import { ENV } from '@/config/environment';
 
 class SocketService {
   private socket: Socket | null = null;
@@ -12,11 +13,8 @@ class SocketService {
       return;
     }
 
-    // Tipagem explícita para evitar erro de build no TypeScript
-    const RAW_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001';
-    
     // Garante que o Socket conecte na raiz, removendo o sufixo /api se houver
-    const BACKEND_URL = RAW_URL.replace(/\/api$/, '');
+    const BACKEND_URL = ENV.API_BASE_URL.replace(/\/api$/, '');
     
     console.log('🔌 Conectando Socket.IO em:', BACKEND_URL);
     

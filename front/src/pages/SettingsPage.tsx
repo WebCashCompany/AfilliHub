@@ -12,7 +12,8 @@ import {
 import { useToast } from '@/hooks/useToast';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3001/api';
+import { ENV } from '@/config/environment';
+const API_URL = `${ENV.API_BASE_URL}/api`;
 
 type Marketplace = 'mercadolivre' | 'amazon' | 'magalu' | 'shopee';
 
