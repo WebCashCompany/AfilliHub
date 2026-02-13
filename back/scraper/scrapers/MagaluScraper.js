@@ -2,8 +2,8 @@
  * ═══════════════════════════════════════════════════════════════════════
  * MAGALU SCRAPER - VERSÃO FINAL CORRIGIDA (HYBRID STRUCTURE SUPPORT)
  * ═══════════════════════════════════════════════════════════════════════
- * @version 3.2.1 - PRODUCTION READY - AFFILIATE ID DINÂMICO
- * @fixes Suporte a affiliateId dinâmico via options ou banco de dados
+ * @version 3.2.2 - PRODUCTION READY - RENDER COMPATIBLE
+ * @fixes Argumentos robustos para Chromium funcionar no Render
  */
 
 const { chromium } = require('playwright');
@@ -180,17 +180,32 @@ class MagaluScraper {
     
     await this.loadExistingProducts();
 
+    console.log('🌐 Tentando lançar browser...');
+    
     const browser = await chromium.launch({ 
       headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
         '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--no-zygote',
+        '--disable-blink-features=AutomationControlled',
         '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
-      ]
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-software-rasterizer',
+        '--disable-dev-tools',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
+      ],
+      timeout: 60000
     });
+    
+    console.log('✅ Browser lançado com sucesso!');
     
     const context = await browser.newContext({
       viewport: { width: 1920, height: 1080 },
@@ -209,7 +224,7 @@ class MagaluScraper {
     try {
       console.log(`╔════════════════════════════════════════════════════╗`);
       console.log(`║   📂 ${this.categoryName.padEnd(48)} ║`);
-      console.log(`║   💾 Salva como: "${this.categoryNameForDB}"${' '.repeat(48 - 16 - this.categoryNameForDB.length)} ║`);
+      console.log(`║   💾 Salva como: "${this.categoryNameForDB}"${' '.repeat(Math.max(0, 48 - 16 - this.categoryNameForDB.length))} ║`);
       console.log(`║   🎯 META: ${this.limit} produtos (${this.minDiscount}%+)${' '.repeat(19)} ║`);
       console.log(`╚════════════════════════════════════════════════════╝\n`);
 
