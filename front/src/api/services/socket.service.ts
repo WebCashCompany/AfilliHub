@@ -1,3 +1,4 @@
+// front/src/api/services/socket.service.ts - VERSÃO INTEGRAL CORRIGIDA
 import { io, Socket } from 'socket.io-client';
 
 class SocketService {
@@ -11,11 +12,11 @@ class SocketService {
       return;
     }
 
-    // Pega a URL da variável de ambiente ou usa o padrão local
-    let BACKEND_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001';
+    // Tipagem explícita para evitar erro de build no TypeScript
+    const RAW_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001';
     
-    // Limpa o /api do final se existir, pois o Socket.io usa a raiz
-    BACKEND_URL = BACKEND_URL.replace(/\/api$/, '');
+    // Garante que o Socket conecte na raiz, removendo o sufixo /api se houver
+    const BACKEND_URL = RAW_URL.replace(/\/api$/, '');
     
     console.log('🔌 Conectando Socket.IO em:', BACKEND_URL);
     
