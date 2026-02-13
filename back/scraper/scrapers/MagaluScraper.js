@@ -259,19 +259,36 @@ class MagaluScraperAPI {
           // Estrutura da resposta pode variar
           let productsData = [];
           
-          if (response.data.products) {
+          // Debug: mostra o que veio
+          console.log(`   📦 Tipo de resposta: ${typeof response.data}`);
+          console.log(`   📦 É array?: ${Array.isArray(response.data)}`);
+          
+          if (Array.isArray(response.data)) {
+            productsData = response.data;
+            console.log(`   ✅ API retornou ARRAY com ${productsData.length} items`);
+            
+            // Mostra estrutura do primeiro item
+            if (productsData.length > 0) {
+              console.log(`   📋 Primeiro item:`, JSON.stringify(productsData[0]).substring(0, 300));
+            }
+          } else if (response.data.products) {
             productsData = response.data.products;
+            console.log(`   ✅ API retornou: ${productsData.length} produtos (via .products)`);
           } else if (response.data.data && response.data.data.products) {
             productsData = response.data.data.products;
-          } else if (Array.isArray(response.data)) {
-            productsData = response.data;
+            console.log(`   ✅ API retornou: ${productsData.length} produtos (via .data.products)`);
           } else {
-            console.log('⚠️  Estrutura de resposta desconhecida');
-            console.log('   Estrutura recebida:', Object.keys(response.data));
+            console.log('❌ Estrutura de resposta desconhecida');
+            console.log('   Tipo:', typeof response.data);
+            console.log('   Keys:', Object.keys(response.data).slice(0, 20));
+            console.log('   Sample:', JSON.stringify(response.data).substring(0, 500));
             break;
           }
 
-          console.log(`   ✅ API retornou: ${productsData.length} produtos`);
+          if (productsData.length === 0) {
+            console.log('⚠️  Array vazio');
+            break;
+          }
 
           if (productsData.length === 0) {
             emptyPagesCount++;
@@ -289,18 +306,56 @@ class MagaluScraperAPI {
             if (allProducts.length >= this.limit) break;
 
             try {
-              // Extrai dados do JSON
-              const productName = item.title || item.name || item.productTitle || '';
-              if (!productName || productName.length < 3) continue;
+              // 🆕 Valida se o item é um objeto válido
+              if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                console.log(`   ⚠️ Item inválido (tipo: ${typeof item}), pulando...`);
+                continue;
+              }
 
-              const productId = item.id || item.productId || item.code || '';
-              if (!productId) continue;
+              // 🆕 DEBUG: Mostra estrutura do primeiro produto
+              if (allProducts.length === 0) {
+                console.log('\n🔍 DEBUG - Estrutura do primeiro produto:');
+                console.log('   Keys:', Object.keys(item));
+                console.log('   Sample:', JSON.stringify(item).substring(0, 500));
+                console.log('');
+              }
 
-              // Preços
-              const currentPrice = item.price?.current || item.priceFrom || item.bestPrice || 0;
-              const oldPrice = item.price?.from || item.priceFrom || item.originalPrice || currentPrice;
+              // Extrai dados do JSON com múltiplas tentativas
+              const productName = item.title || item.name || item.productTitle || item.productName || item.titulo || '';
+              if (!productName || productName.length < 3) {
+                console.log(`   ⚠️ Produto sem nome válido, pulando...`);
+                continue;
+              }
 
-              if (!currentPrice || currentPrice === 0) continue;
+              const productId = item.id || item.productId || item.code || item.sku || '';
+              if (!productId) {
+                console.log(`   ⚠️ "${productName.substring(0, 30)}" sem ID, pulando...`);
+                continue;
+              }
+
+              // Preços - múltiplas tentativas
+              let currentPrice = 0;
+              let oldPrice = 0;
+
+              // Tentativa 1: price object
+              if (item.price) {
+                currentPrice = item.price.current || item.price.value || item.price.sale || 0;
+                oldPrice = item.price.from || item.price.original || item.price.list || currentPrice;
+              }
+              
+              // Tentativa 2: campos diretos
+              if (!currentPrice) {
+                currentPrice = item.priceFrom || item.bestPrice || item.salePrice || item.currentPrice || 0;
+              }
+              
+              if (!oldPrice) {
+                oldPrice = item.priceFrom || item.originalPrice || item.listPrice || item.oldPrice || currentPrice;
+              }
+
+              if (!currentPrice || currentPrice === 0) {
+                console.log(`   ⚠️ "${productName.substring(0, 30)}" sem preço, pulando...`);
+                continue;
+              }
 
               const currentPriceCents = this.extractPriceInCents(currentPrice);
               const oldPriceCents = this.extractPriceInCents(oldPrice);
@@ -312,17 +367,21 @@ class MagaluScraperAPI {
                 continue;
               }
 
-              // Imagem
-              const imageUrl = item.image || item.imageUrl || item.images?.[0] || '';
+              // Imagem - múltiplas tentativas
+              const imageUrl = item.image || item.imageUrl || item.thumbnail || 
+                             (item.images && item.images[0]) || 
+                             (item.media && item.media[0] && item.media[0].url) || '';
 
-              // Link do produto
-              const productSlug = item.slug || item.url || '';
+              // Link do produto - múltiplas tentativas
+              const productSlug = item.slug || item.url || item.link || item.uri || '';
               let productLink = '';
               
               if (productSlug.startsWith('http')) {
                 productLink = productSlug;
-              } else {
+              } else if (productSlug) {
                 productLink = `https://www.magazinevoce.com.br/${this.affiliateId}/produto/${productId}/${productSlug}`;
+              } else {
+                productLink = `https://www.magazinevoce.com.br/${this.affiliateId}/produto/${productId}`;
               }
 
               const cleanLink = productLink.split('?')[0].split('#')[0];
@@ -377,8 +436,9 @@ class MagaluScraperAPI {
 
           if (newProductsCount === 0) {
             emptyPagesCount++;
-            if (emptyPagesCount >= 2) {
-              console.log(`   ⚠️  Sem novos produtos, encerrando\n`);
+            console.log(`   ⚠️  Nenhum produto novo nesta página (${emptyPagesCount}/3)\n`);
+            if (emptyPagesCount >= 3) {
+              console.log(`   ⚠️  3 páginas sem produtos novos, encerrando\n`);
               break;
             }
           } else {
