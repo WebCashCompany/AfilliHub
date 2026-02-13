@@ -253,6 +253,56 @@ class MagaluScraper {
           
           await page.waitForTimeout(2000);
 
+          // 🔍 DEBUG: Ver o que o Playwright está vendo (apenas na primeira página)
+          if (pageNum === 1) {
+            console.log('🔍 DEBUG: Analisando primeira página...');
+            
+            const debugInfo = await page.evaluate(() => {
+              const items = document.querySelectorAll('[data-testid*="product-card"], [data-testid="product-card-container"]');
+              
+              if (items.length === 0) {
+                const links = document.querySelectorAll('a[href*="/produto/"]');
+                return {
+                  cardsFound: 0,
+                  linksFound: links.length,
+                  bodyText: document.body.innerText.substring(0, 500)
+                };
+              }
+              
+              // Pegar o primeiro card
+              const firstCard = items[0];
+              const priceValue = firstCard.querySelector('[data-testid="price-value"]');
+              const priceOriginal = firstCard.querySelector('[data-testid="price-original"]');
+              const allText = firstCard.innerText;
+              
+              // Procurar todos os elementos que parecem preços
+              const allPriceElements = Array.from(firstCard.querySelectorAll('*'))
+                .filter(el => el.innerText && el.innerText.match(/R\$\s*[\d.,]+/))
+                .map(el => ({
+                  tag: el.tagName,
+                  class: el.className,
+                  text: el.innerText.substring(0, 50)
+                }));
+              
+              return {
+                cardsFound: items.length,
+                hasPriceValue: !!priceValue,
+                priceValueText: priceValue ? priceValue.innerText : 'NÃO ENCONTRADO',
+                hasPriceOriginal: !!priceOriginal,
+                priceOriginalText: priceOriginal ? priceOriginal.innerText : 'NÃO ENCONTRADO',
+                cardText: allText,
+                allPriceElements: allPriceElements.slice(0, 5)
+              };
+            });
+            
+            console.log('📊 DEBUG INFO:');
+            console.log(`   Cards encontrados: ${debugInfo.cardsFound}`);
+            console.log(`   Preço atual: ${debugInfo.hasPriceValue} - "${debugInfo.priceValueText}"`);
+            console.log(`   Preço original: ${debugInfo.hasPriceOriginal} - "${debugInfo.priceOriginalText}"`);
+            console.log(`   Texto do card:\n${debugInfo.cardText}`);
+            console.log(`   Elementos com preço:`, JSON.stringify(debugInfo.allPriceElements, null, 2));
+          }
+
           const productsFromPage = await page.evaluate(({ minDisc, affiliateId, categoryNameForDB }) => {
             const results = [];
             
