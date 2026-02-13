@@ -4,10 +4,10 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { PersistenceProvider } from "@/contexts/PersistenceContext";
-import { UserPreferencesProvider } from "@/contexts/UserPreferencesContext";
-import { DashboardProvider } from "@/contexts/DashboardContext";
-import { WhatsAppProvider } from "@/contexts/WhatsAppContext";
+import { PersistenceProvider } from "@/contexts/PersistenceContext.tsx";
+import { UserPreferencesProvider } from "@/contexts/UserPreferencesContext.tsx";
+import { DashboardProvider } from "@/contexts/DashboardContext.tsx";
+import { WhatsAppProvider } from "@/contexts/WhatsAppContext.tsx";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { DashboardHome } from "@/pages/DashboardHome";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
@@ -26,7 +26,6 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <PersistenceProvider>
-        {/* 🔥 UserPreferencesProvider ANTES de tudo - gerencia tema, idioma, etc */}
         <UserPreferencesProvider>
           <DashboardProvider>
             <WhatsAppProvider>
