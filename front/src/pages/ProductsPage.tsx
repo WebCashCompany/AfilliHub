@@ -61,7 +61,10 @@ import {
   Clock,
   Percent,
   Link2,
-  ShoppingCart
+  ShoppingCart,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import { formatNumber, Marketplace, ProductStatus } from '@/lib/mockData';
@@ -69,6 +72,8 @@ import { productsService } from '@/api/services/products.service';
 import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib/priceUtils';
 
 type CleanupType = 'all' | 'marketplace' | 'old' | 'selected';
+type SortField = 'price' | 'discount' | null;
+type SortDirection = 'asc' | 'desc';
 
 import { ENV } from '@/config/environment';
 const API_BASE_URL = ENV.API_BASE_URL;
@@ -82,6 +87,10 @@ export function ProductsPage() {
   const [marketplaceFilter, setMarketplaceFilter] = useState<'all' | Marketplace>('all');
   const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState('products');
+
+  // Ordenação
+  const [sortField, setSortField] = useState<SortField>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // Dialog de limpeza
   const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
@@ -101,8 +110,30 @@ export function ProductsPage() {
 
   const pageSize = 15;
 
+  // Função para alternar ordenação de uma coluna
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Alterna direção se já está ordenando por esse campo
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setPage(1);
+  };
+
+  // Ícone de ordenação para o cabeçalho da tabela
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 ml-1 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />;
+    }
+    return sortDirection === 'asc'
+      ? <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" />
+      : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
+  };
+
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    let result = products.filter(p => {
       const matchesSearch =
         p.name?.toLowerCase().includes(search.toLowerCase()) ||
         p.category?.toLowerCase().includes(search.toLowerCase());
@@ -112,7 +143,27 @@ export function ProductsPage() {
 
       return matchesSearch && matchesMarketplace;
     });
-  }, [products, search, marketplaceFilter]);
+
+    // Aplica ordenação
+    if (sortField) {
+      result = [...result].sort((a, b) => {
+        let valA = 0;
+        let valB = 0;
+
+        if (sortField === 'price') {
+          valA = getCurrentPrice(a) ?? 0;
+          valB = getCurrentPrice(b) ?? 0;
+        } else if (sortField === 'discount') {
+          valA = getDiscount(a) ?? 0;
+          valB = getDiscount(b) ?? 0;
+        }
+
+        return sortDirection === 'asc' ? valA - valB : valB - valA;
+      });
+    }
+
+    return result;
+  }, [products, search, marketplaceFilter, sortField, sortDirection]);
 
   const paginatedProducts = filteredProducts.slice(
     (page - 1) * pageSize,
@@ -363,18 +414,27 @@ export function ProductsPage() {
         <TabsContent value="products" className="space-y-4">
           {/* FILTROS */}
           <Card>
-            <CardContent className="p-4 flex gap-3">
+            <CardContent className="p-4 flex gap-3 flex-wrap items-center">
               <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   placeholder="Buscar produto..."
                   value={search}
-                  onChange={e => setSearch(e.target.value)}
+                  onChange={e => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
                   className="pl-10"
                 />
               </div>
 
-              <Select value={marketplaceFilter} onValueChange={v => setMarketplaceFilter(v as any)}>
+              <Select
+                value={marketplaceFilter}
+                onValueChange={v => {
+                  setMarketplaceFilter(v as any);
+                  setPage(1);
+                }}
+              >
                 <SelectTrigger className="w-48">
                   <Filter className="w-4 h-4 mr-2" />
                   <SelectValue placeholder="Marketplace" />
@@ -387,6 +447,79 @@ export function ProductsPage() {
                   <SelectItem value="magalu">Magalu</SelectItem>
                 </SelectContent>
               </Select>
+
+              {/* Ordenação por preço */}
+              <Select
+                value={sortField === 'price' ? `price_${sortDirection}` : sortField === 'discount' ? `discount_${sortDirection}` : 'none'}
+                onValueChange={v => {
+                  if (v === 'none') {
+                    setSortField(null);
+                  } else {
+                    const [field, dir] = v.split('_') as [SortField, SortDirection];
+                    setSortField(field);
+                    setSortDirection(dir);
+                  }
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-52">
+                  <div className="flex items-center gap-2">
+                    {sortField === null && <ArrowUpDown className="w-4 h-4 text-muted-foreground" />}
+                    {sortField === 'price' && sortDirection === 'asc' && <ArrowUp className="w-4 h-4 text-primary" />}
+                    {sortField === 'price' && sortDirection === 'desc' && <ArrowDown className="w-4 h-4 text-primary" />}
+                    {sortField === 'discount' && sortDirection === 'asc' && <ArrowUp className="w-4 h-4 text-primary" />}
+                    {sortField === 'discount' && sortDirection === 'desc' && <ArrowDown className="w-4 h-4 text-primary" />}
+                    <SelectValue placeholder="Ordenar por" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">
+                    <span className="flex items-center gap-2">
+                      <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
+                      Sem ordenação
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="price_asc">
+                    <span className="flex items-center gap-2">
+                      <ArrowUp className="w-4 h-4 text-green-600" />
+                      Menor preço primeiro
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="price_desc">
+                    <span className="flex items-center gap-2">
+                      <ArrowDown className="w-4 h-4 text-green-600" />
+                      Maior preço primeiro
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="discount_desc">
+                    <span className="flex items-center gap-2">
+                      <ArrowDown className="w-4 h-4 text-orange-500" />
+                      Maior desconto primeiro
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="discount_asc">
+                    <span className="flex items-center gap-2">
+                      <ArrowUp className="w-4 h-4 text-orange-500" />
+                      Menor desconto primeiro
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              {/* Indicador de ordenação ativa */}
+              {sortField && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1.5 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  onClick={() => { setSortField(null); setPage(1); }}
+                >
+                  {sortField === 'price' && sortDirection === 'asc' && <><ArrowUp className="w-3 h-3" /> Menor preço</>}
+                  {sortField === 'price' && sortDirection === 'desc' && <><ArrowDown className="w-3 h-3" /> Maior preço</>}
+                  {sortField === 'discount' && sortDirection === 'desc' && <><ArrowDown className="w-3 h-3" /> Maior desconto</>}
+                  {sortField === 'discount' && sortDirection === 'asc' && <><ArrowUp className="w-3 h-3" /> Menor desconto</>}
+                  <span className="text-xs ml-1">✕</span>
+                </Badge>
+              )}
             </CardContent>
           </Card>
 
@@ -406,8 +539,29 @@ export function ProductsPage() {
                     <TableHead>Produto</TableHead>
                     <TableHead>Marketplace</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Preço</TableHead>
-                    <TableHead className="text-right">Desconto</TableHead>
+
+                    {/* Cabeçalho Preço — clicável para ordenar */}
+                    <TableHead
+                      className="text-right cursor-pointer select-none group"
+                      onClick={() => handleSort('price')}
+                    >
+                      <span className="inline-flex items-center justify-end w-full gap-1 hover:text-foreground transition-colors">
+                        Preço
+                        <SortIcon field="price" />
+                      </span>
+                    </TableHead>
+
+                    {/* Cabeçalho Desconto — clicável para ordenar */}
+                    <TableHead
+                      className="text-right cursor-pointer select-none group"
+                      onClick={() => handleSort('discount')}
+                    >
+                      <span className="inline-flex items-center justify-end w-full gap-1 hover:text-foreground transition-colors">
+                        Desconto
+                        <SortIcon field="discount" />
+                      </span>
+                    </TableHead>
+
                     <TableHead className="w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
