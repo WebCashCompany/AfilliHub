@@ -12,29 +12,30 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
 
+// ═══════════════════════════════════════════════════════════
+// CORS - Libera todas as origens (incluindo preflight)
+// ═══════════════════════════════════════════════════════════
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+app.use(cors({ origin: '*', credentials: false }));
+app.use(express.json());
+
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST'],
     credentials: false
   },
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000
 });
-
-// ═══════════════════════════════════════════════════════════
-// CORS - Libera todas as origens
-// ═══════════════════════════════════════════════════════════
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false
-}));
-
-app.options('*', cors()); // Responde preflight em todas as rotas
-app.use(express.json());
 
 let whatsappService = null;
 let sessionModel = null;
