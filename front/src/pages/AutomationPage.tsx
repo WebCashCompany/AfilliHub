@@ -665,7 +665,7 @@ export function AutomationPage() {
                 <div className="px-4 py-3 border-b bg-muted/50 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold">Modo de busca</p>
-                    <p className="text-xs text-muted-foreground">Palavra-chave e categoria são mutuamente exclusivas</p>
+
                   </div>
                   {isSearchActive && (
                     <Badge className="bg-blue-500/15 text-blue-600 border-0 text-xs gap-1 font-medium">
@@ -762,7 +762,7 @@ export function AutomationPage() {
             <div className="rounded-xl border bg-muted/30 overflow-hidden">
               <div className="px-4 py-3 border-b bg-muted/50">
                 <p className="text-sm font-semibold">Filtros de qualidade</p>
-                <p className="text-xs text-muted-foreground">Defina desconto mínimo e preço máximo dos produtos</p>
+
               </div>
 
               <div className="p-4 grid grid-cols-2 gap-6">
