@@ -1,5 +1,5 @@
 // src/contexts/AuthContext.tsx
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase, UserProfile, UserRole } from '@/lib/supabase';
 
@@ -43,8 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // ✅ Busca perfil APENAS na tabela profiles — sem fallback
-  // Se não encontrar, retorna null e o login é bloqueado
+  // Evita race conditions: se múltiplos eventos chegarem, apenas o último vence
+  const initDone = useRef(false);
+
   const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
       const { data, error } = await supabase
@@ -54,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (error) {
-        console.warn('[Auth] Perfil não encontrado na tabela profiles:', error.message);
+        console.warn('[Auth] Perfil não encontrado:', error.message);
         return null;
       }
 
@@ -65,95 +66,104 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const applySession = async (session: Session) => {
+    const prof = await fetchProfile(session.user.id);
+
+    if (!prof) {
+      console.warn('[Auth] Usuário sem perfil, deslogando...');
+      await supabase.auth.signOut();
+      clearSupabaseCache();
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      return;
+    }
+
+    setSession(session);
+    setUser(session.user);
+    setProfile(prof);
+  };
+
+  const clearSession = () => {
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+  };
+
   useEffect(() => {
-    const hardTimeout = setTimeout(() => {
-      setIsLoading(false);
-    }, 6000);
+    // Listener de mudanças de auth — registrado ANTES do init para não perder eventos
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[Auth] Evento:', event);
+
+      // O init() cuida do estado inicial — o listener não deve interferir
+      if (!initDone.current) return;
+
+      if (event === 'SIGNED_OUT' || !session) {
+        clearSession();
+        return;
+      }
+
+      if (event === 'SIGNED_IN') {
+        await applySession(session);
+        return;
+      }
+
+      // TOKEN_REFRESHED: apenas atualiza a sessão sem rebuscar perfil
+      // (evita deslogar por falha de rede num refresh silencioso)
+      if (event === 'TOKEN_REFRESHED' && session) {
+        setSession(session);
+        setUser(session.user);
+        // Só rebusca perfil se ainda não tiver um carregado
+        setProfile(prev => {
+          if (prev) return prev;
+          // Se não tiver perfil, busca em background
+          fetchProfile(session.user.id).then(prof => {
+            if (prof) setProfile(prof);
+          });
+          return prev;
+        });
+      }
+    });
 
     const init = async () => {
       try {
+        // getSession() lê do localStorage — rápido, sem chamada de rede
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
         if (sessionError) {
-          console.warn('[Auth] Erro na sessão, limpando cache:', sessionError.message);
+          console.warn('[Auth] Erro ao recuperar sessão:', sessionError.message);
           clearSupabaseCache();
-          await supabase.auth.signOut();
+          clearSession();
           return;
         }
 
-        if (!session) return;
-
-        // Valida token no servidor
-        const { data: { user: freshUser }, error: userError } = await supabase.auth.getUser();
-
-        if (userError || !freshUser) {
-          console.warn('[Auth] Token inválido, limpando...');
-          clearSupabaseCache();
-          await supabase.auth.signOut();
+        if (!session) {
+          // Nenhuma sessão salva — usuário não estava logado
+          clearSession();
           return;
         }
 
-        // Busca perfil — SEM fallback
-        const prof = await fetchProfile(freshUser.id);
-
-        if (!prof) {
-          // Usuário existe no auth mas não tem perfil cadastrado → desloga
-          console.warn('[Auth] Usuário sem perfil cadastrado, deslogando...');
-          clearSupabaseCache();
-          await supabase.auth.signOut();
-          return;
-        }
-
-        setSession(session);
-        setUser(freshUser);
-        setProfile(prof);
+        // Sessão existe: busca o perfil e seta o estado
+        // Não chamamos getUser() aqui para evitar falhas de rede que desloguem
+        // o usuário desnecessariamente. O token será validado naturalmente
+        // quando fizer a primeira query autenticada.
+        await applySession(session);
 
       } catch (e) {
-        console.error('[Auth] Erro crítico:', e);
-        clearSupabaseCache();
-        await supabase.auth.signOut();
+        console.error('[Auth] Erro crítico no init:', e);
+        clearSession();
       } finally {
-        clearTimeout(hardTimeout);
+        initDone.current = true;
         setIsLoading(false);
       }
     };
 
     init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'INITIAL_SESSION') return;
-
-      if (event === 'SIGNED_OUT' || !session) {
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        return;
-      }
-
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        const prof = await fetchProfile(session.user.id);
-
-        if (!prof) {
-          // Sem perfil → desloga imediatamente
-          console.warn('[Auth] Login sem perfil bloqueado.');
-          await supabase.auth.signOut();
-          clearSupabaseCache();
-          setSession(null);
-          setUser(null);
-          setProfile(null);
-          return;
-        }
-
-        setSession(session);
-        setUser(session.user);
-        setProfile(prof);
-      }
-    });
-
     return () => {
-      clearTimeout(hardTimeout);
       subscription.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
@@ -167,15 +177,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: error.message };
       }
 
-      if (!data.user) return { error: 'Erro inesperado. Tente novamente.' };
+      if (!data.user || !data.session) return { error: 'Erro inesperado. Tente novamente.' };
 
-      // Verifica se tem perfil cadastrado antes de liberar
+      // Verifica perfil antes de liberar acesso
       const prof = await fetchProfile(data.user.id);
 
       if (!prof) {
         await supabase.auth.signOut();
         return { error: 'Acesso não autorizado. Solicite ao administrador.' };
       }
+
+      // Aplica estado manualmente aqui para resposta imediata
+      // (o onAuthStateChange também vai disparar SIGNED_IN, mas o initDone
+      //  já estará true, então vai passar por applySession normalmente)
+      setSession(data.session);
+      setUser(data.user);
+      setProfile(prof);
 
       return { error: null };
     } catch {
@@ -186,9 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     clearSupabaseCache();
-    setProfile(null);
-    setUser(null);
-    setSession(null);
+    clearSession();
   };
 
   const resetPassword = async (email: string): Promise<{ error: string | null }> => {
