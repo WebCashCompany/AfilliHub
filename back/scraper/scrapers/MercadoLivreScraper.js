@@ -1,6 +1,6 @@
 /**
  * MERCADO LIVRE SCRAPER
- * @version 3.1.0 - ✅ FIXES: loop entre páginas + 400 em URLs inválidas
+ * @version 3.2.0 - ✅ FIX: paginação real, sem loop, sem reset entre tentativas
  */
 
 const { chromium } = require('playwright');
@@ -31,9 +31,9 @@ class MercadoLivreScraper {
       couponsApplied: 0
     };
 
+    // ✅ Sets persistem durante TODA a execução (não resetam entre páginas)
     this.seenLinks = new Set();
-    this.seenProductKeys = new Set();
-    this.seenOriginalLinks = new Set(); // ✅ FIX: agora é populado corretamente
+    this.seenOriginalLinks = new Set();
 
     if (!this.searchTerm) {
       this.categoriaInfo = getCategoria(this.categoriaKey) || getCategoria('informatica');
@@ -60,7 +60,12 @@ class MercadoLivreScraper {
     return this.categoriaInfo.url;
   }
 
-  // ✅ FIX: valida se a URL é de produto individual (tem /MLB ou /MLA)
+  getPageUrl(baseUrl, pageNum, offset) {
+    if (pageNum === 1) return baseUrl;
+    // ✅ Paginação correta do ML — _Desde_ começa em 49, 97, 145...
+    return `${baseUrl}_Desde_${offset + 1}`;
+  }
+
   isProductUrl(url) {
     return url && (url.includes('/MLB') || url.includes('/MLA') || url.includes('produto.mercadolivre'));
   }
@@ -77,25 +82,21 @@ class MercadoLivreScraper {
           : { isActive: true };
 
       const products = await Product.find(query)
-        .select('link_afiliado link_original nome desconto preco_para')
+        .select('link_original')
         .lean()
-        .limit(500)
+        .limit(1000)
         .sort({ createdAt: -1 });
 
-      this.existingProductsMap = new Map();
+      // Pré-popula seenOriginalLinks com produtos já no banco
+      // para não re-processar produtos que já existem
       for (const product of products) {
-        if (product.link_afiliado) {
-          const key = this.generateProductKey(product.nome);
-          this.existingProductsMap.set(key, {
-            link: product.link_afiliado,
-            originalLink: product.link_original,
-            desconto: parseInt(product.desconto) || 0,
-            preco: parseInt(product.preco_para) || 0
-          });
+        if (product.link_original) {
+          this.seenOriginalLinks.add(product.link_original);
         }
       }
+
     } catch (error) {
-      this.existingProductsMap = new Map();
+      // ignora erro
     }
   }
 
@@ -150,32 +151,99 @@ class MercadoLivreScraper {
         const link = await mlAffiliate.generateAffiliateLink(productUrl);
         if (link && link.includes('/sec/')) return link;
       } catch (e) {
-        console.warn('⚠️  [Scraper] Falha na API, usando link original');
+        // fallback abaixo
       }
     }
-
-    // Fallback: retorna link original (sem /sec/ mas válido)
     return productUrl;
+  }
+
+  async scrapePage(url) {
+    const mainPage = await this.context.newPage();
+
+    try {
+      await mainPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+      await mainPage.waitForTimeout(1000);
+      await mainPage.evaluate(async () => {
+        window.scrollTo(0, document.body.scrollHeight);
+        await new Promise(r => setTimeout(r, 500));
+      });
+
+      const pageData = await mainPage.evaluate(({ minDiscount }) => {
+        const cards = document.querySelectorAll('.poly-card, .ui-search-result');
+        const products = [];
+
+        cards.forEach(card => {
+          try {
+            // Pega todos os links do card e filtra pelo que tem MLB/MLA
+            const allLinks = Array.from(card.querySelectorAll('a'));
+            let link = null;
+            for (const el of allLinks) {
+              const href = el.href.split('?')[0];
+              if (href.includes('/MLB') || href.includes('/MLA') || href.includes('produto.mercadolivre')) {
+                link = href;
+                break;
+              }
+            }
+            if (!link) return;
+
+            const name = card.querySelector('h2, .poly-component__title')?.innerText?.trim() || 'Sem nome';
+            const img = card.querySelector('img')?.src;
+            const discountEl = card.querySelector('.andes-money-amount__discount, .poly-price__disc_label');
+            const discount = parseInt(discountEl?.innerText.replace(/\D/g, '') || '0');
+
+            if (discount < minDiscount) return;
+
+            let currentPrice = 0;
+            const currentPriceContainer = card.querySelector('.poly-price__current');
+            if (currentPriceContainer) {
+              const fraction = currentPriceContainer.querySelector('.andes-money-amount__fraction');
+              if (fraction) currentPrice = parseInt(fraction.innerText.replace(/\./g, '').replace(/\D/g, ''));
+            }
+            if (!currentPrice) {
+              const fractions = Array.from(card.querySelectorAll('.andes-money-amount__fraction'));
+              if (fractions.length >= 1) currentPrice = parseInt(fractions[fractions.length - 1].innerText.replace(/\./g, ''));
+            }
+
+            let oldPrice = 0;
+            const oldPriceEl = card.querySelector('.andes-money-amount--previous .andes-money-amount__fraction');
+            if (oldPriceEl) {
+              oldPrice = parseInt(oldPriceEl.innerText.replace(/\./g, '').replace(/\D/g, ''));
+            } else if (currentPrice && discount > 0) {
+              oldPrice = Math.round(currentPrice / (1 - discount / 100));
+            }
+
+            if (currentPrice > 0 && oldPrice > currentPrice) {
+              products.push({ link, name, image: img, discount, currentPrice, oldPrice });
+            }
+          } catch (e) {}
+        });
+
+        return { products, total: cards.length };
+      }, { minDiscount: this.minDiscount });
+
+      await mainPage.close();
+      return pageData;
+
+    } catch (e) {
+      try { await mainPage.close(); } catch (_) {}
+      console.warn(`⚠️  Erro ao carregar página: ${e.message}`);
+      return { products: [], total: 0 };
+    }
   }
 
   async processProducts(products, allProducts) {
     const BATCH_SIZE = 5;
 
-    // ✅ FIX: filtra URLs inválidas E já vistas
     const validProducts = products
-      .filter(p => {
-        if (this.seenLinks.has(p.link)) return false;
-        if (!this.isProductUrl(p.link)) return false; // descarta links que não são de produto
-        return true;
-      })
+      .filter(p => !this.seenLinks.has(p.link) && this.isProductUrl(p.link))
       .slice(0, this.limit - allProducts.length);
 
     if (validProducts.length === 0) return;
 
-    // Marca todos como vistos antes de processar
+    // Marca como vistos imediatamente
     validProducts.forEach(p => {
       this.seenLinks.add(p.link);
-      this.seenOriginalLinks.add(p.link); // ✅ FIX: popula seenOriginalLinks
+      this.seenOriginalLinks.add(p.link);
     });
 
     for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
@@ -259,126 +327,53 @@ class MercadoLivreScraper {
     await this.createBrowserContext();
 
     if (mlAffiliate.isAuthenticated()) {
-      console.log('⚡ [Scraper] MLAffiliateService autenticado — modo RÁPIDO ativado!\n');
+      console.log('⚡ [Scraper] Modo RÁPIDO — links via API!\n');
     } else {
-      console.log('⚠️  [Scraper] MLAffiliateService não autenticado — links sem /sec/\n');
+      console.log('⚠️  [Scraper] Sem autenticação — links sem /sec/\n');
     }
 
-    let allProducts = [];
+    const allProducts = [];
+    const baseUrl = this.getSearchUrl();
     let pageNum = 1;
-    let currentOffset = 0;
+    let offset = 0;
+    let consecutiveEmpty = 0;
 
     try {
-      while (allProducts.length < this.limit && pageNum <= 15) {
-        const baseUrl = this.getSearchUrl();
-        // ✅ FIX: paginação correta para busca e categoria
-        let url;
-        if (pageNum === 1) {
-          url = baseUrl;
-        } else {
-          const separator = baseUrl.includes('?') ? '&' : '_';
-          if (this.searchTerm) {
-            url = `${baseUrl}_Desde_${currentOffset + 1}`;
-          } else {
-            url = `${baseUrl}_Desde_${currentOffset + 1}`;
-          }
-        }
+      while (allProducts.length < this.limit && pageNum <= 20) {
+        const url = this.getPageUrl(baseUrl, pageNum, offset);
+        console.log(`📄 Página ${pageNum} | Coletados: ${allProducts.length}/${this.limit}`);
 
-        console.log(`📄 Página ${pageNum} | URL: ${url.substring(0, 80)}...`);
+        const pageData = await this.scrapePage(url);
 
-        const mainPage = await this.context.newPage();
+        console.log(`   📦 ${pageData.products.length} com desconto (${pageData.total} cards no total)`);
 
-        try {
-          await mainPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        } catch (e) {
-          console.warn(`⚠️  Timeout na página ${pageNum}, encerrando coleta`);
-          await mainPage.close();
+        if (pageData.total === 0) {
+          console.log(`   🏁 Página vazia, encerrando`);
           break;
         }
 
-        await mainPage.waitForTimeout(1000);
-        await mainPage.evaluate(async () => {
-          window.scrollTo(0, document.body.scrollHeight);
-          await new Promise(r => setTimeout(r, 500));
-        });
-
-        const pageData = await mainPage.evaluate(({ minDiscount }) => {
-          const cards = document.querySelectorAll('.poly-card, .ui-search-result');
-          const products = [];
-
-          cards.forEach(card => {
-            try {
-              const linkEl = card.querySelector('a');
-              if (!linkEl) return;
-
-              // ✅ FIX: pega o href mais específico (link do produto, não da imagem)
-              let link = linkEl.href.split('?')[0];
-
-              // Verifica se é link de produto válido
-              if (!link.includes('/MLB') && !link.includes('/MLA') && !link.includes('produto.mercadolivre')) return;
-
-              const name = card.querySelector('h2, .poly-component__title')?.innerText?.trim() || 'Sem nome';
-              const img = card.querySelector('img')?.src;
-              const discountEl = card.querySelector('.andes-money-amount__discount, .poly-price__disc_label');
-              const discount = parseInt(discountEl?.innerText.replace(/\D/g, '') || '0');
-
-              if (discount < minDiscount) return;
-
-              let currentPrice = 0;
-              const currentPriceContainer = card.querySelector('.poly-price__current');
-              if (currentPriceContainer) {
-                const fraction = currentPriceContainer.querySelector('.andes-money-amount__fraction');
-                if (fraction) currentPrice = parseInt(fraction.innerText.replace(/\./g, '').replace(/\D/g, ''));
-              }
-
-              if (!currentPrice) {
-                const fractions = Array.from(card.querySelectorAll('.andes-money-amount__fraction'));
-                if (fractions.length >= 1) currentPrice = parseInt(fractions[fractions.length - 1].innerText.replace(/\./g, ''));
-              }
-
-              let oldPrice = 0;
-              const oldPriceEl = card.querySelector('.andes-money-amount--previous .andes-money-amount__fraction');
-              if (oldPriceEl) {
-                oldPrice = parseInt(oldPriceEl.innerText.replace(/\./g, '').replace(/\D/g, ''));
-              } else if (currentPrice && discount > 0) {
-                oldPrice = Math.round(currentPrice / (1 - discount / 100));
-              }
-
-              if (currentPrice > 0 && oldPrice > currentPrice) {
-                products.push({ link, name, image: img, discount, currentPrice, oldPrice });
-              }
-            } catch (e) {}
-          });
-
-          return { products, total: cards.length };
-        }, { minDiscount: this.minDiscount });
-
-        await mainPage.close();
-
-        console.log(`   📦 ${pageData.products.length} produtos com desconto (de ${pageData.total} cards)`);
-
-        // ✅ FIX: filtra apenas os não vistos ainda
+        // Filtra os não vistos
         const newProducts = pageData.products.filter(p => !this.seenOriginalLinks.has(p.link));
+        console.log(`   🆕 ${newProducts.length} novos para processar`);
 
-        console.log(`   🆕 ${newProducts.length} novos (não vistos ainda)`);
-
-        if (newProducts.length === 0 && pageData.products.length > 0) {
-          // Todos já foram vistos — vai para próxima página mesmo assim
-          console.log(`   ⏭️  Todos já processados, avançando página...`);
-        } else if (newProducts.length === 0 && pageData.products.length === 0) {
-          console.log(`   🏁 Sem mais produtos, encerrando`);
-          break;
-        }
-
-        if (newProducts.length > 0) {
+        if (newProducts.length === 0) {
+          consecutiveEmpty++;
+          console.log(`   ⏭️  Nenhum novo (${consecutiveEmpty}/3 páginas vazias consecutivas)`);
+          if (consecutiveEmpty >= 3) {
+            console.log(`   🏁 3 páginas sem novos produtos, encerrando`);
+            break;
+          }
+        } else {
+          consecutiveEmpty = 0;
           await this.processProducts(newProducts, allProducts);
         }
 
         pageNum++;
-        currentOffset += 48;
+        offset += 48;
       }
 
       if (this.browser) await this.browser.close();
+      console.log(`\n✅ Scraping concluído: ${allProducts.length} produtos coletados\n`);
       return allProducts;
 
     } catch (error) {
