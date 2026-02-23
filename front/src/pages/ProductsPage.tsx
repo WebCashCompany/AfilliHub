@@ -85,6 +85,7 @@ export function ProductsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [marketplaceFilter, setMarketplaceFilter] = useState<'all' | Marketplace>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState('products');
 
@@ -103,17 +104,23 @@ export function ProductsPage() {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [copiedOriginalLink, setCopiedOriginalLink] = useState(false);
 
   // Estado para armazenar os dados originais do produto
   const [originalProductData, setOriginalProductData] = useState<any>(null);
 
   const pageSize = 15;
 
+  // Lista dinâmica de categorias únicas
+  const availableCategories = useMemo(() => {
+    const cats = products
+      .map(p => p.category || p.categoria)
+      .filter((c): c is string => !!c && c.trim() !== '');
+    return Array.from(new Set(cats)).sort();
+  }, [products]);
+
   // Função para alternar ordenação de uma coluna
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      // Alterna direção se já está ordenando por esse campo
       setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortField(field);
@@ -141,7 +148,11 @@ export function ProductsPage() {
       const matchesMarketplace =
         marketplaceFilter === 'all' || p.marketplace === marketplaceFilter;
 
-      return matchesSearch && matchesMarketplace;
+      const productCategory = p.category || p.categoria || '';
+      const matchesCategory =
+        categoryFilter === 'all' || productCategory === categoryFilter;
+
+      return matchesSearch && matchesMarketplace && matchesCategory;
     });
 
     // Aplica ordenação
@@ -163,7 +174,7 @@ export function ProductsPage() {
     }
 
     return result;
-  }, [products, search, marketplaceFilter, sortField, sortDirection]);
+  }, [products, search, marketplaceFilter, categoryFilter, sortField, sortDirection]);
 
   const paginatedProducts = filteredProducts.slice(
     (page - 1) * pageSize,
@@ -194,42 +205,30 @@ export function ProductsPage() {
 
   // ✅ BUSCA OS DADOS COMPLETOS DO PRODUTO NO BACKEND
   const handleProductClick = async (product: any) => {
-    console.log('📦 Produto do contexto:', product);
-    
     setSelectedProduct(product);
     setDetailsDialogOpen(true);
     setCopiedLink(false);
-    setCopiedOriginalLink(false);
 
-    // Busca os dados completos do produto no backend
     try {
       const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`);
       const data = await response.json();
-      
+
       if (data.success && data.data) {
-        console.log('📦 Dados completos do backend:', data.data);
         setOriginalProductData(data.data);
       }
     } catch (error) {
-      console.error('❌ Erro ao buscar dados completos:', error);
-      // Usa os dados do contexto mesmo se falhar
       setOriginalProductData(product);
     }
   };
 
-  const handleCopyLink = async (link: string, isOriginal = false) => {
+  const handleCopyLink = async (link: string) => {
     try {
       await navigator.clipboard.writeText(link);
-      if (isOriginal) {
-        setCopiedOriginalLink(true);
-        setTimeout(() => setCopiedOriginalLink(false), 2000);
-      } else {
-        setCopiedLink(true);
-        setTimeout(() => setCopiedLink(false), 2000);
-      }
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
       toast({
         title: 'Link copiado!',
-        description: isOriginal ? 'Link original copiado' : 'Link de afiliado copiado',
+        description: 'Link de afiliado copiado para a área de transferência',
       });
     } catch (error) {
       toast({
@@ -320,29 +319,10 @@ export function ProductsPage() {
     }
   };
 
-  // Formata preço de centavos (129900) para R$ 1.299,00
-  const formatPriceFromCents = (price: string | number): string => {
-    if (!price) return 'R$ 0,00';
-    
-    // Se já está formatado (contém vírgula ou ponto), retorna como está
-    const priceStr = String(price);
-    if (priceStr.includes(',') || priceStr.includes('.')) {
-      return priceStr.startsWith('R$') ? priceStr : `R$ ${priceStr}`;
-    }
-    
-    // Converte centavos para reais
-    const cents = parseInt(priceStr);
-    if (isNaN(cents)) return 'R$ 0,00';
-    
-    const reais = cents / 100;
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(reais);
-  };
-
   // ✅ USA OS DADOS ORIGINAIS SE DISPONÍVEIS
   const displayProduct = originalProductData || selectedProduct;
+
+  const affiliateLink = displayProduct?.link_afiliado || displayProduct?.affiliateLink;
 
   return (
     <div className="p-6 space-y-6">
@@ -440,7 +420,7 @@ export function ProductsPage() {
                   <SelectValue placeholder="Marketplace" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="all">Todos os marketplaces</SelectItem>
                   <SelectItem value="mercadolivre">Mercado Livre</SelectItem>
                   <SelectItem value="amazon">Amazon</SelectItem>
                   <SelectItem value="shopee">Shopee</SelectItem>
@@ -448,7 +428,29 @@ export function ProductsPage() {
                 </SelectContent>
               </Select>
 
-              {/* Ordenação por preço */}
+              {/* Filtro de categoria */}
+              <Select
+                value={categoryFilter}
+                onValueChange={v => {
+                  setCategoryFilter(v);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-52">
+                  <Tag className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="Categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as categorias</SelectItem>
+                  {availableCategories.map(cat => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Ordenação */}
               <Select
                 value={sortField === 'price' ? `price_${sortDirection}` : sortField === 'discount' ? `discount_${sortDirection}` : 'none'}
                 onValueChange={v => {
@@ -506,7 +508,19 @@ export function ProductsPage() {
                 </SelectContent>
               </Select>
 
-              {/* Indicador de ordenação ativa */}
+              {/* Badges de filtros ativos */}
+              {categoryFilter !== 'all' && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1.5 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  onClick={() => { setCategoryFilter('all'); setPage(1); }}
+                >
+                  <Tag className="w-3 h-3" />
+                  {categoryFilter}
+                  <span className="text-xs ml-1">✕</span>
+                </Badge>
+              )}
+
               {sortField && (
                 <Badge
                   variant="secondary"
@@ -540,7 +554,6 @@ export function ProductsPage() {
                     <TableHead>Marketplace</TableHead>
                     <TableHead>Status</TableHead>
 
-                    {/* Cabeçalho Preço — clicável para ordenar */}
                     <TableHead
                       className="text-right cursor-pointer select-none group"
                       onClick={() => handleSort('price')}
@@ -551,7 +564,6 @@ export function ProductsPage() {
                       </span>
                     </TableHead>
 
-                    {/* Cabeçalho Desconto — clicável para ordenar */}
                     <TableHead
                       className="text-right cursor-pointer select-none group"
                       onClick={() => handleSort('discount')}
@@ -571,12 +583,12 @@ export function ProductsPage() {
                     const currentPriceCents = getCurrentPrice(product);
                     const oldPriceCents = getOldPrice(product);
                     const discount = getDiscount(product);
-                    
+
                     const formattedCurrentPrice = formatCurrency(currentPriceCents);
                     const formattedOldPrice = formatCurrency(oldPriceCents);
 
                     return (
-                      <TableRow 
+                      <TableRow
                         key={product.id}
                         className="cursor-pointer hover:bg-muted/50"
                         onClick={() => handleProductClick(product)}
@@ -715,7 +727,7 @@ export function ProductsPage() {
               <DialogHeader>
                 <DialogTitle className="text-xl pr-6">Detalhes do Produto</DialogTitle>
                 <DialogDescription>
-                  Informações completas e links de afiliado
+                  Informações completas e link de afiliado
                 </DialogDescription>
               </DialogHeader>
 
@@ -878,103 +890,56 @@ export function ProductsPage() {
                     )}
                   </div>
 
-                  <Separator />
+                  {/* Link de Afiliado — somente se existir */}
+                  {affiliateLink && (
+                    <>
+                      <Separator />
 
-                  {/* Links */}
-                  {(displayProduct.link_afiliado || displayProduct.affiliateLink) && (
-                    <div className="space-y-3 bg-green-50 dark:bg-green-950/20 p-4 rounded-lg border border-green-200 dark:border-green-900">
-                      <Label className="text-sm font-semibold flex items-center gap-2 text-green-700 dark:text-green-400">
-                        <Link2 className="w-4 h-4" />
-                        Link de Afiliado
-                      </Label>
-                      <div className="flex gap-2">
-                        <Input
-                          value={displayProduct.link_afiliado || displayProduct.affiliateLink}
-                          readOnly
-                          className="font-mono text-xs bg-white dark:bg-background"
-                        />
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleCopyLink(displayProduct.link_afiliado || displayProduct.affiliateLink, false)}
-                          className="flex-shrink-0"
-                        >
-                          {copiedLink ? (
-                            <Check className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <Copy className="w-4 h-4" />
-                          )}
-                        </Button>
-                        <Button
-                          size="icon"
-                          asChild
-                          className="flex-shrink-0"
-                        >
-                          <a
-                            href={displayProduct.link_afiliado || displayProduct.affiliateLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                      <div className="space-y-3 bg-green-50 dark:bg-green-950/20 p-4 rounded-lg border border-green-200 dark:border-green-900">
+                        <Label className="text-sm font-semibold flex items-center gap-2 text-green-700 dark:text-green-400">
+                          <Link2 className="w-4 h-4" />
+                          Link de Afiliado
+                        </Label>
+
+                        {/* Display visual — não editável, sem foco de input */}
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border bg-background/60 text-sm font-mono text-muted-foreground overflow-hidden select-all cursor-text">
+                            <span className="truncate">{affiliateLink}</span>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleCopyLink(affiliateLink)}
+                            className="flex-shrink-0"
+                            title="Copiar link"
                           >
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        💰 Use este link para receber comissão nas vendas
-                      </p>
-                    </div>
-                  )}
-
-                  {displayProduct.link_original && (
-                    <div className="space-y-2 bg-muted/30 p-4 rounded-lg">
-                      <Label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                        <Link2 className="w-3.5 h-3.5" />
-                        Link Original (sem afiliação)
-                      </Label>
-                      <div className="flex gap-2">
-                        <Input
-                          value={displayProduct.link_original}
-                          readOnly
-                          className="font-mono text-xs"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleCopyLink(displayProduct.link_original, true)}
-                          className="flex-shrink-0"
-                        >
-                          {copiedOriginalLink ? (
-                            <Check className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <Copy className="w-4 h-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          asChild
-                          className="flex-shrink-0"
-                        >
-                          <a
-                            href={displayProduct.link_original}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            {copiedLink ? (
+                              <Check className="w-4 h-4 text-green-600" />
+                            ) : (
+                              <Copy className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <Button
+                            size="icon"
+                            asChild
+                            className="flex-shrink-0"
+                            title="Abrir link"
                           >
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
-                        </Button>
-                      </div>
-                    </div>
-                  )}
+                            <a
+                              href={affiliateLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
+                          </Button>
+                        </div>
 
-                  {/* ID do Produto */}
-                  {displayProduct._id && (
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">ID MongoDB</Label>
-                      <code className="block text-xs bg-muted p-2 rounded font-mono break-all">
-                        {displayProduct._id}
-                      </code>
-                    </div>
+                        <p className="text-xs text-muted-foreground">
+                          💰 Use este link para receber comissão nas vendas
+                        </p>
+                      </div>
+                    </>
                   )}
                 </div>
               </ScrollArea>
@@ -983,10 +948,10 @@ export function ProductsPage() {
                 <Button variant="outline" onClick={() => setDetailsDialogOpen(false)}>
                   Fechar
                 </Button>
-                {(displayProduct.link_afiliado || displayProduct.affiliateLink) && (
+                {affiliateLink && (
                   <Button asChild>
                     <a
-                      href={displayProduct.link_afiliado || displayProduct.affiliateLink}
+                      href={affiliateLink}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="gap-2"
