@@ -12,6 +12,7 @@ import { AuthProvider } from "@/contexts/AuthContext.tsx";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/LoginPage";
+import { MLCallbackPage } from "@/pages/MLCallbackPage";
 import { DashboardHome } from "@/pages/DashboardHome";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { AutomationPage } from "@/pages/AutomationPage";
@@ -25,16 +26,15 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-// Inner app precisa estar dentro do BrowserRouter para o AuthProvider
-// poder usar hooks de rota se necessário
 function AppRoutes() {
   return (
     <AuthProvider>
       <Routes>
-        {/* Pública */}
+        {/* Públicas */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/ml/callback" element={<MLCallbackPage />} />
 
-        {/* Protegidas — ProtectedRoute renderiza o DashboardLayout via Outlet */}
+        {/* Protegidas */}
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route path="/" element={<DashboardHome />} />

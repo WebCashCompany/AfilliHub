@@ -6,12 +6,6 @@ const API_URL = `${ENV.API_BASE_URL}/api`;
 
 export type Marketplace = 'mercadolivre' | 'amazon' | 'magalu' | 'shopee';
 
-interface ConnectionStatus {
-  marketplace: Marketplace;
-  connected: boolean;
-  hasActiveAccount: boolean;
-}
-
 export function useMarketplaceConnections() {
   const [connections, setConnections] = useState<Record<Marketplace, boolean>>({
     mercadolivre: false,
@@ -24,28 +18,28 @@ export function useMarketplaceConnections() {
 
   const checkConnections = async () => {
     try {
-      // Verifica Mercado Livre
-      const mlResponse = await axios.get(`${API_URL}/sessions/ml`);
-      const hasActiveMl = mlResponse.data.accounts?.some((acc: any) => acc.isActive && acc.status === 'valid');
+      const [mlResponse, magaluResponse] = await Promise.allSettled([
+        axios.get(`${API_URL}/ml/status`),
+        axios.get(`${API_URL}/integrations/magalu`),
+      ]);
 
-      // 🔥 VERIFICA MAGALU - Busca o ID do Parceiro
-      const magaluResponse = await axios.get(`${API_URL}/integrations/magalu`).catch(() => ({ data: null }));
-      const hasMagalu = !!(magaluResponse.data && magaluResponse.data.affiliateId);
+      const hasActiveMl =
+        mlResponse.status === 'fulfilled' &&
+        mlResponse.value.data.authenticated === true;
+
+      const hasMagalu =
+        magaluResponse.status === 'fulfilled' &&
+        !!(magaluResponse.value.data?.affiliateId);
 
       setConnections({
         mercadolivre: hasActiveMl,
-        amazon: false, // Em breve
-        magalu: hasMagalu, // 🔥 AGORA VERIFICA SE TEM ID CONFIGURADO
-        shopee: false, // Em breve
+        amazon: false,
+        magalu: hasMagalu,
+        shopee: false,
       });
     } catch (error) {
       console.error('Erro ao verificar conexões:', error);
-      setConnections({
-        mercadolivre: false,
-        amazon: false,
-        magalu: false,
-        shopee: false,
-      });
+      setConnections({ mercadolivre: false, amazon: false, magalu: false, shopee: false });
     } finally {
       setLoading(false);
     }
@@ -53,25 +47,18 @@ export function useMarketplaceConnections() {
 
   useEffect(() => {
     checkConnections();
-    
-    // 🔥 ESCUTA EVENTO CUSTOMIZADO disparado quando salva config do Magalu
-    const handleMagaluUpdate = () => {
-      checkConnections();
-    };
-    window.addEventListener('magalu-config-updated', handleMagaluUpdate);
 
-    // Revalidar a cada 30 segundos
+    window.addEventListener('magalu-config-updated', checkConnections);
+    window.addEventListener('ml-connected', checkConnections);
+
     const interval = setInterval(checkConnections, 30000);
-    
+
     return () => {
       clearInterval(interval);
-      window.removeEventListener('magalu-config-updated', handleMagaluUpdate);
+      window.removeEventListener('magalu-config-updated', checkConnections);
+      window.removeEventListener('ml-connected', checkConnections);
     };
   }, []);
 
-  return {
-    connections,
-    loading,
-    refresh: checkConnections,
-  };
+  return { connections, loading, refresh: checkConnections };
 }
