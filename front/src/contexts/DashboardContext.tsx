@@ -1,5 +1,4 @@
-// src/contexts/DashboardContext.tsx - COM SSE E HISTÓRICO REAL - VERSÃO CORRIGIDA
-
+// src/contexts/DashboardContext.tsx - COM SSE E HISTÓRICO REAL - VERSÃO CORRIGIDA  
 import React, {
   createContext,
   useContext,
@@ -45,14 +44,14 @@ interface DashboardContextType {
 
 export interface ScrapingConfig {
   marketplaces: {
-    mercadolivre: { enabled: boolean; quantity: number; filters?: any };
-    amazon: { enabled: boolean; quantity: number; filters?: any };
-    magalu: { enabled: boolean; quantity: number; filters?: any };
-    shopee: { enabled: boolean; quantity: number; filters?: any };
+    mercadolivre?: { enabled: boolean; quantity: number; searchTerm?: string; categoria?: string; categoryKey?: string; minDiscount?: number; maxPrice?: number; };
+    amazon?:       { enabled: boolean; quantity: number; searchTerm?: string; categoria?: string; categoryKey?: string; minDiscount?: number; maxPrice?: number; };
+    magalu?:       { enabled: boolean; quantity: number; searchTerm?: string; categoria?: string; categoryKey?: string; minDiscount?: number; maxPrice?: number; };
+    shopee?:       { enabled: boolean; quantity: number; searchTerm?: string; categoria?: string; categoryKey?: string; minDiscount?: number; maxPrice?: number; };
+    [key: string]: any;
   };
   minDiscount: number;
   maxPrice: number;
-  filters?: any;
 }
 
 // 🔥 INTERFACE COMPLETA COM HISTÓRICO
@@ -96,7 +95,6 @@ function getInitialScrapingStatus(): ScrapingStatus {
   if (savedHistory) {
     try {
       const parsed = JSON.parse(savedHistory);
-      // Converter strings de data de volta para objetos Date
       recentHistory = parsed.map((item: any) => ({
         ...item,
         completedAt: new Date(item.completedAt)
@@ -131,7 +129,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const scrapingStartTimeRef = useRef<number | null>(null);
-  const isCompletedRef = useRef(false); // 🔥 NOVO: Flag para evitar múltiplos completes
+  const isCompletedRef = useRef(false);
 
   function normalizeMarketplace(mp: string): Marketplace {
     const map: Record<string, Marketplace> = {
@@ -164,13 +162,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       duration: duration
     };
 
-    // Atualizar histórico (máximo 10 itens)
     const currentHistory = scrapingStatus.recentHistory || [];
     const newHistory = [completedSession, ...currentHistory].slice(0, 10);
-    
-    // Salvar no localStorage
     localStorage.setItem('scraping_history', JSON.stringify(newHistory));
-    
     return newHistory;
   };
 
@@ -226,14 +220,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshProducts();
-    
-    // Verifica status inicial do backend
+
     const checkInitialStatus = async () => {
       try {
         const response = await scrapingService.getStatus();
         if (response.success && response.data) {
           const backendStatus = response.data as any;
-          
           if (backendStatus.status === 'running' && backendStatus.sessionId) {
             console.log('🔄 Scraping ativo detectado, conectando SSE...');
             sessionIdRef.current = backendStatus.sessionId;
@@ -254,24 +246,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // ═══════════════════════════════════════════════════════════
-  // 🔥 HELPER: Verificar se scraping realmente completou
-  // ═══════════════════════════════════════════════════════════
   const checkIfCompleted = (data: any): boolean => {
-    // Scraping está completo se:
-    // 1. Status é 'completed' OU
-    // 2. Progress >= 100 OU
-    // 3. itemsCollected >= totalItems (e totalItems > 0)
     const statusCompleted = data.status === 'completed';
     const progressCompleted = data.progress >= 100;
     const itemsCompleted = data.totalItems > 0 && data.itemsCollected >= data.totalItems;
-    
     return statusCompleted || progressCompleted || itemsCompleted;
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // 🔥 HELPER: Processar completion (usado por SSE e polling)
-  // ═══════════════════════════════════════════════════════════
   const handleCompletion = (data: any) => {
     if (isCompletedRef.current) {
       console.log('⏭️ Completion já processado, ignorando...');
@@ -280,21 +261,19 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
     console.log('🎉 SCRAPING COMPLETADO!');
     isCompletedRef.current = true;
-    
+
     const newHistory = saveToHistory(data);
-    
+
     toast({
       title: "✅ Automação concluída!",
       description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
       className: "bg-green-600 text-white border-none shadow-lg",
     });
 
-    // Aguarda um pouco antes de desconectar para garantir que todos os eventos foram processados
     setTimeout(() => {
       disconnectSSE();
       refreshProducts();
-      
-      // Reseta o status após carregar os produtos
+
       setTimeout(() => {
         setScrapingStatus({
           ...getInitialScrapingStatus(),
@@ -308,7 +287,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   // ═══════════════════════════════════════════════════════════
-  // SSE - SERVER SENT EVENTS
+  // SSE
   // ═══════════════════════════════════════════════════════════
   const connectSSE = (sessionId: string) => {
     disconnectSSE();
@@ -316,7 +295,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
     const sseUrl = `${API_BASE_URL}/api/scraping/progress/${sessionId}`;
     console.log('🔌 CONECTANDO SSE:', sseUrl);
-    console.log('🔌 Session ID:', sessionId);
 
     const eventSource = new EventSource(sseUrl);
 
@@ -335,21 +313,19 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           marketplace: data.currentMarketplace
         });
 
-        // 🔥 ATUALIZAR STATUS SEMPRE (mantém loading ativo)
         setScrapingStatus(prev => ({
           ...prev,
-          isRunning: !checkIfCompleted(data), // Só para quando realmente completar
-          progress: Math.min(data.progress || 0, 100), // Cap em 100
-          currentMarketplace: data.currentMarketplace 
+          isRunning: !checkIfCompleted(data),
+          progress: Math.min(data.progress || 0, 100),
+          currentMarketplace: data.currentMarketplace
             ? normalizeMarketplace(data.currentMarketplace)
-            : prev.currentMarketplace, // 🔥 Mantém marketplace anterior se não vier
+            : prev.currentMarketplace,
           itemsCollected: data.itemsCollected || 0,
-          totalItems: data.totalItems || prev.totalItems, // 🔥 Mantém total anterior
-          lastProducts: data.lastProducts || prev.lastProducts, // 🔥 Mantém últimos produtos
-          liveProducts: data.liveProducts || prev.liveProducts // 🔥 Mantém live products
+          totalItems: data.totalItems || prev.totalItems,
+          lastProducts: data.lastProducts || prev.lastProducts,
+          liveProducts: data.liveProducts || prev.liveProducts
         }));
 
-        // 🔥 VERIFICAR COMPLETION (só processa uma vez)
         if (checkIfCompleted(data)) {
           handleCompletion(data);
         }
@@ -360,8 +336,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
     eventSource.onerror = (error) => {
       console.error('❌ ERRO SSE CONNECTION:', error);
-      console.error('ReadyState:', eventSource.readyState);
-      
       if (eventSource.readyState === EventSource.CLOSED) {
         console.log('⚠️ SSE fechou, confiando no backup polling...');
       }
@@ -371,23 +345,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   // ═══════════════════════════════════════════════════════════
-  // BACKUP POLLING (roda em paralelo ao SSE)
+  // BACKUP POLLING
   // ═══════════════════════════════════════════════════════════
   const backupPollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const startBackupPolling = () => {
-    if (backupPollingRef.current) {
-      clearInterval(backupPollingRef.current);
-    }
-
+    if (backupPollingRef.current) clearInterval(backupPollingRef.current);
     console.log('🔄 Iniciando polling de backup (2s)...');
 
     backupPollingRef.current = setInterval(async () => {
-      // 🔥 Se já completou, para o polling
-      if (isCompletedRef.current) {
-        stopBackupPolling();
-        return;
-      }
+      if (isCompletedRef.current) { stopBackupPolling(); return; }
 
       try {
         const url = `${API_BASE_URL}/api/scraping/status`;
@@ -396,19 +363,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
         if (json.success && json.data) {
           const data = json.data;
-          
-          console.log('📡 BACKUP:', {
-            progress: data.progress,
-            items: `${data.itemsCollected}/${data.totalItems}`,
-            status: data.status
-          });
+          console.log('📡 BACKUP:', { progress: data.progress, items: `${data.itemsCollected}/${data.totalItems}`, status: data.status });
 
-          // 🔥 ATUALIZAR STATUS
           setScrapingStatus(prev => ({
             ...prev,
             isRunning: !checkIfCompleted(data),
             progress: Math.min(data.progress || 0, 100),
-            currentMarketplace: data.currentMarketplace 
+            currentMarketplace: data.currentMarketplace
               ? normalizeMarketplace(data.currentMarketplace)
               : prev.currentMarketplace,
             itemsCollected: data.itemsCollected || 0,
@@ -417,15 +378,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             liveProducts: data.liveProducts || prev.liveProducts
           }));
 
-          // 🔥 VERIFICAR COMPLETION
-          if (checkIfCompleted(data)) {
-            handleCompletion(data);
-          }
+          if (checkIfCompleted(data)) handleCompletion(data);
         }
       } catch (error) {
         console.error('❌ Erro backup polling:', error);
       }
-    }, 2000); // 2 segundos (mais lento que antes para não sobrecarregar)
+    }, 2000);
   };
 
   const stopBackupPolling = () => {
@@ -437,23 +395,17 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   // ═══════════════════════════════════════════════════════════
-  // FALLBACK POLLING (caso SSE falhe)
+  // FALLBACK POLLING
   // ═══════════════════════════════════════════════════════════
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const startFallbackPolling = (sessionId: string) => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-    }
-
+    if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
     console.log('🔄 Iniciando fallback polling...');
     isCompletedRef.current = false;
 
     pollingIntervalRef.current = setInterval(async () => {
-      if (isCompletedRef.current) {
-        stopFallbackPolling();
-        return;
-      }
+      if (isCompletedRef.current) { stopFallbackPolling(); return; }
 
       try {
         const url = `${API_BASE_URL}/api/scraping/status`;
@@ -462,18 +414,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
         if (json.success && json.data) {
           const data = json.data;
-          
-          console.log('📡 POLLING:', {
-            progress: data.progress,
-            items: `${data.itemsCollected}/${data.totalItems}`,
-            status: data.status
-          });
+          console.log('📡 POLLING:', { progress: data.progress, items: `${data.itemsCollected}/${data.totalItems}`, status: data.status });
 
           setScrapingStatus(prev => ({
             ...prev,
             isRunning: !checkIfCompleted(data),
             progress: Math.min(data.progress || 0, 100),
-            currentMarketplace: data.currentMarketplace 
+            currentMarketplace: data.currentMarketplace
               ? normalizeMarketplace(data.currentMarketplace)
               : prev.currentMarketplace,
             itemsCollected: data.itemsCollected || 0,
@@ -482,9 +429,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             liveProducts: data.liveProducts || prev.liveProducts
           }));
 
-          if (checkIfCompleted(data)) {
-            handleCompletion(data);
-          }
+          if (checkIfCompleted(data)) handleCompletion(data);
         }
       } catch (error) {
         console.error('❌ Erro polling:', error);
@@ -532,7 +477,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     sessionIdRef.current = null;
     isCompletedRef.current = false;
     setScrapingStatus(getInitialScrapingStatus());
-    
+
     toast({
       title: "Status resetado",
       description: "O status de scraping foi reinicializado.",
@@ -541,18 +486,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
     const totalItems = Object.values(config.marketplaces)
-      .filter(mp => mp.enabled)
-      .reduce((sum, mp) => sum + mp.quantity, 0);
+      .filter((mp: any) => mp?.enabled)
+      .reduce((sum: number, mp: any) => sum + (mp.quantity || 0), 0);
 
     const enabledMarketplaces = Object.entries(config.marketplaces)
-      .filter(([_, mp]) => mp.enabled)
+      .filter(([_, mp]: any) => mp?.enabled)
       .map(([key]) => key as Marketplace);
 
-    // 🔥 RESETAR FLAGS E MARCAR INÍCIO
     isCompletedRef.current = false;
     scrapingStartTimeRef.current = Date.now();
 
-    // Estado inicial otimista
     setScrapingStatus(prev => ({
       ...prev,
       isRunning: true,
@@ -565,27 +508,36 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }));
 
     try {
+      // ✅ FIX PRINCIPAL: passa cada marketplace com os campos achatados no nível raiz
+      // O backend lê: options.searchTerm, options.categoria, options.minDiscount, options.maxPrice
+      // ⛔ NÃO envolver em "filters: {}" — o backend não lê de dentro dessa chave
       const payload: ScrapingRequestPayload = {
         marketplaces: Object.fromEntries(
-          Object.entries(config.marketplaces).map(([key, mp]) => {
+          Object.entries(config.marketplaces).map(([key, mp]: [string, any]) => {
+            if (!mp) return [key, { enabled: false, quantity: 0 }];
             return [
               key,
               {
-                enabled: mp.enabled,
-                quantity: mp.quantity,
-                filters: mp.filters || {}
+                enabled: mp.enabled ?? false,
+                quantity: mp.quantity ?? 0,
+                // Campos achatados diretamente — sem "filters" aninhado
+                ...(mp.searchTerm  ? { searchTerm:  mp.searchTerm  } : {}),
+                ...(mp.categoria   ? { categoria:   mp.categoria   } : {}),
+                ...(mp.categoryKey ? { categoryKey: mp.categoryKey } : {}),
+                minDiscount: mp.minDiscount ?? config.minDiscount ?? 20,
+                maxPrice:    mp.maxPrice    ?? config.maxPrice    ?? 20000,
               }
             ];
           })
         ),
         minDiscount: config.minDiscount,
         maxPrice: config.maxPrice,
-        filters: config.filters || {}
-      };
+        // ⛔ Sem "filters" no nível raiz — campo removido
+      } as any;
 
       console.log('🚀 Iniciando scraping...');
-      console.log('📦 Payload:', payload);
-      
+      console.log('📦 Payload enviado ao backend:', JSON.stringify(payload, null, 2));
+
       const res = await scrapingService.start(payload);
 
       console.log('📥 Resposta do backend:', res);
@@ -593,7 +545,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       if (res.success && res.data?.sessionId) {
         sessionIdRef.current = res.data.sessionId;
         console.log('✅ Session ID recebida:', res.data.sessionId);
-        console.log('🔌 Tentando conectar SSE...');
         connectSSE(res.data.sessionId);
         return res.data.total || 0;
       } else {

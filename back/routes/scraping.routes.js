@@ -29,7 +29,7 @@ function sendSSE(sessionId, data) {
 
 router.post('/start', async (req, res) => {
   try {
-    const { marketplaces, minDiscount, maxPrice, filters } = req.body;
+    const { marketplaces, minDiscount, maxPrice } = req.body;
 
     console.log('\n╔════════════════════════════════════════════════════╗');
     console.log('║         🚀 RECEBENDO REQUISIÇÃO DE SCRAPING         ║');
@@ -101,12 +101,16 @@ router.post('/start', async (req, res) => {
         });
 
         try {
+          // ✅ FIX PRINCIPAL: lê os campos diretamente de mpConfig (não de mpConfig.filters)
+          // O frontend envia tudo achatado: mpConfig.searchTerm, mpConfig.categoria, etc.
           const options = {
-            minDiscount: mpConfig.filters?.minDiscount || minDiscount || 30,
-            limit: mpConfig.quantity,
-            maxPrice: mpConfig.filters?.maxPrice || maxPrice,
-            filters: mpConfig.filters || {},
-            
+            minDiscount:  mpConfig.minDiscount  ?? minDiscount ?? 30,
+            limit:        mpConfig.quantity,
+            maxPrice:     mpConfig.maxPrice      ?? maxPrice ?? null,
+            searchTerm:   mpConfig.searchTerm    || null,
+            categoria:    mpConfig.categoria     || null,
+            categoryKey:  mpConfig.categoryKey   || null,
+
             onProductCollected: (product, current, total) => {
               const session = activeScrapingSessions.get(sessionId);
               if (!session) return;
@@ -148,16 +152,13 @@ router.post('/start', async (req, res) => {
             }
           };
 
+          // ✅ categoryKey para Magalu — lê direto de mpConfig
           if (marketplaceName === 'magalu') {
-            if (mpConfig.filters?.categoryKey) {
-              options.categoryKey = mpConfig.filters.categoryKey;
-            } else if (mpConfig.filters?.categoria) {
-              options.categoryKey = mpConfig.filters.categoria;
+            if (mpConfig.categoryKey) {
+              options.categoryKey = mpConfig.categoryKey;
+            } else if (mpConfig.categoria) {
+              options.categoryKey = mpConfig.categoria;
             }
-          }
-
-          if (marketplaceName === 'mercadolivre' && mpConfig.filters?.categoria) {
-            options.categoria = mpConfig.filters.categoria;
           }
 
           const products = await scrapingService.collectFromMarketplace(
@@ -260,7 +261,6 @@ router.post('/start', async (req, res) => {
 router.get('/progress/:sessionId', (req, res) => {
   const { sessionId } = req.params;
   
-  // HEADERS ESSENCIAIS PARA RENDER/NGINX
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
@@ -271,7 +271,6 @@ router.get('/progress/:sessionId', (req, res) => {
   if (!sseClients.has(sessionId)) sseClients.set(sessionId, []);
   sseClients.get(sessionId).push(res);
 
-  // KEEP-ALIVE PARA NÃO DORMIR
   const keepAlive = setInterval(() => {
     res.write(': keepalive\n\n');
   }, 25000);

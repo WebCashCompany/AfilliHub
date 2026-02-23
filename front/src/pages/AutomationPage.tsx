@@ -651,9 +651,7 @@ export function AutomationPage() {
               <Filter className="w-5 h-5 text-primary" />
               Filtros — {currentMarketplace && getMarketplaceName(currentMarketplace)}
             </DialogTitle>
-            <DialogDescription>
-              Configure o modo de busca e os filtros de qualidade para este marketplace.
-            </DialogDescription>
+            <DialogDescription />
           </DialogHeader>
 
           <div className="space-y-5 py-2">
@@ -762,7 +760,6 @@ export function AutomationPage() {
             <div className="rounded-xl border bg-muted/30 overflow-hidden">
               <div className="px-4 py-3 border-b bg-muted/50">
                 <p className="text-sm font-semibold">Filtros de qualidade</p>
-
               </div>
 
               <div className="p-4 grid grid-cols-2 gap-6">
