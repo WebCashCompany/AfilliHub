@@ -9,7 +9,7 @@ const axios = require('axios');
 
 const ML_CLIENT_ID     = process.env.ML_CLIENT_ID     || '1547036702834286';
 const ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET || 'VvfVOTiFVm55ULCSUm66ZYGCpaEu7SQA';
-const ML_REDIRECT_URI  = process.env.ML_REDIRECT_URI  || 'https://louisville-addresses-interstate-hydrocodone.trycloudflare.com/api/ml/callback';
+const ML_REDIRECT_URI  = process.env.ML_REDIRECT_URI  || 'https://freeware-worth-reading-golf.trycloudflare.com/api/ml/callback';
 const ML_AFFILIATE_TAG = process.env.ML_AFFILIATE_TAG || 'baga20231223204119';
 
 class MLAffiliateService {
@@ -89,6 +89,12 @@ class MLAffiliateService {
   }
 
   async exchangeCode(code) {
+    console.log('🔍 [DEBUG] Trocando code:', {
+      client_id: ML_CLIENT_ID,
+      redirect_uri: ML_REDIRECT_URI,
+      code
+    });
+
     const response = await axios.post(
       'https://api.mercadolibre.com/oauth/token',
       new URLSearchParams({

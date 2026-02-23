@@ -1,10 +1,8 @@
 /**
  * ═══════════════════════════════════════════════════════════
  * ML OAUTH ROUTES
- * @version 2.0.0 - OAuth oficial + captura de cookies headless + MongoDB
+ * @version 2.1.0 - Exchange direto no callback (sem redirect intermediário)
  * ═══════════════════════════════════════════════════════════
- * Registra no index.js:
- *   app.use('/api/ml', require('./routes/ml-oauth.routes'));
  */
 
 const express  = require('express');
@@ -31,7 +29,6 @@ async function captureMLCookies(accessToken) {
 
     const page = await context.newPage();
 
-    // Injeta o access token antes de carregar a página
     await context.addInitScript((token) => {
       window.__ml_access_token = token;
     }, accessToken);
@@ -41,7 +38,6 @@ async function captureMLCookies(accessToken) {
       timeout: 20000
     });
 
-    // Injeta o token via localStorage e cookie para autenticar a sessão
     await page.evaluate((token) => {
       try {
         localStorage.setItem('access_token', token);
@@ -49,19 +45,15 @@ async function captureMLCookies(accessToken) {
       } catch (e) {}
     }, accessToken);
 
-    // Aguarda a página processar
     await page.waitForTimeout(2000);
 
-    // Navega para a área de afiliados para forçar a criação da sessão
     try {
       await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
         waitUntil: 'domcontentloaded',
         timeout: 15000
       });
       await page.waitForTimeout(2000);
-    } catch (e) {
-      // Ignora erro de navegação, tenta pegar os cookies mesmo assim
-    }
+    } catch (e) {}
 
     const cookies = await context.cookies(['https://www.mercadolivre.com.br']);
 
@@ -116,7 +108,6 @@ async function saveMLCredentials(data) {
 }
 
 // ─── GET /api/ml/auth ────────────────────────────────────────────────────────
-// Redireciona para tela de login do ML
 router.get('/auth', (req, res) => {
   const authUrl = mlAffiliate.getAuthUrl();
   console.log('🔗 [ML OAuth] Redirecionando para login ML...');
@@ -124,7 +115,7 @@ router.get('/auth', (req, res) => {
 });
 
 // ─── GET /api/ml/callback ────────────────────────────────────────────────────
-// ML redireciona aqui após login com ?code=XXXX
+// ML redireciona aqui após login — backend troca o code DIRETAMENTE
 router.get('/callback', async (req, res) => {
   const { code, error } = req.query;
 
@@ -132,25 +123,15 @@ router.get('/callback', async (req, res) => {
 
   if (error) {
     console.error('❌ [ML OAuth] Erro retornado pelo ML:', error);
-    return res.redirect(`${frontendUrl}/ml/callback?error=${error}`);
+    return res.redirect(`${frontendUrl}/settings?ml_error=${error}`);
   }
 
   if (!code) {
-    return res.redirect(`${frontendUrl}/ml/callback?error=no_code`);
+    return res.redirect(`${frontendUrl}/settings?ml_error=no_code`);
   }
 
-  // ✅ Repassa o code para o frontend — ele chama POST /exchange-code
-  res.redirect(`${frontendUrl}/ml/callback?code=${code}`);
-});
-
-// ─── POST /api/ml/exchange-code ──────────────────────────────────────────────
-// Frontend chama após receber o code no callback
-router.post('/exchange-code', async (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'Code obrigatório' });
-
   try {
-    console.log('🔄 [ML OAuth] Trocando código por tokens...');
+    console.log('🔄 [ML OAuth] Trocando código por tokens diretamente no callback...');
     const tokenData = await mlAffiliate.exchangeCode(code);
     console.log('✅ [ML OAuth] Tokens obtidos! User ID:', tokenData.user_id);
 
@@ -163,6 +144,38 @@ router.post('/exchange-code', async (req, res) => {
       console.warn('⚠️  [ML OAuth] Cookie ssid não capturado');
     }
 
+    mlAffiliate.updateCookies(ssid, csrf);
+
+    await saveMLCredentials({
+      accessToken:  tokenData.access_token,
+      refreshToken: tokenData.refresh_token,
+      tokenExpiry:  Date.now() + (tokenData.expires_in * 1000),
+      userId:       tokenData.user_id,
+      ssid:         ssid || '',
+      csrf:         csrf || '',
+    });
+
+    // Redireciona para o frontend com sucesso
+    return res.redirect(`${frontendUrl}/settings?ml_connected=true`);
+
+  } catch (err) {
+    console.error('❌ [ML OAuth] Erro ao trocar código:', err.response?.data || err.message);
+    return res.redirect(`${frontendUrl}/settings?ml_error=token_exchange_failed`);
+  }
+});
+
+// ─── POST /api/ml/exchange-code ──────────────────────────────────────────────
+// Mantido para compatibilidade, mas o fluxo principal agora usa o callback direto
+router.post('/exchange-code', async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Code obrigatório' });
+
+  try {
+    console.log('🔄 [ML OAuth] Trocando código por tokens...');
+    const tokenData = await mlAffiliate.exchangeCode(code);
+    console.log('✅ [ML OAuth] Tokens obtidos! User ID:', tokenData.user_id);
+
+    const { ssid, csrf } = await captureMLCookies(tokenData.access_token);
     mlAffiliate.updateCookies(ssid, csrf);
 
     await saveMLCredentials({
