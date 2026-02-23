@@ -140,7 +140,7 @@ export function DashboardLayout() {
             width: collapsed ? 60 : 240,
             transition: 'width 120ms ease',
             flexShrink: 0,
-            position: 'relative', // necessário para o botão não ser cortado
+            position: 'relative',
           }}
         >
           {/* ══════════════════════ SIDEBAR ══════════════════════ */}
@@ -237,40 +237,22 @@ export function DashboardLayout() {
             </div>
           </aside>
 
-          {/* ══ Botão colapso — fora do aside para não ser cortado pelo overflow ══ */}
+          {/* ══ Botão colapso ══ */}
           <button
             onClick={() => setCollapsed(c => !c)}
-            style={{
-              position: 'absolute',
-              right: -12,
-              top: 68,
-              zIndex: 50,
-              width: 24,
-              height: 24,
-              borderRadius: '50%',
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--card)',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: 'var(--muted-foreground)',
-              transition: 'background-color 100ms, color 100ms',
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--muted)';
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--foreground)';
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)';
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted-foreground)';
-            }}
-            aria-label={collapsed ? 'Expandir' : 'Recolher'}
+            className={cn(
+              'absolute -right-3 top-[4.5rem] z-50',
+              'w-5 h-5 rounded-full',
+              'bg-background border border-border shadow-md',
+              'flex items-center justify-center',
+              'text-muted-foreground hover:text-foreground hover:bg-muted',
+              'transition-all duration-200 hover:scale-110',
+            )}
+            aria-label={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
           >
             {collapsed
-              ? <ChevronRight style={{ width: 12, height: 12 }} />
-              : <ChevronLeft style={{ width: 12, height: 12 }} />
+              ? <ChevronRight className="w-3 h-3" />
+              : <ChevronLeft className="w-3 h-3" />
             }
           </button>
         </div>
