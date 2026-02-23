@@ -3,7 +3,6 @@
  * ML AFFILIATE SERVICE
  * Geração de links via API interna do ML (sem Playwright!)
  * ═══════════════════════════════════════════════════════════
- * Coloca em: back/services/MLAffiliateService.js
  */
 
 const axios = require('axios');
@@ -77,7 +76,42 @@ class MLAffiliateService {
     return !!this.accessToken;
   }
 
-  // ─── GERA LINK AFILIADO VIA API INTERNA DO ML ─────────────
+  isAffiliateLink(link) {
+    return link && typeof link === 'string' && (link.includes('meli.la') || link.includes('/sec/'));
+  }
+
+  // ✅ FIX: extrai o link afiliado de qualquer formato de resposta da API do ML
+  extractAffiliateLink(data) {
+    if (!data) return null;
+
+    // Formato string direta
+    if (typeof data === 'string' && this.isAffiliateLink(data)) return data;
+
+    // Campos conhecidos em ordem de prioridade
+    const candidates = [
+      data.short_url,
+      data.url,
+      data.link,
+      data.affiliate_url,
+      data.affiliateUrl,
+    ];
+
+    for (const candidate of candidates) {
+      if (candidate && typeof candidate === 'string' && this.isAffiliateLink(candidate)) {
+        return candidate;
+      }
+    }
+
+    // Busca recursiva em qualquer campo string que contenha meli.la
+    for (const value of Object.values(data)) {
+      if (typeof value === 'string' && this.isAffiliateLink(value)) {
+        return value;
+      }
+    }
+
+    return null;
+  }
+
   async generateAffiliateLink(productUrl) {
     if (this.linkCache.has(productUrl)) {
       return this.linkCache.get(productUrl);
@@ -107,17 +141,19 @@ class MLAffiliateService {
       );
 
       const data = response.data;
-      let affiliateLink = data?.short_url || data?.link || data?.url || null;
-      if (typeof data === 'string' && data.includes('/sec/')) affiliateLink = data;
 
-      if (affiliateLink && affiliateLink.includes('/sec/')) {
+      // ✅ FIX: usa extractAffiliateLink para pegar o link de qualquer campo
+      const affiliateLink = this.extractAffiliateLink(data);
+
+      if (affiliateLink) {
         this.linkCache.set(productUrl, affiliateLink);
-        console.log(`✅ [Affiliate] Link gerado via API`);
+        console.log(`✅ [Affiliate] Link gerado via API: ${affiliateLink}`);
         return affiliateLink;
       }
 
-      console.warn(`⚠️  [Affiliate] Resposta inesperada:`, JSON.stringify(data).substring(0, 200));
-      return productUrl;
+      // Log completo para debug quando não achar o link
+      console.warn(`⚠️  [Affiliate] Não encontrou meli.la na resposta:`, JSON.stringify(data));
+      return null;
 
     } catch (error) {
       if (error.response?.status === 401 && this.refreshToken) {
@@ -129,7 +165,7 @@ class MLAffiliateService {
         }
       }
       console.error(`❌ [Affiliate] ${error.response?.status || ''} ${error.message}`);
-      return productUrl;
+      return null;
     }
   }
 }

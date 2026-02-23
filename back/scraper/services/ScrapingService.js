@@ -3,7 +3,7 @@
  * SCRAPING SERVICE - COM SSE REAL-TIME & AFFILIATE ID DINÂMICO
  * ═══════════════════════════════════════════════════════════════════════
  * 
- * @version 2.7.0 - ✅ MAGALU: Affiliate ID do banco de dados
+ * @version 2.7.1 - ✅ FIX: aceita meli.la como link afiliado válido no ML
  */
 
 const { getProductConnection } = require('../../database/mongodb');
@@ -95,7 +95,7 @@ class ScrapingService {
   }
 
   /**
-   * 🔥 NOVO: Busca o affiliateId do Magalu no banco de dados
+   * 🔥 Busca o affiliateId do Magalu no banco de dados
    */
   async getMagaluAffiliateId() {
     try {
@@ -155,20 +155,14 @@ class ScrapingService {
     let scraper;
     
     if (marketplace.code === 'MAGALU') {
-      // 🔥 BUSCAR AFFILIATE ID DO BANCO
       const affiliateId = await this.getMagaluAffiliateId();
       
       const scraperOptions = { 
         categoryKey,
-        affiliateId // 🔥 PASSA O ID DO BANCO PARA O SCRAPER
+        affiliateId
       };
       
-      if (categoryKey) {
-        scraper = new MagaluScraper(minDiscount, scraperOptions);
-      } else {
-        scraper = new MagaluScraper(minDiscount, scraperOptions);
-      }
-      
+      scraper = new MagaluScraper(minDiscount, scraperOptions);
       scraper.limit = limit;
       scraper.maxPrice = maxPrice;
       
@@ -225,17 +219,20 @@ class ScrapingService {
         }
         
         if (marketplace.code === 'ML') {
-          if (!product.link_afiliado || !product.link_afiliado.includes('mercadolivre.com/sec/')) {
+          // ✅ FIX: aceita tanto /sec/ (antigo) quanto meli.la (novo formato)
+          const link = product.link_afiliado;
+          const isAfiliado = link && (
+            link.includes('mercadolivre.com/sec/') ||
+            link.includes('meli.la/')
+          );
+          if (!isAfiliado) {
             product.link_afiliado = product.link_original;
           }
         } 
         else if (marketplace.code === 'MAGALU') {
-          // 🔥 USAR O AFFILIATE ID QUE JÁ FOI APLICADO PELO SCRAPER
-          // O scraper já inseriu o affiliateId correto na URL
           if (!product.link_afiliado) {
             product.link_afiliado = product.link_original;
           }
-          
         } else if (marketplace.code === 'shopee') {
           const separator = product.link_original.includes('?') ? '&' : '?';
           const affiliateId = process.env.SHOPEE_AFFILIATE_ID || '18182230010';

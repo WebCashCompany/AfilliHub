@@ -1,6 +1,6 @@
 /**
  * MERCADO LIVRE SCRAPER
- * @version 3.2.0 - ✅ FIX: paginação real, sem loop, sem reset entre tentativas
+ * @version 3.3.1 - ✅ FIX: rejeita produtos sem link afiliado real (meli.la)
  */
 
 const { chromium } = require('playwright');
@@ -28,12 +28,11 @@ class MercadoLivreScraper {
       filteredByPrice: 0,
       affiliateLinksSuccess: 0,
       affiliateLinksFailed: 0,
+      skippedNoAffiliate: 0,
       couponsApplied: 0
     };
 
-    // ✅ Sets persistem durante TODA a execução (não resetam entre páginas)
     this.seenLinks = new Set();
-    this.seenOriginalLinks = new Set();
 
     if (!this.searchTerm) {
       this.categoriaInfo = getCategoria(this.categoriaKey) || getCategoria('informatica');
@@ -62,41 +61,43 @@ class MercadoLivreScraper {
 
   getPageUrl(baseUrl, pageNum, offset) {
     if (pageNum === 1) return baseUrl;
-    // ✅ Paginação correta do ML — _Desde_ começa em 49, 97, 145...
-    return `${baseUrl}_Desde_${offset + 1}`;
+    return `${baseUrl}_Desde_${offset + 1}_NoIndex_True`;
   }
 
   isProductUrl(url) {
     return url && (url.includes('/MLB') || url.includes('/MLA') || url.includes('produto.mercadolivre'));
   }
 
-  async loadExistingProducts() {
+  // ✅ FIX: verifica se é link afiliado real (meli.la ou /sec/)
+  isRealAffiliateLink(link) {
+    return link && (link.includes('meli.la') || link.includes('/sec/'));
+  }
+
+  async loadExistingLinks() {
     try {
       const conn = getProductConnection();
       const Product = getProductModel('ML', conn);
 
       const query = this.searchTerm
-        ? { isActive: true }
+        ? { isActive: true, marketplace: 'ML' }
         : this.categoriaInfo && this.categoriaInfo.nome !== 'Todas'
-          ? { categoria: this.categoriaInfo.nome, isActive: true }
-          : { isActive: true };
+          ? { categoria: this.categoriaInfo.nome, isActive: true, marketplace: 'ML' }
+          : { isActive: true, marketplace: 'ML' };
 
       const products = await Product.find(query)
         .select('link_original')
         .lean()
-        .limit(1000)
-        .sort({ createdAt: -1 });
+        .limit(2000);
 
-      // Pré-popula seenOriginalLinks com produtos já no banco
-      // para não re-processar produtos que já existem
       for (const product of products) {
         if (product.link_original) {
-          this.seenOriginalLinks.add(product.link_original);
+          this.seenLinks.add(product.link_original);
         }
       }
 
+      console.log(`📋 ${this.seenLinks.size} produtos já existentes no banco (serão ignorados)\n`);
     } catch (error) {
-      // ignora erro
+      console.warn('⚠️  Não foi possível carregar produtos existentes:', error.message);
     }
   }
 
@@ -149,12 +150,10 @@ class MercadoLivreScraper {
     if (mlAffiliate.isAuthenticated()) {
       try {
         const link = await mlAffiliate.generateAffiliateLink(productUrl);
-        if (link && link.includes('/sec/')) return link;
-      } catch (e) {
-        // fallback abaixo
-      }
+        if (link && this.isRealAffiliateLink(link)) return link;
+      } catch (e) {}
     }
-    return productUrl;
+    return null; // ✅ FIX: retorna null em vez do link original
   }
 
   async scrapePage(url) {
@@ -174,7 +173,6 @@ class MercadoLivreScraper {
 
         cards.forEach(card => {
           try {
-            // Pega todos os links do card e filtra pelo que tem MLB/MLA
             const allLinks = Array.from(card.querySelectorAll('a'));
             let link = null;
             for (const el of allLinks) {
@@ -188,6 +186,7 @@ class MercadoLivreScraper {
 
             const name = card.querySelector('h2, .poly-component__title')?.innerText?.trim() || 'Sem nome';
             const img = card.querySelector('img')?.src;
+
             const discountEl = card.querySelector('.andes-money-amount__discount, .poly-price__disc_label');
             const discount = parseInt(discountEl?.innerText.replace(/\D/g, '') || '0');
 
@@ -240,11 +239,7 @@ class MercadoLivreScraper {
 
     if (validProducts.length === 0) return;
 
-    // Marca como vistos imediatamente
-    validProducts.forEach(p => {
-      this.seenLinks.add(p.link);
-      this.seenOriginalLinks.add(p.link);
-    });
+    validProducts.forEach(p => this.seenLinks.add(p.link));
 
     for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
       if (allProducts.length >= this.limit) break;
@@ -274,11 +269,19 @@ class MercadoLivreScraper {
           return null;
         }
 
+        // ✅ FIX: tenta gerar link afiliado real
         const affiliateLink = await this.getAffiliateLink(prodData.link);
-        const isAffiliate = affiliateLink.includes('/sec/');
 
-        if (isAffiliate) this.stats.affiliateLinksSuccess++;
-        else this.stats.affiliateLinksFailed++;
+        // ✅ FIX: se não gerou link afiliado real, PULA o produto
+        if (!affiliateLink) {
+          this.stats.affiliateLinksFailed++;
+          this.stats.skippedNoAffiliate++;
+          console.warn(`⏭️  Sem link afiliado (meli.la), pulando: ${prodData.name.substring(0, 50)}`);
+          return null;
+        }
+
+        this.stats.affiliateLinksSuccess++;
+        console.log(`✅ [Scraper] Link afiliado salvo: ${affiliateLink}`);
 
         let categoriaFinal = this.searchTerm ? 'Informática' : this.categoriaInfo.nome;
         if (categoriaFinal === 'esportes') categoriaFinal = 'Esportes e Fitness';
@@ -287,7 +290,7 @@ class MercadoLivreScraper {
           nome: prodData.name,
           imagem: prodData.image,
           link_original: prodData.link,
-          link_afiliado: affiliateLink,
+          link_afiliado: affiliateLink, // ✅ sempre meli.la aqui
           desconto: `${realDiscount}%`,
           preco: `R$ ${finalPrice}`,
           preco_anterior: `R$ ${prodData.oldPrice}`,
@@ -323,13 +326,13 @@ class MercadoLivreScraper {
   }
 
   async scrapeCategory() {
-    await this.loadExistingProducts();
+    await this.loadExistingLinks();
     await this.createBrowserContext();
 
     if (mlAffiliate.isAuthenticated()) {
       console.log('⚡ [Scraper] Modo RÁPIDO — links via API!\n');
     } else {
-      console.log('⚠️  [Scraper] Sem autenticação — links sem /sec/\n');
+      console.log('⚠️  [Scraper] Sem autenticação — produtos serão ignorados sem link afiliado\n');
     }
 
     const allProducts = [];
@@ -342,6 +345,7 @@ class MercadoLivreScraper {
       while (allProducts.length < this.limit && pageNum <= 20) {
         const url = this.getPageUrl(baseUrl, pageNum, offset);
         console.log(`📄 Página ${pageNum} | Coletados: ${allProducts.length}/${this.limit}`);
+        console.log(`   🔗 ${url}`);
 
         const pageData = await this.scrapePage(url);
 
@@ -352,13 +356,12 @@ class MercadoLivreScraper {
           break;
         }
 
-        // Filtra os não vistos
-        const newProducts = pageData.products.filter(p => !this.seenOriginalLinks.has(p.link));
+        const newProducts = pageData.products.filter(p => !this.seenLinks.has(p.link));
         console.log(`   🆕 ${newProducts.length} novos para processar`);
 
         if (newProducts.length === 0) {
           consecutiveEmpty++;
-          console.log(`   ⏭️  Nenhum novo (${consecutiveEmpty}/3 páginas vazias consecutivas)`);
+          console.log(`   ⏭️  Nenhum novo (${consecutiveEmpty}/3 páginas sem novos)`);
           if (consecutiveEmpty >= 3) {
             console.log(`   🏁 3 páginas sem novos produtos, encerrando`);
             break;
@@ -373,7 +376,11 @@ class MercadoLivreScraper {
       }
 
       if (this.browser) await this.browser.close();
-      console.log(`\n✅ Scraping concluído: ${allProducts.length} produtos coletados\n`);
+
+      console.log(`\n✅ Scraping concluído: ${allProducts.length} produtos coletados`);
+      console.log(`   ✅ Links afiliados: ${this.stats.affiliateLinksSuccess}`);
+      console.log(`   ⏭️  Pulados sem afiliado: ${this.stats.skippedNoAffiliate}\n`);
+
       return allProducts;
 
     } catch (error) {
