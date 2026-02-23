@@ -935,9 +935,7 @@ export function ProductsPage() {
                           </Button>
                         </div>
 
-                        <p className="text-xs text-muted-foreground">
-                          💰 Use este link para receber comissão nas vendas
-                        </p>
+                
                       </div>
                     </>
                   )}
