@@ -11,7 +11,7 @@ import { Slider } from '@/components/ui/slider';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { ScrapingLiveProducts } from '@/components/dashboard/ScrapingLiveProducts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Zap, Play, Settings2, Loader2, CheckCircle, Package, Filter, Search, X, RotateCcw, Lock, ArrowRight, Clock } from 'lucide-react';
+import { Zap, Play, Settings2, Loader2, CheckCircle, Package, Filter, Search, X, RotateCcw, ArrowRight, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
 import { useMarketplaceConnections } from '@/hooks/useMarketplaceConnections.ts';
@@ -105,23 +105,23 @@ export function AutomationPage() {
     }
     return {
       marketplaces: {
-        mercadolivre: { 
-          enabled: true, 
+        mercadolivre: {
+          enabled: true,
           quantity: 50,
           filters: { minDiscount: 20, maxPrice: 20000 }
         },
-        amazon: { 
-          enabled: true, 
+        amazon: {
+          enabled: true,
           quantity: 50,
           filters: { minDiscount: 20, maxPrice: 20000 }
         },
-        magalu: { 
-          enabled: false, 
+        magalu: {
+          enabled: false,
           quantity: 30,
           filters: { minDiscount: 20, maxPrice: 20000 }
         },
-        shopee: { 
-          enabled: true, 
+        shopee: {
+          enabled: true,
           quantity: 40,
           filters: { minDiscount: 20, maxPrice: 20000 }
         },
@@ -144,7 +144,7 @@ export function AutomationPage() {
           setTimeout(() => element.classList.remove('animate-pulse-slow'), 3000);
         }
       }, 300);
-      
+
       navigate(location.pathname, { replace: true });
     }
   }, [location.state, navigate]);
@@ -171,18 +171,6 @@ export function AutomationPage() {
   }, [scrapingStatus.isRunning, scrapingStatus.progress, scrapingStatus.itemsCollected]);
 
   const handleMarketplaceToggle = (mp: Marketplace) => {
-    const isConnected = connections[mp];
-    
-    if (!isConnected) {
-      toast({
-        title: "⚠️ Marketplace não conectado",
-        description: `Configure uma conta do ${getMarketplaceName(mp)} primeiro.`,
-        variant: "destructive",
-      });
-      navigate('/settings', { state: { highlightMarketplace: mp } });
-      return;
-    }
-
     setConfig(prev => ({
       ...prev,
       marketplaces: {
@@ -210,18 +198,6 @@ export function AutomationPage() {
   };
 
   const openFiltersModal = (mp: Marketplace) => {
-    const isConnected = connections[mp];
-    
-    if (!isConnected) {
-      toast({
-        title: "⚠️ Marketplace não conectado",
-        description: `Configure uma conta do ${getMarketplaceName(mp)} primeiro.`,
-        variant: "destructive",
-      });
-      navigate('/settings', { state: { highlightMarketplace: mp } });
-      return;
-    }
-
     setCurrentMarketplace(mp);
     setTempFilters(config.marketplaces[mp].filters || {});
     setConfigModalOpen(true);
@@ -229,7 +205,7 @@ export function AutomationPage() {
 
   const saveFilters = () => {
     if (!currentMarketplace) return;
-    
+
     setConfig(prev => ({
       ...prev,
       marketplaces: {
@@ -240,7 +216,7 @@ export function AutomationPage() {
         }
       }
     }));
-    
+
     setConfigModalOpen(false);
     toast({
       title: "✅ Filtros salvos",
@@ -257,10 +233,9 @@ export function AutomationPage() {
   };
 
   const handleStartScraping = async () => {
-    // 🔥 FILTRA APENAS MARKETPLACES HABILITADOS E CONECTADOS
     const enabledAndConnectedMarketplaces = Object.entries(config.marketplaces)
       .filter(([mp, cfg]) => cfg.enabled && connections[mp as Marketplace]);
-    
+
     if (enabledAndConnectedMarketplaces.length === 0) {
       toast({
         title: "⚠️ Nenhum marketplace disponível",
@@ -270,7 +245,6 @@ export function AutomationPage() {
       return;
     }
 
-    // 🔥 DESABILITA AUTOMATICAMENTE MARKETPLACES NÃO CONECTADOS
     const marketplacesConfig = { ...config.marketplaces };
     Object.keys(marketplacesConfig).forEach((mp) => {
       const marketplace = mp as Marketplace;
@@ -316,8 +290,8 @@ export function AutomationPage() {
   const handleCategoryChange = (value: string) => {
     if (currentMarketplace === 'magalu') {
       const category = MAGALU_CATEGORIES.find(cat => cat.value === value);
-      setTempFilters(prev => ({ 
-        ...prev, 
+      setTempFilters(prev => ({
+        ...prev,
         categoryKey: category?.key || '',
         categoria: value
       }));
@@ -326,9 +300,12 @@ export function AutomationPage() {
     }
   };
 
-  const handleGoToSettings = (mp: Marketplace) => {
-    navigate('/settings', { state: { highlightMarketplace: mp } });
-  };
+  // Separa marketplaces conectados dos não conectados
+  const connectedMarketplaces = (Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][])
+    .filter(([mp]) => connections[mp]);
+
+  const disconnectedMarketplaces = (Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][])
+    .filter(([mp]) => !connections[mp]);
 
   return (
     <div className="p-6 space-y-6">
@@ -359,52 +336,27 @@ export function AutomationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {(Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][]).map(([mp, mpConfig]) => {
-                const isConnected = connections[mp];
-                
-                return (
-                  <div 
+
+            {/* Marketplaces conectados */}
+            {connectedMarketplaces.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {connectedMarketplaces.map(([mp, mpConfig]) => (
+                  <div
                     key={mp}
                     id={`marketplace-${mp}`}
                     className={`relative overflow-hidden rounded-xl border-2 transition-all ${
-                      !isConnected
-                        ? 'border-orange-500/30 bg-gradient-to-br from-orange-500/5 to-transparent'
-                        : mpConfig.enabled 
-                          ? 'border-primary bg-primary/5' 
-                          : 'border-border bg-card hover:border-muted-foreground/30'
+                      mpConfig.enabled
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border bg-card hover:border-muted-foreground/30'
                     }`}
                   >
-                    {!isConnected && (
-                      <div className="absolute inset-0 bg-gradient-to-br from-black/60 via-black/50 to-black/40 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center p-6 text-center">
-                        <div className="w-16 h-16 rounded-full bg-orange-500/20 flex items-center justify-center mb-4 border-2 border-orange-500/30">
-                          <Lock className="w-8 h-8 text-orange-400" />
-                        </div>
-                        <h4 className="text-white font-semibold text-lg mb-2">
-                          Marketplace não conectado
-                        </h4>
-                        <p className="text-white/70 text-sm mb-6 max-w-[200px]">
-                          Configure sua conta para usar este marketplace
-                        </p>
-                        <Button
-                          onClick={() => handleGoToSettings(mp)}
-                          className="bg-orange-500 hover:bg-orange-600 text-white gap-2 shadow-lg"
-                          size="sm"
-                        >
-                          Configurar agora
-                          <ArrowRight className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    )}
-
-                    <div className={`p-4 ${!isConnected ? 'opacity-30' : ''}`}>
+                    <div className="p-4">
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
                           <Checkbox
                             id={mp}
-                            checked={mpConfig.enabled && isConnected}
+                            checked={mpConfig.enabled}
                             onCheckedChange={() => handleMarketplaceToggle(mp)}
-                            disabled={!isConnected}
                           />
                           <MarketplaceBadge marketplace={mp} />
                         </div>
@@ -417,7 +369,6 @@ export function AutomationPage() {
                             size="icon"
                             className="h-8 w-8"
                             onClick={() => openFiltersModal(mp)}
-                            disabled={!isConnected}
                           >
                             <Settings2 className="w-4 h-4" />
                           </Button>
@@ -436,7 +387,7 @@ export function AutomationPage() {
                             step={1}
                             value={[mpConfig.quantity]}
                             onValueChange={([v]) => handleQuantityChange(mp, v)}
-                            disabled={!mpConfig.enabled || !isConnected}
+                            disabled={!mpConfig.enabled}
                             className="flex-1"
                           />
                           <Input
@@ -445,7 +396,7 @@ export function AutomationPage() {
                             max={1000}
                             value={mpConfig.quantity}
                             onChange={(e) => handleQuantityChange(mp, parseInt(e.target.value))}
-                            disabled={!mpConfig.enabled || !isConnected}
+                            disabled={!mpConfig.enabled}
                             className="w-20 h-8 text-center"
                           />
                         </div>
@@ -465,17 +416,46 @@ export function AutomationPage() {
                       )}
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            ) : (
+              !connectionsLoading && (
+                <div className="flex flex-col items-center justify-center py-10 text-center border-2 border-dashed rounded-xl border-muted-foreground/20">
+                  <Package className="w-10 h-10 text-muted-foreground mb-3" />
+                  <p className="font-medium text-sm">Nenhum marketplace configurado</p>
+                  <p className="text-xs text-muted-foreground mt-1 mb-4">
+                    Configure pelo menos um marketplace para iniciar a coleta
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => navigate('/settings')}
+                  >
+                    Ir para Configurações
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              )
+            )}
+
+            {/* Marketplaces não conectados — aviso discreto */}
+            {disconnectedMarketplaces.length > 0 && (
+              <div className="pt-2 border-t flex items-center gap-2 text-xs text-muted-foreground/50">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/30 flex-shrink-0" />
+                <span>
+                  {disconnectedMarketplaces.length} marketplace{disconnectedMarketplaces.length > 1 ? 's' : ''} não configurado{disconnectedMarketplaces.length > 1 ? 's' : ''} — em breve disponível
+                </span>
+              </div>
+            )}
 
             <div className="flex items-center justify-between p-4 bg-muted rounded-xl">
               <div>
                 <span className="text-sm text-muted-foreground">Total a coletar:</span>
                 <span className="ml-2 font-bold text-lg">{formatNumber(totalToCollect)} itens</span>
               </div>
-              <Button 
-                size="lg" 
+              <Button
+                size="lg"
                 onClick={handleStartScraping}
                 disabled={scrapingStatus.isRunning || totalToCollect === 0}
                 className="gap-2"
@@ -493,33 +473,6 @@ export function AutomationPage() {
                 )}
               </Button>
             </div>
-
-            {/* 🔥 ALERTA QUANDO HÁ MARKETPLACES HABILITADOS MAS NÃO CONECTADOS */}
-            {(() => {
-              const enabledButDisconnected = Object.entries(config.marketplaces)
-                .filter(([mp, cfg]) => cfg.enabled && !connections[mp as Marketplace])
-                .map(([mp]) => getMarketplaceName(mp as Marketplace));
-              
-              if (enabledButDisconnected.length > 0) {
-                return (
-                  <div className="flex items-start gap-3 p-4 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-                    <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-orange-500 text-xs">⚠</span>
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-orange-600 dark:text-orange-400">
-                        Marketplaces não configurados
-                      </p>
-                      <p className="text-xs text-orange-600/80 dark:text-orange-400/80 mt-1">
-                        {enabledButDisconnected.join(', ')} {enabledButDisconnected.length === 1 ? 'está habilitado mas não configurado' : 'estão habilitados mas não configurados'}. 
-                        {enabledButDisconnected.length === 1 ? ' Ele será' : ' Eles serão'} ignorado{enabledButDisconnected.length === 1 ? '' : 's'} automaticamente.
-                      </p>
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })()}
           </CardContent>
         </Card>
 
@@ -531,7 +484,7 @@ export function AutomationPage() {
                 <Zap className="w-5 h-5 text-primary" />
                 Status da Execução
               </CardTitle>
-              
+
               {scrapingStatus.isRunning && (
                 <Button
                   variant="ghost"
@@ -551,22 +504,22 @@ export function AutomationPage() {
                 <div className="text-center py-4">
                   <div className="relative inline-flex items-center justify-center w-32 h-32 mb-4">
                     <svg className="absolute inset-0 w-full h-full -rotate-90">
-                      <circle 
-                        cx="64" 
-                        cy="64" 
-                        r="56" 
-                        stroke="currentColor" 
-                        strokeWidth="8" 
-                        fill="transparent" 
-                        className="text-muted/20" 
+                      <circle
+                        cx="64"
+                        cy="64"
+                        r="56"
+                        stroke="currentColor"
+                        strokeWidth="8"
+                        fill="transparent"
+                        className="text-muted/20"
                       />
-                      <circle 
-                        cx="64" 
-                        cy="64" 
-                        r="56" 
-                        stroke="currentColor" 
-                        strokeWidth="8" 
-                        fill="transparent" 
+                      <circle
+                        cx="64"
+                        cy="64"
+                        r="56"
+                        stroke="currentColor"
+                        strokeWidth="8"
+                        fill="transparent"
                         strokeDasharray="351.858"
                         strokeDashoffset={351.858 - (351.858 * scrapingStatus.progress) / 100}
                         className="text-primary transition-all duration-500 ease-out"
@@ -578,9 +531,9 @@ export function AutomationPage() {
                       <span className="text-xl font-bold">{Math.round(scrapingStatus.progress)}%</span>
                     </div>
                   </div>
-                  
+
                   <p className="font-bold text-sm mb-3 animate-pulse">Coletando produtos...</p>
-                  
+
                   {scrapingStatus.currentMarketplace && (
                     <div className="flex justify-center mb-4">
                       <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 rounded-lg">
@@ -614,8 +567,8 @@ export function AutomationPage() {
                   <div className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/10 text-blue-600 rounded-lg">
                     <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
                     <p className="text-xs font-medium">
-                      {scrapingStatus.liveProducts && scrapingStatus.liveProducts.length > 0 
-                        ? 'Processando produtos em tempo real...' 
+                      {scrapingStatus.liveProducts && scrapingStatus.liveProducts.length > 0
+                        ? 'Processando produtos em tempo real...'
                         : 'Conectando...'}
                     </p>
                   </div>
@@ -632,14 +585,14 @@ export function AutomationPage() {
                   </p>
                 </div>
 
-                {/* 🔥 ATIVIDADE RECENTE COM DADOS REAIS */}
+                {/* ATIVIDADE RECENTE */}
                 <div className="pt-4 border-t">
                   <h4 className="font-medium mb-3 text-sm">Atividade Recente</h4>
                   <div className="space-y-3">
                     {scrapingStatus.recentHistory && scrapingStatus.recentHistory.length > 0 ? (
                       scrapingStatus.recentHistory.slice(0, 3).map((session) => {
                         const timeAgo = getTimeAgo(session.completedAt);
-                        
+
                         return (
                           <div key={session.id} className="flex items-start gap-3 text-sm">
                             <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
@@ -705,7 +658,7 @@ export function AutomationPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label>Desconto mínimo (%)</Label>
-                  <Input 
+                  <Input
                     type="number"
                     value={tempFilters.minDiscount || 0}
                     onChange={(e) => setTempFilters(prev => ({ ...prev, minDiscount: parseInt(e.target.value) }))}
@@ -724,7 +677,7 @@ export function AutomationPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label>Preço máximo (R$)</Label>
-                  <Input 
+                  <Input
                     type="number"
                     value={tempFilters.maxPrice || 0}
                     onChange={(e) => setTempFilters(prev => ({ ...prev, maxPrice: parseInt(e.target.value) }))}
