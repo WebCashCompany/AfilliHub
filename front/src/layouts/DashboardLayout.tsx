@@ -1,6 +1,7 @@
 // src/layouts/DashboardLayout.tsx
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import {
   LayoutDashboard,
   BarChart2,
@@ -19,6 +20,8 @@ import {
   Shield,
   Building2,
   Users,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -105,6 +108,47 @@ function SidebarNavItem({
   );
 }
 
+// ── Botão de toggle de tema ──────────────────────────────────
+function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
+  const { preferences, updateTheme } = useUserPreferences();
+
+  const isDark = preferences?.theme === 'dark' ||
+    (preferences?.theme === 'system' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const handleToggle = () => {
+    updateTheme(isDark ? 'light' : 'dark');
+  };
+
+  const label = isDark ? 'Modo claro' : 'Modo escuro';
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={handleToggle}
+          className={cn(
+            'flex flex-row items-center h-10 w-full rounded-lg text-sm font-medium transition-colors duration-100 text-muted-foreground hover:bg-muted hover:text-foreground',
+            collapsed ? 'justify-center px-0' : 'gap-3 px-3'
+          )}
+          aria-label={label}
+        >
+          {isDark
+            ? <Sun style={{ width: 18, height: 18, flexShrink: 0 }} />
+            : <Moon style={{ width: 18, height: 18, flexShrink: 0 }} />
+          }
+          {!collapsed && <span className="truncate">{label}</span>}
+        </button>
+      </TooltipTrigger>
+      {collapsed && (
+        <TooltipContent side="right" className="text-xs font-medium">
+          {label}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  );
+}
+
 export function DashboardLayout() {
   const { profile, signOut, role } = useAuth();
   const navigate = useNavigate();
@@ -134,13 +178,13 @@ export function DashboardLayout() {
     <TooltipProvider delayDuration={200}>
       <div className="flex h-screen bg-background overflow-hidden">
 
-        {/* Wrapper do sidebar — controla a largura com transform para ser leve */}
+        {/* Wrapper do sidebar */}
         <div
           style={{
             width: collapsed ? 60 : 240,
             transition: 'width 120ms ease',
             flexShrink: 0,
-            position: 'relative', // necessário para o botão não ser cortado
+            position: 'relative',
           }}
         >
           {/* ══════════════════════ SIDEBAR ══════════════════════ */}
@@ -178,6 +222,11 @@ export function DashboardLayout() {
                 />
               ))}
             </nav>
+
+            {/* ── Botão de tema (acima do usuário) ── */}
+            <div style={{ padding: '0 8px 4px' }}>
+              <ThemeToggleButton collapsed={collapsed} />
+            </div>
 
             {/* ── Usuário ── */}
             <div className="border-t border-border shrink-0 p-2">
@@ -237,7 +286,7 @@ export function DashboardLayout() {
             </div>
           </aside>
 
-          {/* ══ Botão colapso — fora do aside para não ser cortado pelo overflow ══ */}
+          {/* ══ Botão colapso ══ */}
           <button
             onClick={() => setCollapsed(c => !c)}
             style={{
@@ -283,4 +332,4 @@ export function DashboardLayout() {
       </div>
     </TooltipProvider>
   );
-}
+}   
