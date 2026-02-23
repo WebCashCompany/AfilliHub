@@ -754,13 +754,7 @@ export function AutomationPage() {
                   </div>
                 </div>
 
-                {/* Rodapé da seção */}
-                <div className="px-4 py-2.5 border-t bg-muted/20 flex items-center gap-2">
-                  <AlertCircle className="w-3.5 h-3.5 text-muted-foreground/60 flex-shrink-0" />
-                  <p className="text-[11px] text-muted-foreground/70">
-                    Se ambos estiverem em branco, coleta as ofertas gerais do marketplace
-                  </p>
-                </div>
+
               </div>
             )}
 
