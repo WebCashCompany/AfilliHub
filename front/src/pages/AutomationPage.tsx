@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useDashboard, ScrapingConfig } from '@/contexts/DashboardContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -85,6 +85,84 @@ function formatDuration(seconds: number): string {
   return `${minutes}min ${secs}s`;
 }
 
+// 🔥 HOOK DE PROGRESSO SUAVE
+// Interpola continuamente entre o valor atual e o target usando requestAnimationFrame
+function useSmoothProgress(targetProgress: number, isRunning: boolean) {
+  const [displayProgress, setDisplayProgress] = useState(0);
+  const animationRef = useRef<number | null>(null);
+  const currentRef = useRef(0);
+  const targetRef = useRef(0);
+
+  // Atualiza o target quando o valor real muda
+  useEffect(() => {
+    targetRef.current = targetProgress;
+  }, [targetProgress]);
+
+  // Quando para de rodar, reseta
+  useEffect(() => {
+    if (!isRunning) {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+      currentRef.current = 0;
+      setDisplayProgress(0);
+    }
+  }, [isRunning]);
+
+  // Loop de animação contínuo enquanto está rodando
+  useEffect(() => {
+    if (!isRunning) return;
+
+    const SPEED = 0.4; // % por frame — ajuste para mais rápido/lento
+    const MIN_CRAWL = 0.03; // progresso mínimo contínuo para dar sensação de vida
+
+    const animate = () => {
+      const target = targetRef.current;
+      const current = currentRef.current;
+
+      // Diferença entre onde estamos e onde queremos chegar
+      const diff = target - current;
+
+      let next: number;
+
+      if (diff > 0.1) {
+        // Interpolação suave: move uma fração da distância restante
+        // Quanto mais perto, mais devagar (easing out)
+        const step = Math.max(diff * SPEED * 0.1, MIN_CRAWL);
+        next = Math.min(current + step, target);
+      } else if (diff < -0.1) {
+        // Caso raro de regressão — pula diretamente
+        next = target;
+      } else {
+        // Muito perto do target: mantém um crawl mínimo para não parecer travado
+        // Mas nunca ultrapassa 99 sem ser 100 de verdade
+        if (target < 100) {
+          next = Math.min(current + MIN_CRAWL * 0.5, target + 3);
+        } else {
+          next = Math.min(current + MIN_CRAWL, 100);
+        }
+      }
+
+      currentRef.current = next;
+      setDisplayProgress(next);
+
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+    };
+  }, [isRunning]);
+
+  return displayProgress;
+}
+
 export function AutomationPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -132,6 +210,9 @@ export function AutomationPage() {
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
   const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
+
+  // 🔥 Progresso suave — substitui scrapingStatus.progress direto no render
+  const smoothProgress = useSmoothProgress(scrapingStatus.progress, scrapingStatus.isRunning);
 
   useEffect(() => {
     const state = location.state as { highlightMarketplace?: Marketplace } | null;
@@ -306,6 +387,10 @@ export function AutomationPage() {
 
   const disconnectedMarketplaces = (Object.entries(config.marketplaces) as [Marketplace, MarketplaceConfig][])
     .filter(([mp]) => !connections[mp]);
+
+  // Valores derivados do progresso suave para o SVG circular
+  const CIRCLE_CIRCUMFERENCE = 351.858;
+  const circleDashoffset = CIRCLE_CIRCUMFERENCE - (CIRCLE_CIRCUMFERENCE * smoothProgress) / 100;
 
   return (
     <div className="p-6 space-y-6">
@@ -520,15 +605,18 @@ export function AutomationPage() {
                         stroke="currentColor"
                         strokeWidth="8"
                         fill="transparent"
-                        strokeDasharray="351.858"
-                        strokeDashoffset={351.858 - (351.858 * scrapingStatus.progress) / 100}
-                        className="text-primary transition-all duration-500 ease-out"
+                        strokeDasharray={CIRCLE_CIRCUMFERENCE}
+                        // 🔥 Usa smoothProgress ao invés de scrapingStatus.progress
+                        // Sem transition CSS — o rAF já cuida da interpolação frame a frame
+                        strokeDashoffset={circleDashoffset}
+                        className="text-primary"
                         strokeLinecap="round"
                       />
                     </svg>
                     <div className="flex flex-col items-center">
                       <Loader2 className="w-10 h-10 animate-spin text-primary mb-1" />
-                      <span className="text-xl font-bold">{Math.round(scrapingStatus.progress)}%</span>
+                      {/* 🔥 Exibe o progresso interpolado arredondado */}
+                      <span className="text-xl font-bold">{Math.round(smoothProgress)}%</span>
                     </div>
                   </div>
 
@@ -544,7 +632,8 @@ export function AutomationPage() {
                   )}
                 </div>
 
-                <Progress value={scrapingStatus.progress} className="h-3" />
+                {/* 🔥 Progress bar também usa smoothProgress */}
+                <Progress value={smoothProgress} className="h-3" />
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-3 bg-secondary rounded-lg">

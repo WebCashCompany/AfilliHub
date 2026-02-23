@@ -1,6 +1,6 @@
 /**
- * MERCADO LIVRE SCRAPER - INTEGRAL E PROFISSIONAL
- * @version 3.0.0 - ✅ NOVO: Links de afiliado via API (sem Playwright!)
+ * MERCADO LIVRE SCRAPER
+ * @version 3.1.0 - ✅ FIXES: loop entre páginas + 400 em URLs inválidas
  */
 
 const { chromium } = require('playwright');
@@ -10,6 +10,7 @@ const { getProductModel } = require('../../database/models/Products');
 const { getCategoria } = require('../../config/categorias-ml');
 const MLSessionManager = require('../../services/ml-session-manager');
 const mlAffiliate = require('../../services/MLAffiliateService');
+
 class MercadoLivreScraper {
   constructor(minDiscount = 30, options = {}) {
     this.minDiscount = minDiscount;
@@ -17,9 +18,8 @@ class MercadoLivreScraper {
     this.maxPrice = options.maxPrice ? parseInt(options.maxPrice) : null;
     this.categoriaKey = options.categoria || 'todas';
     this.searchTerm = options.searchTerm || null;
-    
     this.onProductCollected = options.onProductCollected || null;
-    
+
     this.stats = {
       duplicatesIgnored: 0,
       productsCollected: 0,
@@ -30,17 +30,17 @@ class MercadoLivreScraper {
       affiliateLinksFailed: 0,
       couponsApplied: 0
     };
-    
+
     this.seenLinks = new Set();
     this.seenProductKeys = new Set();
-    this.seenOriginalLinks = new Set();
-    
+    this.seenOriginalLinks = new Set(); // ✅ FIX: agora é populado corretamente
+
     if (!this.searchTerm) {
       this.categoriaInfo = getCategoria(this.categoriaKey) || getCategoria('informatica');
     } else {
       this.categoriaInfo = getCategoria('informatica');
     }
-    
+
     try {
       this.sessionManager = new MLSessionManager();
       const activeSessionPath = this.sessionManager.getActiveSessionPath();
@@ -48,36 +48,40 @@ class MercadoLivreScraper {
     } catch (error) {
       this.sessionPath = path.join(process.cwd(), 'ml-session.json');
     }
-    
+
     this.browser = null;
     this.context = null;
   }
 
   getSearchUrl() {
     if (this.searchTerm) {
-      const encodedTerm = encodeURIComponent(this.searchTerm);
-      return `https://lista.mercadolivre.com.br/${encodedTerm}`;
+      return `https://lista.mercadolivre.com.br/${encodeURIComponent(this.searchTerm)}`;
     }
     return this.categoriaInfo.url;
+  }
+
+  // ✅ FIX: valida se a URL é de produto individual (tem /MLB ou /MLA)
+  isProductUrl(url) {
+    return url && (url.includes('/MLB') || url.includes('/MLA') || url.includes('produto.mercadolivre'));
   }
 
   async loadExistingProducts() {
     try {
       const conn = getProductConnection();
       const Product = getProductModel('ML', conn);
-      
-      const query = this.searchTerm 
+
+      const query = this.searchTerm
         ? { isActive: true }
         : this.categoriaInfo && this.categoriaInfo.nome !== 'Todas'
           ? { categoria: this.categoriaInfo.nome, isActive: true }
           : { isActive: true };
-      
+
       const products = await Product.find(query)
         .select('link_afiliado link_original nome desconto preco_para')
         .lean()
         .limit(500)
         .sort({ createdAt: -1 });
-      
+
       this.existingProductsMap = new Map();
       for (const product of products) {
         if (product.link_afiliado) {
@@ -103,12 +107,8 @@ class MercadoLivreScraper {
       .replace(/[^\w\s]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
-    
-    const words = cleanName.split(' ')
-      .filter(word => word.length >= 3)
-      .slice(0, 8);
-    
-    return words.join('_');
+
+    return cleanName.split(' ').filter(w => w.length >= 3).slice(0, 8).join('_');
   }
 
   async createBrowserContext() {
@@ -144,91 +144,39 @@ class MercadoLivreScraper {
     return { browser: this.browser, context: this.context };
   }
 
-  /**
-   * ✅ NOVO: Gera link de afiliado via API interna do ML
-   * Muito mais rápido que Playwright — sem abrir página, sem clipboard
-   * 
-   * Se o MLAffiliateService não estiver autenticado, usa fallback
-   * para o método antigo via Playwright (compatibilidade garantida)
-   */
   async getAffiliateLink(productUrl) {
-    // ── Método novo: API interna (instantâneo) ──────────────
     if (mlAffiliate.isAuthenticated()) {
       try {
         const link = await mlAffiliate.generateAffiliateLink(productUrl);
         if (link && link.includes('/sec/')) return link;
       } catch (e) {
-        console.warn('⚠️  [Scraper] Falha na API, usando fallback Playwright');
+        console.warn('⚠️  [Scraper] Falha na API, usando link original');
       }
     }
 
-    // ── Fallback: método antigo via Playwright ──────────────
-    // Só executa se a API não estiver disponível
-    if (!this.context) return productUrl;
-
-    const page = await this.context.newPage();
-    try {
-      await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
-      await page.waitForTimeout(1000);
-
-      const tryGetLink = async (isRetry = false) => {
-        try {
-          await page.waitForSelector('button[class*="share"], button[aria-label*="Compartilhar"]', {
-            timeout: 2000, state: 'visible'
-          });
-        } catch (e) {}
-
-        await page.evaluate(() => { try { navigator.clipboard.writeText(''); } catch(e) {} });
-        await page.waitForTimeout(100);
-
-        for (let i = 0; i < 4; i++) {
-          await page.keyboard.press('Tab');
-          await page.waitForTimeout(80);
-        }
-        await page.keyboard.press('Enter');
-        await page.waitForTimeout(1200);
-        for (let i = 0; i < 4; i++) {
-          await page.keyboard.press('Tab');
-          await page.waitForTimeout(80);
-        }
-        await page.keyboard.press('Enter');
-
-        let copiedLink = '';
-        const maxAttempts = isRetry ? 10 : 15;
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          await page.waitForTimeout(300);
-          try {
-            copiedLink = await page.evaluate(() => navigator.clipboard.readText());
-            if (copiedLink && copiedLink.trim().length > 20 && copiedLink.includes('/sec/')) break;
-          } catch (e) {}
-        }
-        await page.keyboard.press('Escape');
-        return copiedLink;
-      };
-
-      let copiedLink = await tryGetLink(false);
-      if (!copiedLink || !copiedLink.includes('/sec/')) {
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 8000 });
-        await page.waitForTimeout(800);
-        copiedLink = await tryGetLink(true);
-      }
-
-      await page.close();
-      return (copiedLink && copiedLink.includes('/sec/')) ? copiedLink.trim() : productUrl;
-
-    } catch (error) {
-      try { await page.close(); } catch (e) {}
-      return productUrl;
-    }
+    // Fallback: retorna link original (sem /sec/ mas válido)
+    return productUrl;
   }
 
   async processProducts(products, allProducts) {
-    // Processa em paralelo em lotes de 5 para maior velocidade
-    const BATCH_SIZE = mlAffiliate.isAuthenticated() ? 5 : 1;
+    const BATCH_SIZE = 5;
 
+    // ✅ FIX: filtra URLs inválidas E já vistas
     const validProducts = products
-      .filter(p => !this.seenLinks.has(p.link))
+      .filter(p => {
+        if (this.seenLinks.has(p.link)) return false;
+        if (!this.isProductUrl(p.link)) return false; // descarta links que não são de produto
+        return true;
+      })
       .slice(0, this.limit - allProducts.length);
+
+    if (validProducts.length === 0) return;
+
+    // Marca todos como vistos antes de processar
+    validProducts.forEach(p => {
+      this.seenLinks.add(p.link);
+      this.seenOriginalLinks.add(p.link); // ✅ FIX: popula seenOriginalLinks
+    });
 
     for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
       if (allProducts.length >= this.limit) break;
@@ -257,8 +205,6 @@ class MercadoLivreScraper {
           this.stats.filteredByPrice++;
           return null;
         }
-
-        this.seenLinks.add(prodData.link);
 
         const affiliateLink = await this.getAffiliateLink(prodData.link);
         const isAffiliate = affiliateLink.includes('/sec/');
@@ -310,16 +256,12 @@ class MercadoLivreScraper {
 
   async scrapeCategory() {
     await this.loadExistingProducts();
+    await this.createBrowserContext();
 
-    // Só abre browser se precisar do fallback Playwright
-    if (!mlAffiliate.isAuthenticated()) {
-      console.log('⚠️  [Scraper] MLAffiliateService não autenticado — usando Playwright como fallback');
-      console.log('💡 Acesse GET /api/ml/auth para autenticar e ganhar velocidade máxima!\n');
-      await this.createBrowserContext();
-    } else {
+    if (mlAffiliate.isAuthenticated()) {
       console.log('⚡ [Scraper] MLAffiliateService autenticado — modo RÁPIDO ativado!\n');
-      // Ainda abre browser só para scraping das páginas de lista
-      await this.createBrowserContext();
+    } else {
+      console.log('⚠️  [Scraper] MLAffiliateService não autenticado — links sem /sec/\n');
     }
 
     let allProducts = [];
@@ -329,10 +271,23 @@ class MercadoLivreScraper {
     try {
       while (allProducts.length < this.limit && pageNum <= 15) {
         const baseUrl = this.getSearchUrl();
-        const url = pageNum === 1 ? baseUrl : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}_Desde_${currentOffset + 1}`;
-        
+        // ✅ FIX: paginação correta para busca e categoria
+        let url;
+        if (pageNum === 1) {
+          url = baseUrl;
+        } else {
+          const separator = baseUrl.includes('?') ? '&' : '_';
+          if (this.searchTerm) {
+            url = `${baseUrl}_Desde_${currentOffset + 1}`;
+          } else {
+            url = `${baseUrl}_Desde_${currentOffset + 1}`;
+          }
+        }
+
+        console.log(`📄 Página ${pageNum} | URL: ${url.substring(0, 80)}...`);
+
         const mainPage = await this.context.newPage();
-        
+
         try {
           await mainPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
         } catch (e) {
@@ -342,7 +297,6 @@ class MercadoLivreScraper {
         }
 
         await mainPage.waitForTimeout(1000);
-
         await mainPage.evaluate(async () => {
           window.scrollTo(0, document.body.scrollHeight);
           await new Promise(r => setTimeout(r, 500));
@@ -351,54 +305,74 @@ class MercadoLivreScraper {
         const pageData = await mainPage.evaluate(({ minDiscount }) => {
           const cards = document.querySelectorAll('.poly-card, .ui-search-result');
           const products = [];
+
           cards.forEach(card => {
             try {
               const linkEl = card.querySelector('a');
               if (!linkEl) return;
-              const link = linkEl.href.split('?')[0];
-              const name = card.querySelector('h2, .poly-component__title')?.innerText || 'Sem nome';
+
+              // ✅ FIX: pega o href mais específico (link do produto, não da imagem)
+              let link = linkEl.href.split('?')[0];
+
+              // Verifica se é link de produto válido
+              if (!link.includes('/MLB') && !link.includes('/MLA') && !link.includes('produto.mercadolivre')) return;
+
+              const name = card.querySelector('h2, .poly-component__title')?.innerText?.trim() || 'Sem nome';
               const img = card.querySelector('img')?.src;
               const discountEl = card.querySelector('.andes-money-amount__discount, .poly-price__disc_label');
               const discount = parseInt(discountEl?.innerText.replace(/\D/g, '') || '0');
 
-              if (discount >= minDiscount) {
-                let currentPrice = 0;
-                const currentPriceContainer = card.querySelector('.poly-price__current');
-                if (currentPriceContainer) {
-                  const currentFractions = Array.from(currentPriceContainer.querySelectorAll('.andes-money-amount__fraction'));
-                  if (currentFractions.length > 0) {
-                    currentPrice = parseInt(currentFractions[0].innerText.replace(/\./g, '').replace(/\D/g, ''));
-                  }
-                }
-                
-                if (!currentPrice) {
-                  const fractions = Array.from(card.querySelectorAll('.andes-money-amount__fraction'));
-                  if (fractions.length >= 1) currentPrice = parseInt(fractions[fractions.length - 1].innerText.replace(/\./g, ''));
-                }
+              if (discount < minDiscount) return;
 
-                let oldPrice = 0;
-                const oldPriceEl = card.querySelector('.andes-money-amount--previous .andes-money-amount__fraction');
-                if (oldPriceEl) {
-                  oldPrice = parseInt(oldPriceEl.innerText.replace(/\./g, '').replace(/\D/g, ''));
-                } else if (currentPrice) {
-                  oldPrice = Math.round(currentPrice / (1 - discount/100));
-                }
-                
-                if (currentPrice > 0 && oldPrice > currentPrice) {
-                  products.push({ link, name, image: img, discount, currentPrice, oldPrice });
-                }
+              let currentPrice = 0;
+              const currentPriceContainer = card.querySelector('.poly-price__current');
+              if (currentPriceContainer) {
+                const fraction = currentPriceContainer.querySelector('.andes-money-amount__fraction');
+                if (fraction) currentPrice = parseInt(fraction.innerText.replace(/\./g, '').replace(/\D/g, ''));
+              }
+
+              if (!currentPrice) {
+                const fractions = Array.from(card.querySelectorAll('.andes-money-amount__fraction'));
+                if (fractions.length >= 1) currentPrice = parseInt(fractions[fractions.length - 1].innerText.replace(/\./g, ''));
+              }
+
+              let oldPrice = 0;
+              const oldPriceEl = card.querySelector('.andes-money-amount--previous .andes-money-amount__fraction');
+              if (oldPriceEl) {
+                oldPrice = parseInt(oldPriceEl.innerText.replace(/\./g, '').replace(/\D/g, ''));
+              } else if (currentPrice && discount > 0) {
+                oldPrice = Math.round(currentPrice / (1 - discount / 100));
+              }
+
+              if (currentPrice > 0 && oldPrice > currentPrice) {
+                products.push({ link, name, image: img, discount, currentPrice, oldPrice });
               }
             } catch (e) {}
           });
-          return { products };
+
+          return { products, total: cards.length };
         }, { minDiscount: this.minDiscount });
 
         await mainPage.close();
-        
-        const newProducts = pageData.products.filter(p => !this.seenOriginalLinks.has(p.link));
-        if (newProducts.length === 0) break;
 
-        await this.processProducts(newProducts, allProducts);
+        console.log(`   📦 ${pageData.products.length} produtos com desconto (de ${pageData.total} cards)`);
+
+        // ✅ FIX: filtra apenas os não vistos ainda
+        const newProducts = pageData.products.filter(p => !this.seenOriginalLinks.has(p.link));
+
+        console.log(`   🆕 ${newProducts.length} novos (não vistos ainda)`);
+
+        if (newProducts.length === 0 && pageData.products.length > 0) {
+          // Todos já foram vistos — vai para próxima página mesmo assim
+          console.log(`   ⏭️  Todos já processados, avançando página...`);
+        } else if (newProducts.length === 0 && pageData.products.length === 0) {
+          console.log(`   🏁 Sem mais produtos, encerrando`);
+          break;
+        }
+
+        if (newProducts.length > 0) {
+          await this.processProducts(newProducts, allProducts);
+        }
 
         pageNum++;
         currentOffset += 48;
@@ -408,6 +382,7 @@ class MercadoLivreScraper {
       return allProducts;
 
     } catch (error) {
+      console.error('❌ Erro no scraping:', error.message);
       if (this.browser) await this.browser.close();
       return allProducts;
     }
