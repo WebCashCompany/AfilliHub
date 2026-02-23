@@ -1,5 +1,5 @@
 // src/layouts/DashboardLayout.tsx
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   LayoutDashboard,
@@ -62,6 +62,49 @@ const ROLE_LABELS: Record<string, { label: string; icon: React.ElementType; colo
   colaborador: { label: 'Colaborador', icon: Users, color: 'text-green-400' },
 };
 
+function SidebarNavItem({
+  path,
+  label,
+  icon: Icon,
+  collapsed,
+}: {
+  path: string;
+  label: string;
+  icon: React.ElementType;
+  collapsed: boolean;
+}) {
+  const location = useLocation();
+  const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <NavLink
+          to={path}
+          end={path === '/'}
+          className={cn(
+            'flex flex-row items-center h-10 rounded-lg text-sm font-medium transition-colors duration-100',
+            collapsed ? 'justify-center px-0' : 'gap-3 px-3',
+            isActive
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+          )}
+        >
+          <Icon style={{ width: 18, height: 18, flexShrink: 0 }} />
+          {!collapsed && (
+            <span className="truncate">{label}</span>
+          )}
+        </NavLink>
+      </TooltipTrigger>
+      {collapsed && (
+        <TooltipContent side="right" className="text-xs font-medium">
+          {label}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  );
+}
+
 export function DashboardLayout() {
   const { profile, signOut, role } = useAuth();
   const navigate = useNavigate();
@@ -91,128 +134,146 @@ export function DashboardLayout() {
     <TooltipProvider delayDuration={200}>
       <div className="flex h-screen bg-background overflow-hidden">
 
-        {/* ══════════════════════ SIDEBAR ══════════════════════ */}
-        <aside
-          style={{ width: collapsed ? 60 : 240, transition: 'width 120ms ease-out' }}
-          className="relative flex flex-col h-full bg-card border-r border-border shrink-0 overflow-hidden"
+        {/* Wrapper do sidebar — controla a largura com transform para ser leve */}
+        <div
+          style={{
+            width: collapsed ? 60 : 240,
+            transition: 'width 120ms ease',
+            flexShrink: 0,
+            position: 'relative', // necessário para o botão não ser cortado
+          }}
         >
-          {/* Botão colapso */}
+          {/* ══════════════════════ SIDEBAR ══════════════════════ */}
+          <aside className="absolute inset-0 flex flex-col bg-card border-r border-border">
+
+            {/* ── Logo ── */}
+            <div className="h-16 flex items-center border-b border-border shrink-0 px-4">
+              <div className="flex items-center gap-2.5" style={{ minWidth: 0 }}>
+                <div
+                  className="rounded-lg bg-primary/10 flex items-center justify-center"
+                  style={{ width: 32, height: 32, flexShrink: 0 }}
+                >
+                  <Zap className="w-4 h-4 text-primary" fill="currentColor" />
+                </div>
+                {!collapsed && (
+                  <span className="font-bold text-sm tracking-wider text-foreground whitespace-nowrap">
+                    AFILLIHUB
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* ── Navegação ── */}
+            <nav
+              className="flex-1 overflow-y-auto overflow-x-hidden"
+              style={{ padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}
+            >
+              {visibleNavItems.map((item) => (
+                <SidebarNavItem
+                  key={item.path}
+                  path={item.path}
+                  label={item.label}
+                  icon={item.icon}
+                  collapsed={collapsed}
+                />
+              ))}
+            </nav>
+
+            {/* ── Usuário ── */}
+            <div className="border-t border-border shrink-0 p-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: collapsed ? 'center' : 'flex-start',
+                      gap: collapsed ? 0 : 12,
+                      padding: collapsed ? '8px 0' : '8px 12px',
+                      borderRadius: 8,
+                    }}
+                    className="hover:bg-muted transition-colors duration-100"
+                  >
+                    <Avatar style={{ width: 28, height: 28, flexShrink: 0 }}>
+                      <AvatarFallback className="bg-primary/10 text-primary text-[10px] font-bold">
+                        {profile?.name ? getInitials(profile.name) : <User style={{ width: 14, height: 14 }} />}
+                      </AvatarFallback>
+                    </Avatar>
+                    {!collapsed && (
+                      <>
+                        <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                          <p className="text-sm font-medium text-foreground truncate leading-tight">
+                            {profile?.name || 'Usuário'}
+                          </p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <RoleIcon className={cn('w-3 h-3 shrink-0', roleInfo?.color)} />
+                            <p className={cn('text-[11px] truncate', roleInfo?.color)}>
+                              {roleInfo?.label}
+                            </p>
+                          </div>
+                        </div>
+                        <ChevronDown style={{ width: 14, height: 14, flexShrink: 0 }} className="text-muted-foreground" />
+                      </>
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side={collapsed ? 'right' : 'top'} className="w-52">
+                  <div className="px-3 py-2">
+                    <p className="text-sm font-medium truncate">{profile?.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{profile?.email}</p>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={handleSignOut}
+                    className="text-red-500 focus:text-red-500 focus:bg-red-500/10 gap-2 cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sair da conta
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </aside>
+
+          {/* ══ Botão colapso — fora do aside para não ser cortado pelo overflow ══ */}
           <button
             onClick={() => setCollapsed(c => !c)}
-            className="absolute -right-3 top-[4.25rem] z-50 w-6 h-6 rounded-full bg-card border border-border shadow-sm flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            style={{
+              position: 'absolute',
+              right: -12,
+              top: 68,
+              zIndex: 50,
+              width: 24,
+              height: 24,
+              borderRadius: '50%',
+              border: '1px solid var(--border)',
+              backgroundColor: 'var(--card)',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: 'var(--muted-foreground)',
+              transition: 'background-color 100ms, color 100ms',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--muted)';
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--foreground)';
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)';
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted-foreground)';
+            }}
             aria-label={collapsed ? 'Expandir' : 'Recolher'}
           >
-            {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+            {collapsed
+              ? <ChevronRight style={{ width: 12, height: 12 }} />
+              : <ChevronLeft style={{ width: 12, height: 12 }} />
+            }
           </button>
-
-          {/* ── Logo ── */}
-          <div className="h-16 flex items-center border-b border-border shrink-0 px-4">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <Zap className="w-4 h-4 text-primary" fill="currentColor" />
-              </div>
-              {!collapsed && (
-                <span className="font-bold text-sm tracking-wider text-foreground whitespace-nowrap">
-                  AFILLIHUB
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* ── Navegação ── */}
-          <nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden" style={{ padding: '12px 8px' }}>
-            <div className="flex flex-col gap-0.5">
-              {visibleNavItems.map(({ path, label, icon: Icon }) => (
-                <Tooltip key={path}>
-                  <TooltipTrigger asChild>
-                    <NavLink
-                      to={path}
-                      end={path === '/'}
-                      className={({ isActive }) =>
-                        cn(
-                          'flex items-center h-10 rounded-lg text-sm font-medium transition-colors duration-100',
-                          collapsed ? 'justify-center w-full' : 'gap-3 px-3',
-                          isActive
-                            ? 'bg-primary/10 text-primary'
-                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                        )
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          <Icon
-                            className={cn('shrink-0', isActive ? 'text-primary' : '')}
-                            style={{ width: 18, height: 18 }}
-                          />
-                          {!collapsed && <span className="truncate">{label}</span>}
-                        </>
-                      )}
-                    </NavLink>
-                  </TooltipTrigger>
-                  {collapsed && (
-                    <TooltipContent side="right" className="text-xs font-medium">
-                      {label}
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              ))}
-            </div>
-          </nav>
-
-          {/* ── Usuário ── */}
-          <div className="border-t border-border shrink-0 p-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className={cn(
-                    'w-full flex items-center rounded-lg hover:bg-muted transition-colors duration-100 group',
-                    collapsed ? 'justify-center h-10' : 'gap-3 px-3 py-2'
-                  )}
-                >
-                  <Avatar className="w-7 h-7 shrink-0">
-                    <AvatarFallback className="bg-primary/10 text-primary text-[10px] font-bold">
-                      {profile?.name ? getInitials(profile.name) : <User className="w-3.5 h-3.5" />}
-                    </AvatarFallback>
-                  </Avatar>
-                  {!collapsed && (
-                    <>
-                      <div className="flex-1 min-w-0 text-left">
-                        <p className="text-sm font-medium text-foreground truncate leading-tight">
-                          {profile?.name || 'Usuário'}
-                        </p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <RoleIcon className={cn('w-3 h-3 shrink-0', roleInfo?.color)} />
-                          <p className={cn('text-[11px] truncate', roleInfo?.color)}>
-                            {roleInfo?.label}
-                          </p>
-                        </div>
-                      </div>
-                      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    </>
-                  )}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                side={collapsed ? 'right' : 'top'}
-                className="w-52"
-              >
-                <div className="px-3 py-2">
-                  <p className="text-sm font-medium truncate">{profile?.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{profile?.email}</p>
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleSignOut}
-                  className="text-red-500 focus:text-red-500 focus:bg-red-500/10 gap-2 cursor-pointer"
-                >
-                  <LogOut className="w-4 h-4" />
-                  Sair da conta
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </aside>
+        </div>
 
         {/* ══════════════════════ MAIN ══════════════════════ */}
         <main className="flex-1 overflow-auto">
