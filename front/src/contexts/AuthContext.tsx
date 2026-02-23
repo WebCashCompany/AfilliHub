@@ -10,7 +10,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   role: UserRole | null;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   hasAccess: (path: string) => boolean;
@@ -37,13 +37,15 @@ const clearSupabaseCache = () => {
   } catch { /* silencioso */ }
 };
 
+// Chave usada para sinalizar que a sessão NÃO deve ser persistida entre abas/reloads
+const SESSION_ONLY_FLAG = 'sb-session-only';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Evita race conditions: se múltiplos eventos chegarem, apenas o último vence
   const initDone = useRef(false);
 
   const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
@@ -73,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.warn('[Auth] Usuário sem perfil, deslogando...');
       await supabase.auth.signOut();
       clearSupabaseCache();
+      sessionStorage.removeItem(SESSION_ONLY_FLAG);
       setSession(null);
       setUser(null);
       setProfile(null);
@@ -91,11 +94,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Listener de mudanças de auth — registrado ANTES do init para não perder eventos
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('[Auth] Evento:', event);
 
-      // O init() cuida do estado inicial — o listener não deve interferir
       if (!initDone.current) return;
 
       if (event === 'SIGNED_OUT' || !session) {
@@ -108,15 +109,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // TOKEN_REFRESHED: apenas atualiza a sessão sem rebuscar perfil
-      // (evita deslogar por falha de rede num refresh silencioso)
       if (event === 'TOKEN_REFRESHED' && session) {
         setSession(session);
         setUser(session.user);
-        // Só rebusca perfil se ainda não tiver um carregado
         setProfile(prev => {
           if (prev) return prev;
-          // Se não tiver perfil, busca em background
           fetchProfile(session.user.id).then(prof => {
             if (prof) setProfile(prof);
           });
@@ -127,7 +124,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       try {
-        // getSession() lê do localStorage — rápido, sem chamada de rede
+        // Se o usuário fez login com "não lembrar", a sessão foi removida do
+        // localStorage — mas a flag no sessionStorage ainda existe enquanto
+        // a aba estiver aberta. Recarregar a página dentro da mesma aba
+        // mantém o sessionStorage, então checamos se precisamos limpar.
+        const sessionOnly = sessionStorage.getItem(SESSION_ONLY_FLAG);
+
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
         if (sessionError) {
@@ -137,18 +139,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (!session) {
-          // Nenhuma sessão salva — usuário não estava logado
+        // Se não há sessão no localStorage e a flag também não existe, usuário deslogado.
+        if (!session && !sessionOnly) {
           clearSession();
           return;
         }
 
-        // Sessão existe: busca o perfil e seta o estado
-        // Não chamamos getUser() aqui para evitar falhas de rede que desloguem
-        // o usuário desnecessariamente. O token será validado naturalmente
-        // quando fizer a primeira query autenticada.
-        await applySession(session);
+        // Se há flag de sessão temporária mas o localStorage foi limpo,
+        // não há sessão a recuperar — precisamos deslogar.
+        if (!session) {
+          sessionStorage.removeItem(SESSION_ONLY_FLAG);
+          clearSession();
+          return;
+        }
 
+        await applySession(session);
       } catch (e) {
         console.error('[Auth] Erro crítico no init:', e);
         clearSession();
@@ -166,7 +171,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
+  const signIn = async (
+    email: string,
+    password: string,
+    rememberMe: boolean = true,
+  ): Promise<{ error: string | null }> => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -179,7 +188,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!data.user || !data.session) return { error: 'Erro inesperado. Tente novamente.' };
 
-      // Verifica perfil antes de liberar acesso
       const prof = await fetchProfile(data.user.id);
 
       if (!prof) {
@@ -187,9 +195,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: 'Acesso não autorizado. Solicite ao administrador.' };
       }
 
-      // Aplica estado manualmente aqui para resposta imediata
-      // (o onAuthStateChange também vai disparar SIGNED_IN, mas o initDone
-      //  já estará true, então vai passar por applySession normalmente)
+      if (!rememberMe) {
+        // Remove a sessão do localStorage para que não persista entre sessões do browser.
+        // A sessão continua ativa em memória enquanto o app estiver aberto.
+        // A flag no sessionStorage permite reloads dentro da mesma aba.
+        clearSupabaseCache();
+        sessionStorage.setItem(SESSION_ONLY_FLAG, '1');
+      } else {
+        // Garante que flag de sessão temporária anterior seja removida
+        sessionStorage.removeItem(SESSION_ONLY_FLAG);
+      }
+
       setSession(data.session);
       setUser(data.user);
       setProfile(prof);
@@ -203,6 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     clearSupabaseCache();
+    sessionStorage.removeItem(SESSION_ONLY_FLAG);
     clearSession();
   };
 

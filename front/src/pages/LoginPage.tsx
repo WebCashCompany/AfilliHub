@@ -18,6 +18,7 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resetEmail, setResetEmail] = useState('');
@@ -42,7 +43,7 @@ export function LoginPage() {
       return;
     }
     setIsLoading(true);
-    const { error } = await signIn(email.trim(), password);
+    const { error } = await signIn(email.trim(), password, rememberMe);
     if (error) setError(error);
     setIsLoading(false);
   };
@@ -68,12 +69,9 @@ export function LoginPage() {
     <div className="min-h-screen bg-[#0a0d14] flex items-center justify-center p-4 relative overflow-hidden">
       {/* Background decorativo */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Glow principal */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-blue-600/5 blur-[120px]" />
-        {/* Glow secundário */}
         <div className="absolute top-0 right-0 w-[400px] h-[400px] rounded-full bg-indigo-600/4 blur-[100px]" />
         <div className="absolute bottom-0 left-0 w-[300px] h-[300px] rounded-full bg-blue-500/4 blur-[80px]" />
-        {/* Grid sutil */}
         <div
           className="absolute inset-0 opacity-[0.02]"
           style={{
@@ -81,18 +79,15 @@ export function LoginPage() {
             backgroundSize: '60px 60px',
           }}
         />
-        {/* Linhas decorativas */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-32 bg-gradient-to-b from-transparent via-blue-500/20 to-transparent" />
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-px h-32 bg-gradient-to-t from-transparent via-blue-500/20 to-transparent" />
       </div>
 
       {/* Card principal */}
       <div className="relative w-full max-w-md">
-        {/* Borda com gradiente */}
         <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-white/10 via-white/5 to-transparent pointer-events-none" />
 
         <div className="relative bg-[#0f1320]/90 backdrop-blur-xl rounded-2xl border border-white/[0.06] shadow-2xl shadow-black/60 overflow-hidden">
-          {/* Linha de destaque no topo */}
           <div className="h-px w-full bg-gradient-to-r from-transparent via-blue-500/60 to-transparent" />
 
           <div className="p-8">
@@ -163,6 +158,53 @@ export function LoginPage() {
                     </div>
                   </div>
 
+                  {/* Lembrar-me */}
+                  <div className="flex items-center justify-between pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setRememberMe(prev => !prev)}
+                      className="flex items-center gap-2.5 group"
+                      disabled={isLoading}
+                    >
+                      {/* Checkbox customizado */}
+                      <span
+                        className={`
+                          relative flex-shrink-0 w-4.5 h-4.5 rounded flex items-center justify-center border transition-all duration-150
+                          ${rememberMe
+                            ? 'bg-blue-600 border-blue-500'
+                            : 'bg-white/[0.04] border-white/[0.12] group-hover:border-white/25'
+                          }
+                        `}
+                        style={{ width: '18px', height: '18px' }}
+                      >
+                        {rememberMe && (
+                          <svg
+                            className="w-2.5 h-2.5 text-white"
+                            viewBox="0 0 10 8"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M1 4l3 3 5-6" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="text-sm text-slate-400 group-hover:text-slate-300 transition-colors select-none">
+                        Lembrar-me
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setView('reset'); setError(null); setResetEmail(email); }}
+                      className="text-sm text-slate-500 hover:text-blue-400 transition-colors underline-offset-4 hover:underline"
+                    >
+                      Esqueci minha senha
+                    </button>
+                  </div>
+
                   {/* Erro */}
                   {error && (
                     <div className="flex items-center gap-2.5 px-3.5 py-3 rounded-lg bg-red-500/8 border border-red-500/20 text-red-400 text-sm">
@@ -187,17 +229,6 @@ export function LoginPage() {
                     )}
                   </Button>
                 </form>
-
-                {/* Reset de senha */}
-                <div className="mt-5 text-center">
-                  <button
-                    type="button"
-                    onClick={() => { setView('reset'); setError(null); setResetEmail(email); }}
-                    className="text-sm text-slate-500 hover:text-blue-400 transition-colors underline-offset-4 hover:underline"
-                  >
-                    Esqueci minha senha
-                  </button>
-                </div>
 
                 {/* Info de cadastro */}
                 <div className="mt-6 pt-5 border-t border-white/[0.05]">
@@ -305,7 +336,6 @@ export function LoginPage() {
             )}
           </div>
 
-          {/* Linha de destaque no rodapé */}
           <div className="h-px w-full bg-gradient-to-r from-transparent via-white/5 to-transparent" />
           <div className="px-8 py-3 text-center">
             <p className="text-[10px] text-slate-700 tracking-wider uppercase">
