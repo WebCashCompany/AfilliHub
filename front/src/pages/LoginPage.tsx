@@ -5,7 +5,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Eye, EyeOff, Mail, Lock, ArrowLeft, CheckCircle2, Zap } from 'lucide-react';
+import { Loader2, Eye, EyeOff, Mail, Lock, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import logo from '@/assets/logo.png';
+import bgVideo from '@/assets/background.mp4';
 
 type View = 'login' | 'reset' | 'reset-sent';
 
@@ -25,7 +27,7 @@ export function LoginPage() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0a0d14]">
+      <div className="fixed inset-0 flex items-center justify-center bg-[#0a0d14]">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
       </div>
     );
@@ -66,40 +68,48 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0d14] flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background decorativo */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-blue-600/5 blur-[120px]" />
-        <div className="absolute top-0 right-0 w-[400px] h-[400px] rounded-full bg-indigo-600/4 blur-[100px]" />
-        <div className="absolute bottom-0 left-0 w-[300px] h-[300px] rounded-full bg-blue-500/4 blur-[80px]" />
-        <div
-          className="absolute inset-0 opacity-[0.02]"
-          style={{
-            backgroundImage: `linear-gradient(rgba(99,102,241,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.5) 1px, transparent 1px)`,
-            backgroundSize: '60px 60px',
-          }}
-        />
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-32 bg-gradient-to-b from-transparent via-blue-500/20 to-transparent" />
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-px h-32 bg-gradient-to-t from-transparent via-blue-500/20 to-transparent" />
+    <div className="fixed inset-0 flex items-center justify-center p-4 overflow-hidden">
+
+      {/* ── Vídeo de fundo ── */}
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="absolute inset-0 w-full h-full object-cover"
+        src={bgVideo}
+      />
+
+      {/* ── Overlay escuro para legibilidade ── */}
+      <div className="absolute inset-0 bg-[#0a0d14]/70 backdrop-blur-[2px]" />
+
+      {/* ── Gradientes decorativos sobre o vídeo ── */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-blue-600/10 blur-[120px]" />
+        <div className="absolute top-0 right-0 w-[400px] h-[400px] rounded-full bg-indigo-600/8 blur-[100px]" />
+        <div className="absolute bottom-0 left-0 w-[300px] h-[300px] rounded-full bg-blue-500/8 blur-[80px]" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-32 bg-gradient-to-b from-transparent via-blue-500/30 to-transparent" />
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-px h-32 bg-gradient-to-t from-transparent via-blue-500/30 to-transparent" />
       </div>
 
-      {/* Card principal */}
-      <div className="relative w-full max-w-md">
+      {/* ── Card principal ── */}
+      <div className="relative w-full max-w-[420px] mx-auto flex-shrink-0">
         <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-white/10 via-white/5 to-transparent pointer-events-none" />
 
-        <div className="relative bg-[#0f1320]/90 backdrop-blur-xl rounded-2xl border border-white/[0.06] shadow-2xl shadow-black/60 overflow-hidden">
+        <div className="relative bg-[#0f1320]/80 backdrop-blur-xl rounded-2xl border border-white/[0.08] shadow-2xl shadow-black/70 overflow-hidden">
           <div className="h-px w-full bg-gradient-to-r from-transparent via-blue-500/60 to-transparent" />
 
           <div className="p-8">
-            {/* ═══════════════════════════════════ */}
-            {/* VIEW: LOGIN                         */}
-            {/* ═══════════════════════════════════ */}
+            {/* VIEW: LOGIN */}
             {view === 'login' && (
               <>
-                {/* Logo e título */}
                 <div className="text-center mb-8">
                   <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600/10 border border-blue-500/20 mb-5 relative">
-                    <Zap className="w-7 h-7 text-blue-400" fill="currentColor" />
+                    <img
+                      src={logo}
+                      alt="Logo"
+                      className="w-14 h-14 object-contain"
+                    />
                     <div className="absolute inset-0 rounded-2xl bg-blue-500/5 blur-sm" />
                   </div>
                   <h1 className="text-2xl font-bold text-white tracking-tight mb-1">
@@ -110,7 +120,6 @@ export function LoginPage() {
                   </p>
                 </div>
 
-                {/* Formulário */}
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="email" className="text-xs font-medium text-slate-400 uppercase tracking-wider">
@@ -158,7 +167,6 @@ export function LoginPage() {
                     </div>
                   </div>
 
-                  {/* Lembrar-me */}
                   <div className="flex items-center justify-between pt-0.5">
                     <button
                       type="button"
@@ -166,15 +174,12 @@ export function LoginPage() {
                       className="flex items-center gap-2.5 group"
                       disabled={isLoading}
                     >
-                      {/* Checkbox customizado */}
                       <span
-                        className={`
-                          relative flex-shrink-0 w-4.5 h-4.5 rounded flex items-center justify-center border transition-all duration-150
-                          ${rememberMe
+                        className={`relative flex-shrink-0 rounded flex items-center justify-center border transition-all duration-150 ${
+                          rememberMe
                             ? 'bg-blue-600 border-blue-500'
                             : 'bg-white/[0.04] border-white/[0.12] group-hover:border-white/25'
-                          }
-                        `}
+                        }`}
                         style={{ width: '18px', height: '18px' }}
                       >
                         {rememberMe && (
@@ -205,7 +210,6 @@ export function LoginPage() {
                     </button>
                   </div>
 
-                  {/* Erro */}
                   {error && (
                     <div className="flex items-center gap-2.5 px-3.5 py-3 rounded-lg bg-red-500/8 border border-red-500/20 text-red-400 text-sm">
                       <div className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
@@ -213,7 +217,6 @@ export function LoginPage() {
                     </div>
                   )}
 
-                  {/* Botão de login */}
                   <Button
                     type="submit"
                     className="w-full h-11 bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-all shadow-lg shadow-blue-600/20 hover:shadow-blue-500/30 mt-2"
@@ -230,7 +233,6 @@ export function LoginPage() {
                   </Button>
                 </form>
 
-                {/* Info de cadastro */}
                 <div className="mt-6 pt-5 border-t border-white/[0.05]">
                   <p className="text-center text-xs text-slate-600">
                     Não tem conta? O acesso é fornecido pelo administrador.
@@ -239,9 +241,7 @@ export function LoginPage() {
               </>
             )}
 
-            {/* ═══════════════════════════════════ */}
-            {/* VIEW: RESET PASSWORD                */}
-            {/* ═══════════════════════════════════ */}
+            {/* VIEW: RESET PASSWORD */}
             {view === 'reset' && (
               <>
                 <div className="text-center mb-8">
@@ -308,9 +308,7 @@ export function LoginPage() {
               </>
             )}
 
-            {/* ═══════════════════════════════════ */}
-            {/* VIEW: RESET SENT                    */}
-            {/* ═══════════════════════════════════ */}
+            {/* VIEW: RESET SENT */}
             {view === 'reset-sent' && (
               <div className="text-center py-4">
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-green-500/10 border border-green-500/20 mb-5">
