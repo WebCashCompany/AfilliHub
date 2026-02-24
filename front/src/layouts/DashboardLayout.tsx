@@ -303,10 +303,14 @@ function MobileHeader({
     >
       {/* Logo */}
       <div className="flex items-center gap-2">
-        <div className="rounded-lg bg-primary/10 flex items-center justify-center w-8 h-8">
-          <Zap className="w-4 h-4 text-primary" fill="currentColor" />
-        </div>
-        <span className="font-bold text-sm tracking-wider text-foreground">Vant</span>
+        <img
+          src="/src/assets/logo.png"
+          alt="Logo"
+          style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }}
+        />
+        <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1rem', letterSpacing: '0.15em', color: 'var(--foreground)' }}>
+          VANT
+        </span>
       </div>
 
       {/* Ações */}
@@ -412,11 +416,15 @@ function MobileDrawer({
       >
         {/* Header do drawer */}
         <div className="flex items-center justify-between h-14 px-4 border-b border-border shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="rounded-lg bg-primary/10 flex items-center justify-center w-8 h-8">
-              <Zap className="w-4 h-4 text-primary" fill="currentColor" />
-            </div>
-            <span className="font-bold text-sm tracking-wider text-foreground">Vant</span>
+          <div className="flex items-center gap-2">
+            <img
+              src="/src/assets/logo.png"
+              alt="Logo"
+              style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }}
+            />
+            <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1rem', letterSpacing: '0.15em', color: 'var(--foreground)' }}>
+              VANT
+            </span>
           </div>
           <button
             onClick={onClose}
@@ -572,16 +580,15 @@ export function DashboardLayout() {
 
             {/* ── Logo ── */}
             <div className="h-16 flex items-center border-b border-border shrink-0 px-4">
-              <div className="flex items-center gap-2.5" style={{ minWidth: 0 }}>
-                <div
-                  className="rounded-lg bg-primary/10 flex items-center justify-center"
-                  style={{ width: 32, height: 32, flexShrink: 0 }}
-                >
-                  <Zap className="w-4 h-4 text-primary" fill="currentColor" />
-                </div>
+              <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
+                <img
+                  src="/src/assets/logo.png"
+                  alt="Logo"
+                  style={{ width: 48, height: 48, flexShrink: 0, objectFit: 'contain', display: 'block', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }}
+                />
                 {!collapsed && (
-                  <span className="font-bold text-sm tracking-wider text-foreground whitespace-nowrap">
-                    Vant
+                  <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1.15rem', letterSpacing: '0.18em', color: 'var(--foreground)', whiteSpace: 'nowrap', lineHeight: 1, display: 'flex', alignItems: 'center' }}>
+                    VANT
                   </span>
                 )}
               </div>
