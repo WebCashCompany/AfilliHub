@@ -64,7 +64,7 @@ const NAV_ITEMS: NavItem[] = [
 // Itens que aparecem na bottom nav mobile (os mais usados)
 const MOBILE_BOTTOM_ITEMS: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/analytics', label: 'Analytics', icon: BarChart2 },
+  { path: '/automation', label: 'Automação', icon: Zap, allowedRoles: ['administrador', 'empresa', 'colaborador'] },
   { path: '/products', label: 'Produtos', icon: Package },
   { path: '/distribution', label: 'Divulgação', icon: Send },
 ];
@@ -306,7 +306,7 @@ function MobileHeader({
         <div className="rounded-lg bg-primary/10 flex items-center justify-center w-8 h-8">
           <Zap className="w-4 h-4 text-primary" fill="currentColor" />
         </div>
-        <span className="font-bold text-sm tracking-wider text-foreground">Vant</span>
+        <span className="font-bold text-sm tracking-wider text-foreground">AFILLIHUB</span>
       </div>
 
       {/* Ações */}
@@ -416,7 +416,7 @@ function MobileDrawer({
             <div className="rounded-lg bg-primary/10 flex items-center justify-center w-8 h-8">
               <Zap className="w-4 h-4 text-primary" fill="currentColor" />
             </div>
-            <span className="font-bold text-sm tracking-wider text-foreground">Vant</span>
+            <span className="font-bold text-sm tracking-wider text-foreground">AFILLIHUB</span>
           </div>
           <button
             onClick={onClose}
@@ -581,7 +581,7 @@ export function DashboardLayout() {
                 </div>
                 {!collapsed && (
                   <span className="font-bold text-sm tracking-wider text-foreground whitespace-nowrap">
-                    Vant
+                    AFILLIHUB
                   </span>
                 )}
               </div>

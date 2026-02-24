@@ -133,11 +133,31 @@
 @layer base {
   * {
     @apply border-border;
+    /* Melhora touch em mobile — remove delay de 300ms */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  html {
+    /* Garante que 100vh funcione corretamente em mobile browsers */
+    height: -webkit-fill-available;
   }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    /* Evita zoom acidental ao focar inputs no iOS */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Evita zoom em inputs no iOS (font-size mínimo de 16px) */
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
   }
 }
 
@@ -212,6 +232,13 @@
   .marketplace-shopee {
     @apply bg-[hsl(11,84%,56%)] text-white;
   }
+
+  /* Desativa card-hover em touch (evita estado "hover preso") */
+  @media (hover: none) {
+    .card-hover {
+      @apply hover:shadow-none hover:translate-y-0;
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -243,19 +270,21 @@
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SCROLLBAR STYLING
+   SCROLLBAR STYLING (oculta em mobile para UX limpa)
    ═══════════════════════════════════════════════════════════ */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
 
-::-webkit-scrollbar-track {
-  @apply bg-muted rounded-full;
-}
+  ::-webkit-scrollbar-track {
+    @apply bg-muted rounded-full;
+  }
 
-::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50 transition-colors;
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50 transition-colors;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
