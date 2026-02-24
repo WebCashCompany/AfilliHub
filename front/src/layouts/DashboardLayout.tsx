@@ -584,7 +584,7 @@ export function DashboardLayout() {
                 <img
                   src="/src/assets/logo.png"
                   alt="Logo"
-                  style={{ width: 48, height: 48, flexShrink: 0, objectFit: 'contain', display: 'block', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }}
+                  style={{ width: 48, height: 48, flexShrink: 0, objectFit: 'contain', display: 'block', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))', marginTop: 6 }}
                 />
                 {!collapsed && (
                   <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1.15rem', letterSpacing: '0.18em', color: 'var(--foreground)', whiteSpace: 'nowrap', lineHeight: 1, display: 'flex', alignItems: 'center' }}>
