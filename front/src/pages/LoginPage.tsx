@@ -113,7 +113,7 @@ export function LoginPage() {
                     <div className="absolute inset-0 rounded-2xl bg-blue-500/5 blur-sm" />
                   </div>
                   <h1 className="text-2xl font-bold text-white tracking-tight mb-1">
-                    Vant
+                    VANT
                   </h1>
                   <p className="text-sm text-slate-400">
                     Entre com sua conta para continuar

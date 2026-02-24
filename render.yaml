@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: vant-backend
+    name: VANT-backend
     runtime: docker
     dockerfilePath: ./back/Dockerfile
     dockerContext: ./back
