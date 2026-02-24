@@ -41,6 +41,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, useCallback } from 'react';
+import logoSrc from '@/assets/logo.png';
 
 interface NavItem {
   path: string;
@@ -302,16 +303,16 @@ function MobileHeader({
       style={{ height: 56, paddingTop: 'env(safe-area-inset-top)' }}
     >
       {/* Logo */}
-      <div className="flex items-center gap-2">
+      <NavLink to="/" end className="flex items-center gap-2 cursor-pointer select-none">
         <img
-          src="/src/assets/logo.png"
+          src={logoSrc}
           alt="Logo"
           style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }}
         />
         <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1rem', letterSpacing: '0.15em', color: 'var(--foreground)' }}>
           VANT
         </span>
-      </div>
+      </NavLink>
 
       {/* Ações */}
       <div className="flex items-center gap-1">
@@ -416,16 +417,16 @@ function MobileDrawer({
       >
         {/* Header do drawer */}
         <div className="flex items-center justify-between h-14 px-4 border-b border-border shrink-0">
-          <div className="flex items-center gap-2">
+          <NavLink to="/" end onClick={onClose} className="flex items-center gap-2 cursor-pointer select-none">
             <img
-              src="/src/assets/logo.png"
+              src={logoSrc}
               alt="Logo"
               style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }}
             />
             <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1rem', letterSpacing: '0.15em', color: 'var(--foreground)' }}>
               VANT
             </span>
-          </div>
+          </NavLink>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
@@ -580,9 +581,9 @@ export function DashboardLayout() {
 
             {/* ── Logo ── */}
             <div className="h-16 flex items-center border-b border-border shrink-0 px-4">
-              <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
+              <NavLink to="/" end className="flex items-center gap-3 cursor-pointer select-none" style={{ minWidth: 0 }}>
                 <img
-                  src="/src/assets/logo.png"
+                  src={logoSrc}
                   alt="Logo"
                   style={{ width: 48, height: 48, flexShrink: 0, objectFit: 'contain', display: 'block', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))', marginTop: 6 }}
                 />
@@ -591,7 +592,7 @@ export function DashboardLayout() {
                     VANT
                   </span>
                 )}
-              </div>
+              </NavLink>
             </div>
 
             {/* ── Navegação ── */}
