@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: afillihub-backend
+    name: vant-backend
     runtime: docker
     dockerfilePath: ./back/Dockerfile
     dockerContext: ./back
