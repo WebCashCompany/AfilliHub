@@ -481,6 +481,53 @@ function MobileDrawer({
   );
 }
 
+// ── Botão flutuante com logo ─────────────────────────────────
+function FloatingLogoButton() {
+  return (
+    <a
+      href="https://webcash.vercel.app"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Visitar site Webcash"
+      style={{
+        position: 'fixed',
+        bottom: 24,
+        right: 24,
+        zIndex: 60,
+        display: 'block',
+        textDecoration: 'none',
+      }}
+      className="group"
+    >
+      <div
+        style={{
+          width: 48,
+          height: 48,
+          borderRadius: '50%',
+          overflow: 'hidden',
+          border: '2px solid rgba(255,255,255,0.12)',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          opacity: 0.3,
+          cursor: 'pointer',
+          transition: 'opacity 250ms ease, transform 250ms ease, box-shadow 250ms ease, border-color 250ms ease',
+        }}
+        className="
+          group-hover:!opacity-100
+          group-hover:!shadow-[0_4px_24px_rgba(0,180,255,0.45)]
+          group-hover:[border-color:rgba(0,180,255,0.6)]
+          group-hover:scale-110
+        "
+      >
+        <img
+          src="https://avatars.githubusercontent.com/u/249851017?v=4"
+          alt="Webcash"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      </div>
+    </a>
+  );
+}
+
 // ── Layout principal ─────────────────────────────────────────
 export function DashboardLayout() {
   const { profile, signOut, role } = useAuth();
@@ -557,6 +604,9 @@ export function DashboardLayout() {
             items={visibleBottomItems}
             onMenuOpen={() => setDrawerOpen(true)}
           />
+
+          {/* Botão flutuante */}
+          <FloatingLogoButton />
         </div>
       </TooltipProvider>
     );
@@ -715,6 +765,9 @@ export function DashboardLayout() {
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
+
+        {/* Botão flutuante */}
+        <FloatingLogoButton />
 
       </div>
     </TooltipProvider>
