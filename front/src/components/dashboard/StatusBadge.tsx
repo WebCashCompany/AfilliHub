@@ -28,13 +28,13 @@ export function StatusBadge({
   };
 
   const sizes = {
-    sm: 'px-2 py-0.5 text-xs gap-1',
+    sm: 'px-1.5 py-0.5 text-[10px] gap-0.5',   // ← mesmo tamanho do MarketplaceBadge sm
     md: 'px-2.5 py-1 text-xs gap-1.5',
     lg: 'px-3 py-1.5 text-sm gap-2'
   };
 
   const iconSizes = {
-    sm: 'w-3 h-3',
+    sm: 'w-2.5 h-2.5',   // ← ícone menor proporcional ao text-[10px]
     md: 'w-3.5 h-3.5',
     lg: 'w-4 h-4'
   };

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Affiliate Hub Pro Backend",
   "main": "index.js",
- "scripts": {
+  "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
     "build": "npm ci",

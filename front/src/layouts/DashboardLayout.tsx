@@ -62,7 +62,6 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/trash', label: 'Lixeira', icon: Trash2 },
 ];
 
-// Itens que aparecem na bottom nav mobile (os mais usados)
 const MOBILE_BOTTOM_ITEMS: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/automation', label: 'Automação', icon: Zap, allowedRoles: ['administrador', 'empresa', 'colaborador'] },
@@ -76,10 +75,8 @@ const ROLE_LABELS: Record<string, { label: string; icon: React.ElementType; colo
   colaborador: { label: 'Colaborador', icon: Users, color: 'text-green-400' },
 };
 
-// ── Hook para detectar mobile ────────────────────────────────
 function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < breakpoint);
-
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
@@ -87,25 +84,14 @@ function useIsMobile(breakpoint = 768) {
     setIsMobile(mq.matches);
     return () => mq.removeEventListener('change', handler);
   }, [breakpoint]);
-
   return isMobile;
 }
 
-// ── Item de navegação desktop ────────────────────────────────
 function SidebarNavItem({
-  path,
-  label,
-  icon: Icon,
-  collapsed,
-}: {
-  path: string;
-  label: string;
-  icon: React.ElementType;
-  collapsed: boolean;
-}) {
+  path, label, icon: Icon, collapsed,
+}: { path: string; label: string; icon: React.ElementType; collapsed: boolean }) {
   const location = useLocation();
   const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
-
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -115,9 +101,7 @@ function SidebarNavItem({
           className={cn(
             'flex flex-row items-center h-10 rounded-lg text-sm font-medium transition-colors duration-100',
             collapsed ? 'justify-center px-0' : 'gap-3 px-3',
-            isActive
-              ? 'bg-primary/10 text-primary'
-              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
           )}
         >
           <Icon style={{ width: 18, height: 18, flexShrink: 0 }} />
@@ -125,29 +109,17 @@ function SidebarNavItem({
         </NavLink>
       </TooltipTrigger>
       {collapsed && (
-        <TooltipContent side="right" className="text-xs font-medium">
-          {label}
-        </TooltipContent>
+        <TooltipContent side="right" className="text-xs font-medium">{label}</TooltipContent>
       )}
     </Tooltip>
   );
 }
 
-// ── Item de navegação no drawer mobile ──────────────────────
 function DrawerNavItem({
-  path,
-  label,
-  icon: Icon,
-  onClick,
-}: {
-  path: string;
-  label: string;
-  icon: React.ElementType;
-  onClick: () => void;
-}) {
+  path, label, icon: Icon, onClick,
+}: { path: string; label: string; icon: React.ElementType; onClick: () => void }) {
   const location = useLocation();
   const isActive = path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
-
   return (
     <NavLink
       to={path}
@@ -155,32 +127,23 @@ function DrawerNavItem({
       onClick={onClick}
       className={cn(
         'flex flex-row items-center gap-3 h-12 px-4 rounded-xl text-sm font-medium transition-colors duration-150',
-        isActive
-          ? 'bg-primary/10 text-primary'
-          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+        isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
       )}
     >
       <Icon style={{ width: 20, height: 20, flexShrink: 0 }} />
       <span>{label}</span>
-      {isActive && (
-        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
-      )}
+      {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />}
     </NavLink>
   );
 }
 
-// ── Botão de toggle de tema ──────────────────────────────────
 function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
   const { preferences, updateTheme } = useUserPreferences();
-
   const isDark =
     preferences?.theme === 'dark' ||
-    (preferences?.theme === 'system' &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches);
-
+    (preferences?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const handleToggle = () => updateTheme(isDark ? 'light' : 'dark');
   const label = isDark ? 'Modo claro' : 'Modo escuro';
-
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -199,24 +162,14 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
         </button>
       </TooltipTrigger>
       {collapsed && (
-        <TooltipContent side="right" className="text-xs font-medium">
-          {label}
-        </TooltipContent>
+        <TooltipContent side="right" className="text-xs font-medium">{label}</TooltipContent>
       )}
     </Tooltip>
   );
 }
 
-// ── Bottom Navigation Bar (Mobile) ──────────────────────────
-function MobileBottomNav({
-  items,
-  onMenuOpen,
-}: {
-  items: NavItem[];
-  onMenuOpen: () => void;
-}) {
+function MobileBottomNav({ items, onMenuOpen }: { items: NavItem[]; onMenuOpen: () => void }) {
   const location = useLocation();
-
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-40 flex items-center bg-card border-t border-border"
@@ -224,11 +177,7 @@ function MobileBottomNav({
     >
       {items.map((item) => {
         const Icon = item.icon;
-        const isActive =
-          item.path === '/'
-            ? location.pathname === '/'
-            : location.pathname.startsWith(item.path);
-
+        const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
         return (
           <NavLink
             key={item.path}
@@ -236,33 +185,15 @@ function MobileBottomNav({
             end={item.path === '/'}
             className="flex-1 flex flex-col items-center justify-center gap-0.5 h-full transition-colors duration-150"
           >
-            <div
-              className={cn(
-                'flex items-center justify-center w-10 h-7 rounded-lg transition-all duration-200',
-                isActive ? 'bg-primary/15' : ''
-              )}
-            >
-              <Icon
-                style={{ width: 20, height: 20 }}
-                className={cn(
-                  'transition-colors duration-150',
-                  isActive ? 'text-primary' : 'text-muted-foreground'
-                )}
-              />
+            <div className={cn('flex items-center justify-center w-10 h-7 rounded-lg transition-all duration-200', isActive ? 'bg-primary/15' : '')}>
+              <Icon style={{ width: 20, height: 20 }} className={cn('transition-colors duration-150', isActive ? 'text-primary' : 'text-muted-foreground')} />
             </div>
-            <span
-              className={cn(
-                'text-[10px] font-medium leading-none transition-colors duration-150',
-                isActive ? 'text-primary' : 'text-muted-foreground'
-              )}
-            >
+            <span className={cn('text-[10px] font-medium leading-none transition-colors duration-150', isActive ? 'text-primary' : 'text-muted-foreground')}>
               {item.label}
             </span>
           </NavLink>
         );
       })}
-
-      {/* Botão "Mais" para abrir o drawer */}
       <button
         onClick={onMenuOpen}
         className="flex-1 flex flex-col items-center justify-center gap-0.5 h-full transition-colors duration-150"
@@ -276,61 +207,42 @@ function MobileBottomNav({
   );
 }
 
-// ── Mobile Top Header ────────────────────────────────────────
+// ── Mobile Top Header ─────────────────────────────────────────
+// ✅ FIX: "Sair da conta" movido para o dropdown do avatar no topo
 function MobileHeader({
-  profile,
-  role,
-  onMenuOpen,
-  onSignOut,
-}: {
-  profile: { name?: string; email?: string } | null;
-  role: string | null;
-  onMenuOpen: () => void;
-  onSignOut: () => void;
-}) {
+  profile, role, onMenuOpen, onSignOut,
+}: { profile: { name?: string; email?: string } | null; role: string | null; onMenuOpen: () => void; onSignOut: () => void }) {
   const { preferences, updateTheme } = useUserPreferences();
   const isDark =
     preferences?.theme === 'dark' ||
-    (preferences?.theme === 'system' &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-  const getInitials = (name: string) =>
-    name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
+    (preferences?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const getInitials = (name: string) => name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 
   return (
     <header
       className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between bg-card border-b border-border px-4"
       style={{ height: 56, paddingTop: 'env(safe-area-inset-top)' }}
     >
-      {/* Logo */}
       <NavLink to="/" end className="flex items-center gap-2 cursor-pointer select-none">
-        <img
-          src={logoSrc}
-          alt="Logo"
-          style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }}
-        />
+        <img src={logoSrc} alt="Logo" style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }} />
         <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1rem', letterSpacing: '0.15em', color: 'var(--foreground)' }}>
           VANT
         </span>
       </NavLink>
 
-      {/* Ações */}
       <div className="flex items-center gap-1">
-        {/* Toggle tema */}
         <button
           onClick={() => updateTheme(isDark ? 'light' : 'dark')}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
           aria-label={isDark ? 'Modo claro' : 'Modo escuro'}
         >
-          {isDark
-            ? <Sun style={{ width: 18, height: 18 }} />
-            : <Moon style={{ width: 18, height: 18 }} />}
+          {isDark ? <Sun style={{ width: 18, height: 18 }} /> : <Moon style={{ width: 18, height: 18 }} />}
         </button>
 
-        {/* Avatar + menu */}
+        {/* ✅ Avatar com "Sair da conta" no dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-muted transition-colors">
+            <button className="flex items-center gap-2 px-2 h-9 rounded-lg hover:bg-muted transition-colors">
               <Avatar style={{ width: 28, height: 28 }}>
                 <AvatarFallback className="bg-primary/10 text-primary text-[10px] font-bold">
                   {profile?.name ? getInitials(profile.name) : <User style={{ width: 14, height: 14 }} />}
@@ -358,14 +270,12 @@ function MobileHeader({
   );
 }
 
-// ── Mobile Drawer (menu lateral deslizante) ──────────────────
+// ── Mobile Drawer ─────────────────────────────────────────────
+// ✅ FIX 1: Botão "Sair da conta" adicionado ao lado do nome no perfil
+// ✅ FIX 2: Rodapé substituído por traço + logo Webcash + "Powered by"
+// ✅ FIX 3: Logo flutuante REMOVIDA do mobile
 function MobileDrawer({
-  open,
-  onClose,
-  items,
-  profile,
-  role,
-  onSignOut,
+  open, onClose, items, profile, role, onSignOut,
 }: {
   open: boolean;
   onClose: () => void;
@@ -376,11 +286,8 @@ function MobileDrawer({
 }) {
   const roleInfo = role ? ROLE_LABELS[role] : null;
   const RoleIcon = roleInfo?.icon ?? User;
+  const getInitials = (name: string) => name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 
-  const getInitials = (name: string) =>
-    name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
-
-  // Fechar com ESC
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -388,7 +295,6 @@ function MobileDrawer({
     return () => document.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
-  // Bloquear scroll do body quando aberto
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
@@ -396,7 +302,6 @@ function MobileDrawer({
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className={cn(
           'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm transition-opacity duration-300',
@@ -406,7 +311,6 @@ function MobileDrawer({
         aria-hidden="true"
       />
 
-      {/* Drawer panel */}
       <div
         className={cn(
           'fixed top-0 left-0 bottom-0 z-50 w-72 bg-card border-r border-border flex flex-col',
@@ -415,27 +319,20 @@ function MobileDrawer({
         )}
         style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        {/* Header do drawer */}
+        {/* Header */}
         <div className="flex items-center justify-between h-14 px-4 border-b border-border shrink-0">
           <NavLink to="/" end onClick={onClose} className="flex items-center gap-2 cursor-pointer select-none">
-            <img
-              src={logoSrc}
-              alt="Logo"
-              style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }}
-            />
+            <img src={logoSrc} alt="Logo" style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }} />
             <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1rem', letterSpacing: '0.15em', color: 'var(--foreground)' }}>
               VANT
             </span>
           </NavLink>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
-          >
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors">
             <X style={{ width: 18, height: 18 }} />
           </button>
         </div>
 
-        {/* Perfil do usuário */}
+        {/* ✅ Perfil com botão "Sair da conta" ao lado do nome */}
         <div className="px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-3">
             <Avatar style={{ width: 36, height: 36 }}>
@@ -450,6 +347,14 @@ function MobileDrawer({
                 <p className={cn('text-[11px] truncate', roleInfo?.color)}>{roleInfo?.label}</p>
               </div>
             </div>
+            {/* ✅ Botão sair ao lado do nome */}
+            <button
+              onClick={() => { onClose(); onSignOut(); }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
+              aria-label="Sair da conta"
+            >
+              <LogOut style={{ width: 16, height: 16 }} />
+            </button>
           </div>
         </div>
 
@@ -466,22 +371,98 @@ function MobileDrawer({
           ))}
         </nav>
 
-        {/* Rodapé: sair */}
-        <div className="border-t border-border p-3 shrink-0">
-          <button
-            onClick={() => { onClose(); onSignOut(); }}
-            className="flex items-center gap-3 w-full h-12 px-4 rounded-xl text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors duration-150"
+        {/* ✅ Rodapé: traço fino + logo Webcash flutuante + "Powered by" */}
+        <div className="shrink-0">
+          {/* Traço fino com gradiente e opacidade suave */}
+          <div style={{
+            height: 1,
+            margin: '0 16px',
+            background: 'linear-gradient(to right, transparent, rgba(255,255,255,0.12) 30%, rgba(255,255,255,0.12) 70%, transparent)',
+          }} />
+
+          <a
+            href="https://webcash.vercel.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-center justify-center gap-1.5 py-4 group"
+            style={{ textDecoration: 'none' }}
           >
-            <LogOut style={{ width: 20, height: 20 }} />
-            Sair da conta
-          </button>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                overflow: 'hidden',
+                border: '1.5px solid rgba(255,255,255,0.1)',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.25)',
+                opacity: 0.4,
+                transition: 'opacity 250ms ease, transform 250ms ease, box-shadow 250ms ease, border-color 250ms ease',
+              }}
+              className="group-hover:!opacity-100 group-hover:!shadow-[0_4px_18px_rgba(0,180,255,0.4)] group-hover:[border-color:rgba(0,180,255,0.55)] group-hover:scale-110"
+            >
+              <img
+                src="https://avatars.githubusercontent.com/u/249851017?v=4"
+                alt="Webcash"
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              />
+            </div>
+            <span style={{
+              fontSize: 9,
+              fontWeight: 600,
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              color: 'var(--muted-foreground)',
+              opacity: 0.5,
+              lineHeight: 1,
+              transition: 'opacity 250ms ease',
+            }}
+              className="group-hover:!opacity-80"
+            >
+              Powered by
+            </span>
+          </a>
         </div>
       </div>
     </>
   );
 }
 
-// ── Layout principal ─────────────────────────────────────────
+// ── Botão flutuante — APENAS DESKTOP ─────────────────────────
+function FloatingLogoButton() {
+  return (
+    <a
+      href="https://webcash.vercel.app"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Visitar site Webcash"
+      style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 60, display: 'block', textDecoration: 'none' }}
+      className="group"
+    >
+      <div
+        style={{
+          width: 48,
+          height: 48,
+          borderRadius: '50%',
+          overflow: 'hidden',
+          border: '2px solid rgba(255,255,255,0.12)',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+          opacity: 0.3,
+          cursor: 'pointer',
+          transition: 'opacity 250ms ease, transform 250ms ease, box-shadow 250ms ease, border-color 250ms ease',
+        }}
+        className="group-hover:!opacity-100 group-hover:!shadow-[0_4px_24px_rgba(0,180,255,0.45)] group-hover:[border-color:rgba(0,180,255,0.6)] group-hover:scale-110"
+      >
+        <img
+          src="https://avatars.githubusercontent.com/u/249851017?v=4"
+          alt="Webcash"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      </div>
+    </a>
+  );
+}
+
+// ── Layout principal ──────────────────────────────────────────
 export function DashboardLayout() {
   const { profile, signOut, role } = useAuth();
   const navigate = useNavigate();
@@ -494,8 +475,7 @@ export function DashboardLayout() {
     navigate('/login');
   }, [signOut, navigate]);
 
-  const getInitials = (name: string) =>
-    name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
+  const getInitials = (name: string) => name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 
   const visibleNavItems = NAV_ITEMS.filter((item) => {
     if (!item.allowedRoles) {
@@ -506,7 +486,6 @@ export function DashboardLayout() {
     return item.allowedRoles.includes(role);
   });
 
-  // Filtra também os itens da bottom nav de acordo com as permissões
   const visibleBottomItems = MOBILE_BOTTOM_ITEMS.filter((item) => {
     const full = NAV_ITEMS.find((n) => n.path === item.path);
     if (!full) return false;
@@ -521,20 +500,17 @@ export function DashboardLayout() {
   const roleInfo = role ? ROLE_LABELS[role] : null;
   const RoleIcon = roleInfo?.icon ?? User;
 
-  // ── RENDER MOBILE ────────────────────────────────────────
+  // ── MOBILE ───────────────────────────────────────────────
   if (isMobile) {
     return (
       <TooltipProvider delayDuration={200}>
         <div className="flex flex-col h-[100dvh] bg-background">
-          {/* Header fixo no topo */}
           <MobileHeader
             profile={profile}
             role={role}
             onMenuOpen={() => setDrawerOpen(true)}
             onSignOut={handleSignOut}
           />
-
-          {/* Drawer lateral */}
           <MobileDrawer
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
@@ -543,43 +519,25 @@ export function DashboardLayout() {
             role={role}
             onSignOut={handleSignOut}
           />
-
-          {/* Conteúdo com padding para header e bottom nav */}
-          <main
-            className="flex-1 overflow-auto"
-            style={{ paddingTop: 56, paddingBottom: 64 }}
-          >
+          <main className="flex-1 overflow-auto" style={{ paddingTop: 56, paddingBottom: 64 }}>
             <Outlet />
           </main>
-
-          {/* Bottom Navigation */}
           <MobileBottomNav
             items={visibleBottomItems}
             onMenuOpen={() => setDrawerOpen(true)}
           />
+          {/* ✅ FloatingLogoButton REMOVIDA do mobile */}
         </div>
       </TooltipProvider>
     );
   }
 
-  // ── RENDER DESKTOP (100% igual ao original) ──────────────
+  // ── DESKTOP (intocado) ────────────────────────────────────
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-screen bg-background overflow-hidden">
-
-        {/* Wrapper do sidebar */}
-        <div
-          style={{
-            width: collapsed ? 60 : 240,
-            transition: 'width 120ms ease',
-            flexShrink: 0,
-            position: 'relative',
-          }}
-        >
-          {/* ══════════════════════ SIDEBAR ══════════════════════ */}
+        <div style={{ width: collapsed ? 60 : 240, transition: 'width 120ms ease', flexShrink: 0, position: 'relative' }}>
           <aside className="absolute inset-0 flex flex-col bg-card border-r border-border">
-
-            {/* ── Logo ── */}
             <div className="h-16 flex items-center border-b border-border shrink-0 px-4">
               <NavLink to="/" end className="flex items-center gap-3 cursor-pointer select-none" style={{ minWidth: 0 }}>
                 <img
@@ -595,28 +553,16 @@ export function DashboardLayout() {
               </NavLink>
             </div>
 
-            {/* ── Navegação ── */}
-            <nav
-              className="flex-1 overflow-y-auto overflow-x-hidden"
-              style={{ padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}
-            >
+            <nav className="flex-1 overflow-y-auto overflow-x-hidden" style={{ padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
               {visibleNavItems.map((item) => (
-                <SidebarNavItem
-                  key={item.path}
-                  path={item.path}
-                  label={item.label}
-                  icon={item.icon}
-                  collapsed={collapsed}
-                />
+                <SidebarNavItem key={item.path} path={item.path} label={item.label} icon={item.icon} collapsed={collapsed} />
               ))}
             </nav>
 
-            {/* ── Botão de tema ── */}
             <div style={{ padding: '0 8px 4px' }}>
               <ThemeToggleButton collapsed={collapsed} />
             </div>
 
-            {/* ── Usuário ── */}
             <div className="border-t border-border shrink-0 p-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -641,14 +587,10 @@ export function DashboardLayout() {
                     {!collapsed && (
                       <>
                         <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-                          <p className="text-sm font-medium text-foreground truncate leading-tight">
-                            {profile?.name || 'Usuário'}
-                          </p>
+                          <p className="text-sm font-medium text-foreground truncate leading-tight">{profile?.name || 'Usuário'}</p>
                           <div className="flex items-center gap-1 mt-0.5">
                             <RoleIcon className={cn('w-3 h-3 shrink-0', roleInfo?.color)} />
-                            <p className={cn('text-[11px] truncate', roleInfo?.color)}>
-                              {roleInfo?.label}
-                            </p>
+                            <p className={cn('text-[11px] truncate', roleInfo?.color)}>{roleInfo?.label}</p>
                           </div>
                         </div>
                         <ChevronDown style={{ width: 14, height: 14, flexShrink: 0 }} className="text-muted-foreground" />
@@ -662,10 +604,7 @@ export function DashboardLayout() {
                     <p className="text-xs text-muted-foreground truncate">{profile?.email}</p>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={handleSignOut}
-                    className="text-red-500 focus:text-red-500 focus:bg-red-500/10 gap-2 cursor-pointer"
-                  >
+                  <DropdownMenuItem onClick={handleSignOut} className="text-red-500 focus:text-red-500 focus:bg-red-500/10 gap-2 cursor-pointer">
                     <LogOut className="w-4 h-4" />
                     Sair da conta
                   </DropdownMenuItem>
@@ -674,26 +613,15 @@ export function DashboardLayout() {
             </div>
           </aside>
 
-          {/* ══ Botão colapso ══ */}
           <button
             onClick={() => setCollapsed((c) => !c)}
             style={{
-              position: 'absolute',
-              right: -12,
-              top: 68,
-              zIndex: 50,
-              width: 24,
-              height: 24,
-              borderRadius: '50%',
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--card)',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: 'var(--muted-foreground)',
-              transition: 'background-color 100ms, color 100ms',
+              position: 'absolute', right: -12, top: 68, zIndex: 50,
+              width: 24, height: 24, borderRadius: '50%',
+              border: '1px solid var(--border)', backgroundColor: 'var(--card)',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.3)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+              color: 'var(--muted-foreground)', transition: 'background-color 100ms, color 100ms',
             }}
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--muted)';
@@ -705,17 +633,16 @@ export function DashboardLayout() {
             }}
             aria-label={collapsed ? 'Expandir' : 'Recolher'}
           >
-            {collapsed
-              ? <ChevronRight style={{ width: 12, height: 12 }} />
-              : <ChevronLeft style={{ width: 12, height: 12 }} />}
+            {collapsed ? <ChevronRight style={{ width: 12, height: 12 }} /> : <ChevronLeft style={{ width: 12, height: 12 }} />}
           </button>
         </div>
 
-        {/* ══════════════════════ MAIN ══════════════════════ */}
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
 
+        {/* ✅ Logo flutuante apenas no desktop */}
+        <FloatingLogoButton />
       </div>
     </TooltipProvider>
   );

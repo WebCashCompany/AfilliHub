@@ -1,4 +1,4 @@
-// front/src/api/services/socket.service.ts - VERSÃO INTEGRAL CORRIGIDA
+// front/src/api/services/socket.service.ts
 import { io, Socket } from 'socket.io-client';
 import { ENV } from '@/config/environment';
 
@@ -13,11 +13,9 @@ class SocketService {
       return;
     }
 
-    // Garante que o Socket conecte na raiz, removendo o sufixo /api se houver
     const BACKEND_URL = ENV.API_BASE_URL.replace(/\/api$/, '');
-    
     console.log('🔌 Conectando Socket.IO em:', BACKEND_URL);
-    
+
     this.socket = io(BACKEND_URL, {
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -29,13 +27,14 @@ class SocketService {
 
     this.socket.on('connect', () => {
       console.log('✅ Socket.IO conectado! ID:', this.socket?.id);
-      
+
       if (this.reconnectInterval) {
         clearInterval(this.reconnectInterval);
         this.reconnectInterval = null;
       }
-      
-      // Solicitar lista atual de sessões ao conectar
+
+      // ✅ FIX: emitir AMBOS para garantir compatibilidade com o backend
+      this.emit('sessions:get', {});
       this.emit('whatsapp:request-sessions', {});
     });
 
@@ -45,7 +44,7 @@ class SocketService {
 
     this.socket.on('disconnect', (reason) => {
       console.log('❌ Socket.IO desconectado:', reason);
-      
+
       if (!this.reconnectInterval) {
         this.reconnectInterval = setInterval(() => {
           if (!this.socket?.connected) {
@@ -57,7 +56,7 @@ class SocketService {
     });
 
     // ═══════════════════════════════════════════════════════════
-    // EVENTOS DO WHATSAPP - SINCRONIZAÇÃO EM TEMPO REAL
+    // EVENTOS DO WHATSAPP
     // ═══════════════════════════════════════════════════════════
 
     this.socket.on('whatsapp:qr', (data: { sessionId: string; qrCode: string }) => {
@@ -75,9 +74,22 @@ class SocketService {
       this.triggerCallbacks('whatsapp:disconnected', data);
     });
 
+    // ✅ FIX: broadcast do backend → dispara o handler correto no Context
     this.socket.on('whatsapp:sessions-update', (data: { sessions: any[] }) => {
-      console.log('📋 [BROADCAST] Sessões atualizadas:', data.sessions.length, 'sessões');
+      console.log('📋 [BROADCAST] Sessões atualizadas:', data.sessions?.length || 0, 'sessões');
       this.triggerCallbacks('whatsapp:sessions-update', data);
+    });
+
+    // ✅ FIX: resposta ao sessions:get → redireciona pro mesmo handler
+    this.socket.on('sessions:list', (data: { sessions: any[] }) => {
+      console.log('📋 Lista de sessões recebida:', data.sessions?.length || 0);
+      this.triggerCallbacks('whatsapp:sessions-update', data); // ✅ mesmo handler do Context
+    });
+
+    // ✅ FIX: alias antigo → redireciona pro mesmo handler
+    this.socket.on('whatsapp:sessions-list', (data: { sessions: any[] }) => {
+      console.log('📋 Lista de sessões recebida (alias):', data.sessions?.length || 0);
+      this.triggerCallbacks('whatsapp:sessions-update', data); // ✅ mesmo handler do Context
     });
 
     this.socket.on('whatsapp:offer-sent', (data: { sessionId: string; groupId: string; offerName: string }) => {
@@ -85,9 +97,8 @@ class SocketService {
       this.triggerCallbacks('whatsapp:offer-sent', data);
     });
 
-    this.socket.on('whatsapp:sessions-list', (data: { sessions: any[] }) => {
-      console.log('📋 Lista de sessões recebida:', data.sessions.length);
-      this.triggerCallbacks('whatsapp:sessions-list', data);
+    this.socket.on('preferences:response', (data: any) => {
+      this.triggerCallbacks('preferences:response', data);
     });
   }
 
@@ -96,7 +107,7 @@ class SocketService {
       clearInterval(this.reconnectInterval);
       this.reconnectInterval = null;
     }
-    
+
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
