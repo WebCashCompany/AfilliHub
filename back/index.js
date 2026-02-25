@@ -1,4 +1,4 @@
-// back/server.js
+// back/index.js
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
@@ -17,11 +17,15 @@ const PORT   = process.env.PORT || 3001;
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
-app.use(cors({ origin: '*', credentials: false }));
+app.use(cors({
+  origin: '*',
+  credentials: false,
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+}));
 app.use(express.json());
 
 const io = new Server(server, {
@@ -61,13 +65,11 @@ async function startServer() {
     io.on('connection', (socket) => {
       console.log(`🔌 [SOCKET] Cliente conectado: ${socket.id}`);
 
-      // ✅ FIX: helper para buscar e enviar sessões
       const sendSessionsToSocket = async (targetSocket) => {
         try {
           const sessions = await whatsappService.getAllSessions();
-          // Responde com AMBOS os nomes de evento para garantir compatibilidade
-          targetSocket.emit('sessions:list',            { sessions });  // whatsapp.service.ts escuta isso
-          targetSocket.emit('whatsapp:sessions-list',   { sessions });  // alias antigo
+          targetSocket.emit('sessions:list',            { sessions });
+          targetSocket.emit('whatsapp:sessions-list',   { sessions });
         } catch (error) {
           console.error('❌ [SOCKET] Erro ao enviar sessões:', error.message);
           targetSocket.emit('sessions:list',          { sessions: [] });
@@ -75,13 +77,11 @@ async function startServer() {
         }
       };
 
-      // ✅ FIX: frontend emite 'sessions:get' (whatsapp.service.ts linha: this.socket?.emit('sessions:get'))
       socket.on('sessions:get', () => {
         console.log(`📋 [SOCKET] sessions:get recebido de ${socket.id}`);
         sendSessionsToSocket(socket);
       });
 
-      // Manter o antigo também (compatibilidade)
       socket.on('whatsapp:request-sessions', () => {
         console.log(`📋 [SOCKET] whatsapp:request-sessions recebido de ${socket.id}`);
         sendSessionsToSocket(socket);
