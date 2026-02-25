@@ -8,6 +8,11 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import type { DateRange } from 'react-day-picker';
+import { format, startOfDay, endOfDay, subDays } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import {
   Table,
   TableBody,
@@ -49,7 +54,7 @@ import {
   ExternalLink,
   Copy,
   Check,
-  Calendar,
+  CalendarDays,
   Tag,
   TrendingDown,
   Package,
@@ -65,6 +70,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  X,
 } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import { formatNumber, Marketplace, ProductStatus } from '@/lib/mockData';
@@ -74,6 +80,7 @@ import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib
 type CleanupType = 'all' | 'marketplace' | 'old' | 'selected';
 type SortField = 'price' | 'discount' | null;
 type SortDirection = 'asc' | 'desc';
+type QuickFilter = 'all' | 'today' | 'yesterday' | 'last7' | 'last30';
 
 import { ENV } from '@/config/environment';
 const API_BASE_URL = ENV.API_BASE_URL;
@@ -92,6 +99,11 @@ export function ProductsPage() {
   // Ordenação
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  // Filtro de data
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
   // Dialog de limpeza
   const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
@@ -118,6 +130,51 @@ export function ProductsPage() {
     return Array.from(new Set(cats)).sort();
   }, [products]);
 
+  // Resolve intervalo de datas ativo (quick filter OU range do calendário)
+  const getActiveDateRange = (): { from: Date | null; to: Date | null } => {
+    const now = new Date();
+    const today = startOfDay(now);
+
+    switch (quickFilter) {
+      case 'today':
+        return { from: today, to: endOfDay(now) };
+      case 'yesterday':
+        return { from: startOfDay(subDays(now, 1)), to: endOfDay(subDays(now, 1)) };
+      case 'last7':
+        return { from: startOfDay(subDays(now, 7)), to: endOfDay(now) };
+      case 'last30':
+        return { from: startOfDay(subDays(now, 30)), to: endOfDay(now) };
+      default:
+        if (dateRange?.from) {
+          return {
+            from: startOfDay(dateRange.from),
+            to: dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from),
+          };
+        }
+        return { from: null, to: null };
+    }
+  };
+
+  // Label para o botão do calendário
+  const calendarLabel = useMemo(() => {
+    if (quickFilter !== 'all') return null;
+    if (!dateRange?.from) return 'Selecionar período';
+    if (!dateRange.to || dateRange.from.toDateString() === dateRange.to.toDateString()) {
+      return format(dateRange.from, "dd/MM/yyyy", { locale: ptBR });
+    }
+    return `${format(dateRange.from, "dd/MM/yy", { locale: ptBR })} → ${format(dateRange.to, "dd/MM/yy", { locale: ptBR })}`;
+  }, [quickFilter, dateRange]);
+
+  const isDateFilterActive = quickFilter !== 'all' || !!dateRange?.from;
+
+  const quickFilterLabels: Record<QuickFilter, string> = {
+    all: 'Qualquer data',
+    today: 'Hoje',
+    yesterday: 'Ontem',
+    last7: 'Últimos 7 dias',
+    last30: 'Últimos 30 dias',
+  };
+
   // Função para alternar ordenação de uma coluna
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -140,6 +197,8 @@ export function ProductsPage() {
   };
 
   const filteredProducts = useMemo(() => {
+    const { from, to } = getActiveDateRange();
+
     let result = products.filter(p => {
       const matchesSearch =
         p.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -152,7 +211,23 @@ export function ProductsPage() {
       const matchesCategory =
         categoryFilter === 'all' || productCategory === categoryFilter;
 
-      return matchesSearch && matchesMarketplace && matchesCategory;
+      // Filtro de data
+      let matchesDate = true;
+      if (from && to) {
+        const rawDate = p.addedAt ?? null;
+        if (rawDate) {
+          const productDate = new Date(rawDate);
+          if (!isNaN(productDate.getTime())) {
+            matchesDate = productDate >= from && productDate <= to;
+          } else {
+            matchesDate = false;
+          }
+        } else {
+          matchesDate = false;
+        }
+      }
+
+      return matchesSearch && matchesMarketplace && matchesCategory && matchesDate;
     });
 
     // Aplica ordenação
@@ -174,7 +249,7 @@ export function ProductsPage() {
     }
 
     return result;
-  }, [products, search, marketplaceFilter, categoryFilter, sortField, sortDirection]);
+  }, [products, search, marketplaceFilter, categoryFilter, sortField, sortDirection, quickFilter, dateRange]);
 
   const paginatedProducts = filteredProducts.slice(
     (page - 1) * pageSize,
@@ -203,7 +278,6 @@ export function ProductsPage() {
     toast({ title: 'Produtos excluídos com sucesso' });
   };
 
-  // ✅ BUSCA OS DADOS COMPLETOS DO PRODUTO NO BACKEND
   const handleProductClick = async (product: any) => {
     setSelectedProduct(product);
     setDetailsDialogOpen(true);
@@ -319,10 +393,14 @@ export function ProductsPage() {
     }
   };
 
-  // ✅ USA OS DADOS ORIGINAIS SE DISPONÍVEIS
   const displayProduct = originalProductData || selectedProduct;
-
   const affiliateLink = displayProduct?.link_afiliado || displayProduct?.affiliateLink;
+
+  const clearDateFilter = () => {
+    setQuickFilter('all');
+    setDateRange(undefined);
+    setPage(1);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -394,145 +472,241 @@ export function ProductsPage() {
         <TabsContent value="products" className="space-y-4">
           {/* FILTROS */}
           <Card>
-            <CardContent className="p-4 flex gap-3 flex-wrap items-center">
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar produto..."
-                  value={search}
-                  onChange={e => {
-                    setSearch(e.target.value);
+            <CardContent className="p-4 space-y-3">
+              {/* Linha 1: busca + marketplace + categoria + ordenação */}
+              <div className="flex gap-3 flex-wrap items-center">
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar produto..."
+                    value={search}
+                    onChange={e => {
+                      setSearch(e.target.value);
+                      setPage(1);
+                    }}
+                    className="pl-10"
+                  />
+                </div>
+
+                <Select
+                  value={marketplaceFilter}
+                  onValueChange={v => {
+                    setMarketplaceFilter(v as any);
                     setPage(1);
                   }}
-                  className="pl-10"
-                />
+                >
+                  <SelectTrigger className="w-48">
+                    <Filter className="w-4 h-4 mr-2" />
+                    <SelectValue placeholder="Marketplace" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os marketplaces</SelectItem>
+                    <SelectItem value="mercadolivre">Mercado Livre</SelectItem>
+                    <SelectItem value="amazon">Amazon</SelectItem>
+                    <SelectItem value="shopee">Shopee</SelectItem>
+                    <SelectItem value="magalu">Magalu</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={categoryFilter}
+                  onValueChange={v => {
+                    setCategoryFilter(v);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-52">
+                    <Tag className="w-4 h-4 mr-2" />
+                    <SelectValue placeholder="Categoria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas as categorias</SelectItem>
+                    {availableCategories.map(cat => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={sortField === 'price' ? `price_${sortDirection}` : sortField === 'discount' ? `discount_${sortDirection}` : 'none'}
+                  onValueChange={v => {
+                    if (v === 'none') {
+                      setSortField(null);
+                    } else {
+                      const [field, dir] = v.split('_') as [SortField, SortDirection];
+                      setSortField(field);
+                      setSortDirection(dir);
+                    }
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-52">
+                    <div className="flex items-center gap-2">
+                      {sortField === null && <ArrowUpDown className="w-4 h-4 text-muted-foreground" />}
+                      {sortField === 'price' && sortDirection === 'asc' && <ArrowUp className="w-4 h-4 text-primary" />}
+                      {sortField === 'price' && sortDirection === 'desc' && <ArrowDown className="w-4 h-4 text-primary" />}
+                      {sortField === 'discount' && sortDirection === 'asc' && <ArrowUp className="w-4 h-4 text-primary" />}
+                      {sortField === 'discount' && sortDirection === 'desc' && <ArrowDown className="w-4 h-4 text-primary" />}
+                      <SelectValue placeholder="Ordenar por" />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      <span className="flex items-center gap-2">
+                        <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
+                        Sem ordenação
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="price_asc">
+                      <span className="flex items-center gap-2">
+                        <ArrowUp className="w-4 h-4 text-green-600" />
+                        Menor preço primeiro
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="price_desc">
+                      <span className="flex items-center gap-2">
+                        <ArrowDown className="w-4 h-4 text-green-600" />
+                        Maior preço primeiro
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="discount_desc">
+                      <span className="flex items-center gap-2">
+                        <ArrowDown className="w-4 h-4 text-orange-500" />
+                        Maior desconto primeiro
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="discount_asc">
+                      <span className="flex items-center gap-2">
+                        <ArrowUp className="w-4 h-4 text-orange-500" />
+                        Menor desconto primeiro
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
-              <Select
-                value={marketplaceFilter}
-                onValueChange={v => {
-                  setMarketplaceFilter(v as any);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-48">
-                  <Filter className="w-4 h-4 mr-2" />
-                  <SelectValue placeholder="Marketplace" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os marketplaces</SelectItem>
-                  <SelectItem value="mercadolivre">Mercado Livre</SelectItem>
-                  <SelectItem value="amazon">Amazon</SelectItem>
-                  <SelectItem value="shopee">Shopee</SelectItem>
-                  <SelectItem value="magalu">Magalu</SelectItem>
-                </SelectContent>
-              </Select>
+              {/* Linha 2: filtro de data */}
+              <div className="flex gap-2 flex-wrap items-center">
+                {/* Quick filters */}
+                {(['all', 'today', 'yesterday', 'last7', 'last30'] as QuickFilter[]).map(q => (
+                  <Button
+                    key={q}
+                    variant={quickFilter === q ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-9 text-xs font-medium"
+                    onClick={() => {
+                      setQuickFilter(q);
+                      setDateRange(undefined);
+                      setPage(1);
+                    }}
+                  >
+                    {quickFilterLabels[q]}
+                  </Button>
+                ))}
 
-              {/* Filtro de categoria */}
-              <Select
-                value={categoryFilter}
-                onValueChange={v => {
-                  setCategoryFilter(v);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-52">
-                  <Tag className="w-4 h-4 mr-2" />
-                  <SelectValue placeholder="Categoria" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas as categorias</SelectItem>
-                  {availableCategories.map(cat => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {/* Separador visual */}
+                <div className="h-6 w-px bg-border mx-1" />
 
-              {/* Ordenação */}
-              <Select
-                value={sortField === 'price' ? `price_${sortDirection}` : sortField === 'discount' ? `discount_${sortDirection}` : 'none'}
-                onValueChange={v => {
-                  if (v === 'none') {
-                    setSortField(null);
-                  } else {
-                    const [field, dir] = v.split('_') as [SortField, SortDirection];
-                    setSortField(field);
-                    setSortDirection(dir);
-                  }
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className="w-52">
-                  <div className="flex items-center gap-2">
-                    {sortField === null && <ArrowUpDown className="w-4 h-4 text-muted-foreground" />}
-                    {sortField === 'price' && sortDirection === 'asc' && <ArrowUp className="w-4 h-4 text-primary" />}
-                    {sortField === 'price' && sortDirection === 'desc' && <ArrowDown className="w-4 h-4 text-primary" />}
-                    {sortField === 'discount' && sortDirection === 'asc' && <ArrowUp className="w-4 h-4 text-primary" />}
-                    {sortField === 'discount' && sortDirection === 'desc' && <ArrowDown className="w-4 h-4 text-primary" />}
-                    <SelectValue placeholder="Ordenar por" />
-                  </div>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">
-                    <span className="flex items-center gap-2">
-                      <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
-                      Sem ordenação
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="price_asc">
-                    <span className="flex items-center gap-2">
-                      <ArrowUp className="w-4 h-4 text-green-600" />
-                      Menor preço primeiro
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="price_desc">
-                    <span className="flex items-center gap-2">
-                      <ArrowDown className="w-4 h-4 text-green-600" />
-                      Maior preço primeiro
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="discount_desc">
-                    <span className="flex items-center gap-2">
-                      <ArrowDown className="w-4 h-4 text-orange-500" />
-                      Maior desconto primeiro
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="discount_asc">
-                    <span className="flex items-center gap-2">
-                      <ArrowUp className="w-4 h-4 text-orange-500" />
-                      Menor desconto primeiro
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+                {/* Calendário de range personalizado */}
+                <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={quickFilter === 'all' && dateRange?.from ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-9 gap-2 text-xs font-medium min-w-[160px] justify-start"
+                    >
+                      <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="truncate">
+                        {calendarLabel || 'Período personalizado'}
+                      </span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start" sideOffset={8}>
+                    <div className="p-3 border-b">
+                      <p className="text-sm font-medium">Selecionar período</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Clique em duas datas para definir o intervalo
+                      </p>
+                    </div>
+                    <Calendar
+                      mode="range"
+                      selected={dateRange}
+                      onSelect={(range) => {
+                        setDateRange(range);
+                        setQuickFilter('all');
+                        setPage(1);
+                        if (range?.from && range?.to) {
+                          setCalendarOpen(false);
+                        }
+                      }}
+                      locale={ptBR}
+                      numberOfMonths={2}
+                      disabled={{ after: new Date() }}
+                      initialFocus
+                    />
+                    {dateRange?.from && (
+                      <div className="p-3 border-t flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          {dateRange.from && format(dateRange.from, "dd/MM/yyyy", { locale: ptBR })}
+                          {dateRange.to && ` → ${format(dateRange.to, "dd/MM/yyyy", { locale: ptBR })}`}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => { setDateRange(undefined); setPage(1); }}
+                        >
+                          Limpar
+                        </Button>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              </div>
 
               {/* Badges de filtros ativos */}
-              {categoryFilter !== 'all' && (
-                <Badge
-                  variant="secondary"
-                  className="gap-1.5 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
-                  onClick={() => { setCategoryFilter('all'); setPage(1); }}
-                >
-                  <Tag className="w-3 h-3" />
-                  {categoryFilter}
-                  <span className="text-xs ml-1">✕</span>
-                </Badge>
-              )}
+              {(categoryFilter !== 'all' || sortField || isDateFilterActive) && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {categoryFilter !== 'all' && (
+                    <Badge
+                      variant="secondary"
+                      className="gap-1.5 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
+                      onClick={() => { setCategoryFilter('all'); setPage(1); }}
+                    >
+                      <Tag className="w-3 h-3" />
+                      {categoryFilter}
+                      <X className="w-3 h-3 ml-0.5" />
+                    </Badge>
+                  )}
 
-              {sortField && (
-                <Badge
-                  variant="secondary"
-                  className="gap-1.5 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
-                  onClick={() => { setSortField(null); setPage(1); }}
-                >
-                  {sortField === 'price' && sortDirection === 'asc' && <><ArrowUp className="w-3 h-3" /> Menor preço</>}
-                  {sortField === 'price' && sortDirection === 'desc' && <><ArrowDown className="w-3 h-3" /> Maior preço</>}
-                  {sortField === 'discount' && sortDirection === 'desc' && <><ArrowDown className="w-3 h-3" /> Maior desconto</>}
-                  {sortField === 'discount' && sortDirection === 'asc' && <><ArrowUp className="w-3 h-3" /> Menor desconto</>}
-                  <span className="text-xs ml-1">✕</span>
-                </Badge>
+                  {sortField && (
+                    <Badge
+                      variant="secondary"
+                      className="gap-1.5 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
+                      onClick={() => { setSortField(null); setPage(1); }}
+                    >
+                      {sortField === 'price' && sortDirection === 'asc' && <><ArrowUp className="w-3 h-3" /> Menor preço</>}
+                      {sortField === 'price' && sortDirection === 'desc' && <><ArrowDown className="w-3 h-3" /> Maior preço</>}
+                      {sortField === 'discount' && sortDirection === 'desc' && <><ArrowDown className="w-3 h-3" /> Maior desconto</>}
+                      {sortField === 'discount' && sortDirection === 'asc' && <><ArrowUp className="w-3 h-3" /> Menor desconto</>}
+                      <X className="w-3 h-3 ml-0.5" />
+                    </Badge>
+                  )}
+
+                  {isDateFilterActive && (
+                    <Badge
+                      variant="secondary"
+                      className="gap-1.5 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
+                      onClick={clearDateFilter}
+                    >
+                      <CalendarDays className="w-3 h-3" />
+                      {quickFilter !== 'all' ? quickFilterLabels[quickFilter] : calendarLabel}
+                      <X className="w-3 h-3 ml-0.5" />
+                    </Badge>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -667,6 +841,15 @@ export function ProductsPage() {
                       </TableRow>
                     );
                   })}
+
+                  {paginatedProducts.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                        <CalendarDays className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                        <p>Nenhum produto encontrado para os filtros selecionados.</p>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
 
@@ -862,7 +1045,7 @@ export function ProductsPage() {
                     {(displayProduct.createdAt || displayProduct.createdat) && (
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5" />
+                          <CalendarDays className="w-3.5 h-3.5" />
                           Criado
                         </Label>
                         <p className="text-xs">{formatDate(displayProduct.createdAt || displayProduct.createdat)}</p>
@@ -872,7 +1055,7 @@ export function ProductsPage() {
                     {(displayProduct.updatedAt || displayProduct.updatedat) && (
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5" />
+                          <CalendarDays className="w-3.5 h-3.5" />
                           Atualizado
                         </Label>
                         <p className="text-xs">{formatDate(displayProduct.updatedAt || displayProduct.updatedat)}</p>
@@ -882,7 +1065,7 @@ export function ProductsPage() {
                     {displayProduct.ultima_verificacao && (
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5" />
+                          <CalendarDays className="w-3.5 h-3.5" />
                           Verificado
                         </Label>
                         <p className="text-xs">{formatDate(displayProduct.ultima_verificacao)}</p>
@@ -890,7 +1073,7 @@ export function ProductsPage() {
                     )}
                   </div>
 
-                  {/* Link de Afiliado — somente se existir */}
+                  {/* Link de Afiliado */}
                   {affiliateLink && (
                     <>
                       <Separator />
@@ -901,7 +1084,6 @@ export function ProductsPage() {
                           Link de Afiliado
                         </Label>
 
-                        {/* Display visual — não editável, sem foco de input */}
                         <div className="flex gap-2 items-center">
                           <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border bg-background/60 text-sm font-mono text-muted-foreground overflow-hidden select-all cursor-text">
                             <span className="truncate">{affiliateLink}</span>
@@ -934,8 +1116,6 @@ export function ProductsPage() {
                             </a>
                           </Button>
                         </div>
-
-                
                       </div>
                     </>
                   )}
