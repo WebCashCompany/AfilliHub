@@ -24,8 +24,6 @@ import {
   Moon,
   Menu,
   X,
-  PanelLeftClose,
-  PanelLeftOpen,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -170,17 +168,7 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-<<<<<<< HEAD
 function MobileBottomNav({ items, onMenuOpen }: { items: NavItem[]; onMenuOpen: () => void }) {
-=======
-function MobileBottomNav({
-  items,
-  onMenuOpen,
-}: {
-  items: NavItem[];
-  onMenuOpen: () => void;
-}) {
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
   const location = useLocation();
   return (
     <nav
@@ -206,10 +194,6 @@ function MobileBottomNav({
           </NavLink>
         );
       })}
-<<<<<<< HEAD
-=======
-
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
       <button
         onClick={onMenuOpen}
         className="flex-1 flex flex-col items-center justify-center gap-0.5 h-full transition-colors duration-150"
@@ -223,11 +207,8 @@ function MobileBottomNav({
   );
 }
 
-<<<<<<< HEAD
 // ── Mobile Top Header ─────────────────────────────────────────
 // ✅ FIX: "Sair da conta" movido para o dropdown do avatar no topo
-=======
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
 function MobileHeader({
   profile, role, onMenuOpen, onSignOut,
 }: { profile: { name?: string; email?: string } | null; role: string | null; onMenuOpen: () => void; onSignOut: () => void }) {
@@ -258,10 +239,7 @@ function MobileHeader({
           {isDark ? <Sun style={{ width: 18, height: 18 }} /> : <Moon style={{ width: 18, height: 18 }} />}
         </button>
 
-<<<<<<< HEAD
         {/* ✅ Avatar com "Sair da conta" no dropdown */}
-=======
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 px-2 h-9 rounded-lg hover:bg-muted transition-colors">
@@ -292,13 +270,10 @@ function MobileHeader({
   );
 }
 
-<<<<<<< HEAD
 // ── Mobile Drawer ─────────────────────────────────────────────
 // ✅ FIX 1: Botão "Sair da conta" adicionado ao lado do nome no perfil
 // ✅ FIX 2: Rodapé substituído por traço + logo Webcash + "Powered by"
 // ✅ FIX 3: Logo flutuante REMOVIDA do mobile
-=======
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
 function MobileDrawer({
   open, onClose, items, profile, role, onSignOut,
 }: {
@@ -313,12 +288,6 @@ function MobileDrawer({
   const RoleIcon = roleInfo?.icon ?? User;
   const getInitials = (name: string) => name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 
-<<<<<<< HEAD
-=======
-  const getInitials = (name: string) =>
-    name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
-
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -350,10 +319,7 @@ function MobileDrawer({
         )}
         style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-<<<<<<< HEAD
         {/* Header */}
-=======
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
         <div className="flex items-center justify-between h-14 px-4 border-b border-border shrink-0">
           <NavLink to="/" end onClick={onClose} className="flex items-center gap-2 cursor-pointer select-none">
             <img src={logoSrc} alt="Logo" style={{ width: 48, height: 48, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))' }} />
@@ -366,10 +332,7 @@ function MobileDrawer({
           </button>
         </div>
 
-<<<<<<< HEAD
         {/* ✅ Perfil com botão "Sair da conta" ao lado do nome */}
-=======
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
         <div className="px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-3">
             <Avatar style={{ width: 36, height: 36 }}>
@@ -395,6 +358,7 @@ function MobileDrawer({
           </div>
         </div>
 
+        {/* Itens de navegação */}
         <nav className="flex-1 overflow-y-auto py-3 px-3 flex flex-col gap-1">
           {items.map((item) => (
             <DrawerNavItem
@@ -407,14 +371,13 @@ function MobileDrawer({
           ))}
         </nav>
 
-<<<<<<< HEAD
         {/* ✅ Rodapé: traço fino + logo Webcash flutuante + "Powered by" */}
         <div className="shrink-0">
-          {/* Traço fino com gradiente */}
+          {/* Traço fino com gradiente e opacidade suave */}
           <div style={{
             height: 1,
-            margin: '0 20px',
-            background: 'linear-gradient(to right, transparent, var(--border) 30%, var(--border) 70%, transparent)',
+            margin: '0 16px',
+            background: 'linear-gradient(to right, transparent, rgba(255,255,255,0.12) 30%, rgba(255,255,255,0.12) 70%, transparent)',
           }} />
 
           <a
@@ -423,12 +386,6 @@ function MobileDrawer({
             rel="noopener noreferrer"
             className="flex flex-col items-center justify-center gap-1.5 py-4 group"
             style={{ textDecoration: 'none' }}
-=======
-        <div className="border-t border-border p-3 shrink-0">
-          <button
-            onClick={() => { onClose(); onSignOut(); }}
-            className="flex items-center gap-3 w-full h-12 px-4 rounded-xl text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors duration-150"
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
           >
             <div
               style={{
@@ -470,10 +427,7 @@ function MobileDrawer({
   );
 }
 
-<<<<<<< HEAD
 // ── Botão flutuante — APENAS DESKTOP ─────────────────────────
-=======
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
 function FloatingLogoButton() {
   return (
     <a
@@ -508,52 +462,7 @@ function FloatingLogoButton() {
   );
 }
 
-<<<<<<< HEAD
 // ── Layout principal ──────────────────────────────────────────
-=======
-// ── Botão de colapso inline no header do sidebar ─────────────
-function CollapseButton({
-  collapsed,
-  onClick,
-}: {
-  collapsed: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          onClick={onClick}
-          aria-label={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
-          className={cn(
-            'group relative flex items-center justify-center rounded-md transition-all duration-150',
-            'w-7 h-7 shrink-0',
-            'text-muted-foreground/60',
-            'hover:text-foreground',
-            'hover:bg-muted',
-            'border border-transparent hover:border-border',
-          )}
-        >
-          {/* Ícone troca suavemente */}
-          <span
-            className="transition-transform duration-200"
-            style={{ transform: collapsed ? 'rotate(0deg)' : 'rotate(0deg)' }}
-          >
-            {collapsed
-              ? <PanelLeftOpen style={{ width: 15, height: 15 }} />
-              : <PanelLeftClose style={{ width: 15, height: 15 }} />}
-          </span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right" className="text-xs font-medium">
-        {collapsed ? 'Expandir' : 'Recolher'}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-// ── Layout principal ─────────────────────────────────────────
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
 export function DashboardLayout() {
   const { profile, signOut, role } = useAuth();
   const navigate = useNavigate();
@@ -602,10 +511,6 @@ export function DashboardLayout() {
             onMenuOpen={() => setDrawerOpen(true)}
             onSignOut={handleSignOut}
           />
-<<<<<<< HEAD
-=======
-
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
           <MobileDrawer
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
@@ -614,36 +519,19 @@ export function DashboardLayout() {
             role={role}
             onSignOut={handleSignOut}
           />
-<<<<<<< HEAD
           <main className="flex-1 overflow-auto" style={{ paddingTop: 56, paddingBottom: 64 }}>
             <Outlet />
           </main>
-=======
-
-          <main
-            className="flex-1 overflow-auto"
-            style={{ paddingTop: 56, paddingBottom: 64 }}
-          >
-            <Outlet />
-          </main>
-
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
           <MobileBottomNav
             items={visibleBottomItems}
             onMenuOpen={() => setDrawerOpen(true)}
           />
-<<<<<<< HEAD
           {/* ✅ FloatingLogoButton REMOVIDA do mobile */}
-=======
-
-          <FloatingLogoButton />
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
         </div>
       </TooltipProvider>
     );
   }
 
-<<<<<<< HEAD
   // ── DESKTOP (intocado) ────────────────────────────────────
   return (
     <TooltipProvider delayDuration={200}>
@@ -652,75 +540,17 @@ export function DashboardLayout() {
           <aside className="absolute inset-0 flex flex-col bg-card border-r border-border">
             <div className="h-16 flex items-center border-b border-border shrink-0 px-4">
               <NavLink to="/" end className="flex items-center gap-3 cursor-pointer select-none" style={{ minWidth: 0 }}>
-=======
-  // ── RENDER DESKTOP ───────────────────────────────────────
-  return (
-    <TooltipProvider delayDuration={200}>
-      <div className="flex h-screen bg-background overflow-hidden">
-
-        {/* Wrapper do sidebar */}
-        <div
-          style={{
-            width: collapsed ? 60 : 240,
-            transition: 'width 150ms ease',
-            flexShrink: 0,
-            position: 'relative',
-          }}
-        >
-          {/* ══════════════════════ SIDEBAR ══════════════════════ */}
-          <aside className="absolute inset-0 flex flex-col bg-card border-r border-border">
-
-            {/* ── Logo + botão de colapso ── */}
-            <div
-              className={cn(
-                'h-16 flex items-center border-b border-border shrink-0 px-3 gap-2',
-                collapsed ? 'justify-center' : 'justify-between',
-              )}
-            >
-              {/* Logo — clicável só quando expandido; quando colapsado só ícone */}
-              <NavLink
-                to="/"
-                end
-                className="flex items-center gap-2.5 cursor-pointer select-none min-w-0 flex-1 overflow-hidden"
-                tabIndex={collapsed ? -1 : 0}
-                style={{ pointerEvents: collapsed ? 'none' : 'auto' }}
-              >
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
                 <img
                   src={logoSrc}
                   alt="Logo"
-                  style={{
-                    width: 38,
-                    height: 38,
-                    flexShrink: 0,
-                    objectFit: 'contain',
-                    display: 'block',
-                    filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))',
-                  }}
+                  style={{ width: 48, height: 48, flexShrink: 0, objectFit: 'contain', display: 'block', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))', marginTop: 6 }}
                 />
-                <span
-                  style={{
-                    fontFamily: "'Orbitron', sans-serif",
-                    fontWeight: 700,
-                    fontSize: '1.05rem',
-                    letterSpacing: '0.18em',
-                    color: 'var(--foreground)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    opacity: collapsed ? 0 : 1,
-                    width: collapsed ? 0 : 'auto',
-                    transition: 'opacity 120ms ease, width 120ms ease',
-                  }}
-                >
-                  VANT
-                </span>
+                {!collapsed && (
+                  <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1.15rem', letterSpacing: '0.18em', color: 'var(--foreground)', whiteSpace: 'nowrap', lineHeight: 1, display: 'flex', alignItems: 'center' }}>
+                    VANT
+                  </span>
+                )}
               </NavLink>
-
-              {/* Botão de colapso elegante — sempre visível */}
-              <CollapseButton
-                collapsed={collapsed}
-                onClick={() => setCollapsed((c) => !c)}
-              />
             </div>
 
             <nav className="flex-1 overflow-y-auto overflow-x-hidden" style={{ padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -782,7 +612,6 @@ export function DashboardLayout() {
               </DropdownMenu>
             </div>
           </aside>
-<<<<<<< HEAD
 
           <button
             onClick={() => setCollapsed((c) => !c)}
@@ -806,18 +635,13 @@ export function DashboardLayout() {
           >
             {collapsed ? <ChevronRight style={{ width: 12, height: 12 }} /> : <ChevronLeft style={{ width: 12, height: 12 }} />}
           </button>
-=======
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
         </div>
 
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
 
-<<<<<<< HEAD
         {/* ✅ Logo flutuante apenas no desktop */}
-=======
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
         <FloatingLogoButton />
       </div>
     </TooltipProvider>

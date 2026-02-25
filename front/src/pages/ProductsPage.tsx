@@ -1023,7 +1023,6 @@ export function ProductsPage() {
                     </div>
                   )}
 
-<<<<<<< HEAD
                   {paginatedProducts.map(product => (
                     <MobileProductCard
                       key={product.id}
@@ -1052,37 +1051,6 @@ export function ProductsPage() {
                         <p className="text-sm font-semibold">{page} / {totalPages}</p>
                         <p className="text-xs text-muted-foreground">{filteredProducts.length} produtos</p>
                       </div>
-=======
-              {/* PAGINAÇÃO */}
-              <div className="flex justify-between items-center p-4 border-t">
-                <span className="text-sm text-muted-foreground">
-                  Página {page} de {totalPages || 1}
-                </span>
-
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
 
                       <Button
                         size="sm"
@@ -1116,7 +1084,6 @@ export function ProductsPage() {
         </Tabs>
       </div>
 
-<<<<<<< HEAD
       {/* ─── MOBILE FILTERS SHEET ─── */}
       <MobileFiltersSheet
         open={filtersOpen}
@@ -1138,7 +1105,7 @@ export function ProductsPage() {
         clearDateFilter={clearDateFilter}
       />
 
-      {/* ─── DIALOG DE DETALHES (Mobile-optimized Sheet) ─── */}
+      {/* ─── DIALOG DE DETALHES ─── */}
       {/* Mobile: Sheet from bottom */}
       <div className="md:hidden">
         <Sheet open={detailsDialogOpen} onOpenChange={(open) => {
@@ -1292,232 +1259,6 @@ export function ProductsPage() {
                               Abrir
                             </a>
                           </Button>
-=======
-              <ScrollArea className="max-h-[calc(85vh-180px)] pr-4">
-                <div className="space-y-6">
-                  {(() => {
-                    // ── Normalização de campos (suporta ML, Magalu e outros) ──
-                    const dp = displayProduct;
-                    const nome    = dp.nome || dp.nome_normalizado || dp.name || '';
-                    const imagem  = dp.imagem || dp.image || '/no-image.png';
-                    const categ   = dp.categoria || dp.category || '';
-                    const status  = dp.status || 'active';
-
-                    // Preço: tenta campo string PT (ML) → utilidade numérica (Magalu/outros)
-                    const currentCents  = getCurrentPrice(dp);
-                    const oldCents      = getOldPrice(dp);
-                    const discountPct   = getDiscount(dp);
-
-                    const precoStr     = dp.preco     ? (dp.preco.toString().startsWith('R$')          ? dp.preco          : `R$ ${dp.preco}`)          : (currentCents > 0 ? formatCurrency(currentCents) : null);
-                    const anteriorStr  = dp.preco_anterior ? (dp.preco_anterior.toString().startsWith('R$') ? dp.preco_anterior : `R$ ${dp.preco_anterior}`) : (oldCents > 0 && oldCents > currentCents ? formatCurrency(oldCents) : null);
-                    const descontoStr  = dp.desconto || (discountPct > 0 ? `${discountPct}%` : null);
-
-                    // Infos extras
-                    const vendedor         = dp.vendedor   || dp.seller   || null;
-                    const frete            = dp.frete      || dp.shipping  || null;
-                    const parcelas         = dp.parcelas   || dp.installments || null;
-                    const avaliacaoNota    = dp.avaliacao  || dp.rating   || null;
-                    const avaliacaoQtd     = dp.numero_avaliacoes && dp.numero_avaliacoes !== '0' ? dp.numero_avaliacoes : (dp.reviewCount ? String(dp.reviewCount) : null);
-                    const vendas           = dp.porcentagem_vendido && dp.porcentagem_vendido !== 'N/A' ? dp.porcentagem_vendido : null;
-                    const tempoRestante    = dp.tempo_restante && dp.tempo_restante !== 'N/A' ? dp.tempo_restante : null;
-
-                    // Datas
-                    const dataCriado      = dp.createdAt  || dp.createdat  || dp.created_at  || null;
-                    const dataAtualizado  = dp.updatedAt  || dp.updatedat  || dp.updated_at  || null;
-                    const dataVerificado  = dp.ultima_verificacao || null;
-
-                    const hasInfos = vendedor || frete || parcelas || avaliacaoQtd || vendas || tempoRestante;
-                    const hasDatas = dataCriado || dataAtualizado || dataVerificado;
-
-                    return (
-                      <>
-                        {/* Header com Imagem e Título */}
-                        <div className="flex gap-6">
-                          <div className="flex-shrink-0">
-                            <img
-                              src={imagem}
-                              alt={nome}
-                              className="w-48 h-48 object-cover rounded-lg border shadow-sm"
-                              onError={(e) => { (e.target as HTMLImageElement).src = '/no-image.png'; }}
-                            />
-                          </div>
-
-                          <div className="flex-1 space-y-3">
-                            <div>
-                              <h3 className="font-bold text-lg leading-tight mb-3">{nome}</h3>
-                              <div className="flex flex-wrap gap-2">
-                                <MarketplaceBadge marketplace={dp.marketplace} />
-                                <StatusBadge status={status} />
-                                {categ && (
-                                  <Badge variant="outline" className="gap-1">
-                                    <Tag className="w-3 h-3" />
-                                    {categ}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Preços */}
-                            {precoStr && (
-                              <div className="bg-muted/50 p-4 rounded-lg">
-                                <div className="flex items-baseline gap-3 flex-wrap">
-                                  <span className="text-3xl font-bold text-green-600">{precoStr}</span>
-                                  {anteriorStr && (
-                                    <span className="text-lg line-through text-muted-foreground">{anteriorStr}</span>
-                                  )}
-                                  {descontoStr && (
-                                    <Badge variant="destructive" className="gap-1">
-                                      <TrendingDown className="w-3 h-3" />
-                                      {descontoStr}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Informações extras — só renderiza o bloco se houver algum dado */}
-                        {hasInfos && (
-                          <>
-                            <Separator />
-                            <div className="grid grid-cols-2 gap-4">
-                              {vendedor && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <Store className="w-3.5 h-3.5" />Vendedor
-                                  </Label>
-                                  <p className="font-medium text-sm">{vendedor}</p>
-                                </div>
-                              )}
-                              {frete && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <Truck className="w-3.5 h-3.5" />Frete
-                                  </Label>
-                                  <p className="font-medium text-sm">{frete}</p>
-                                </div>
-                              )}
-                              {parcelas && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <CreditCard className="w-3.5 h-3.5" />Parcelamento
-                                  </Label>
-                                  <p className="font-medium text-sm">{parcelas}</p>
-                                </div>
-                              )}
-                              {avaliacaoQtd && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <Star className="w-3.5 h-3.5" />Avaliações
-                                  </Label>
-                                  <p className="font-medium text-sm">
-                                    {avaliacaoNota && `${avaliacaoNota} · `}{avaliacaoQtd}
-                                  </p>
-                                </div>
-                              )}
-                              {vendas && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <ShoppingCart className="w-3.5 h-3.5" />Vendas
-                                  </Label>
-                                  <p className="font-medium text-sm">{vendas}</p>
-                                </div>
-                              )}
-                              {tempoRestante && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <Clock className="w-3.5 h-3.5" />Tempo Restante
-                                  </Label>
-                                  <p className="font-medium text-sm">{tempoRestante}</p>
-                                </div>
-                              )}
-                            </div>
-                          </>
-                        )}
-
-                        {/* Datas — só renderiza o bloco se houver alguma data */}
-                        {hasDatas && (
-                          <>
-                            <Separator />
-                            <div className="grid grid-cols-3 gap-4 text-sm">
-                              {dataCriado && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <CalendarDays className="w-3.5 h-3.5" />Criado
-                                  </Label>
-                                  <p className="text-xs">{formatDate(dataCriado)}</p>
-                                </div>
-                              )}
-                              {dataAtualizado && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <CalendarDays className="w-3.5 h-3.5" />Atualizado
-                                  </Label>
-                                  <p className="text-xs">{formatDate(dataAtualizado)}</p>
-                                </div>
-                              )}
-                              {dataVerificado && (
-                                <div className="space-y-1">
-                                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                                    <CalendarDays className="w-3.5 h-3.5" />Verificado
-                                  </Label>
-                                  <p className="text-xs">{formatDate(dataVerificado)}</p>
-                                </div>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </>
-                    );
-                  })()}
-
-                  {/* Link de Afiliado */}
-                  {affiliateLink && (
-                    <>
-                      <Separator />
-
-                      <div className="space-y-3 bg-green-50 dark:bg-green-950/20 p-4 rounded-lg border border-green-200 dark:border-green-900">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label className="text-sm font-semibold flex items-center gap-2 text-green-700 dark:text-green-400">
-                            <Link2 className="w-4 h-4" />
-                            Link de Afiliado
-                          </Label>
-                          {/* Botões sempre visíveis no topo direito */}
-                          <div className="flex gap-1.5 flex-shrink-0">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleCopyLink(affiliateLink)}
-                              className="h-8 gap-1.5 text-xs"
-                              title="Copiar link"
-                            >
-                              {copiedLink ? (
-                                <><Check className="w-3.5 h-3.5 text-green-600" />Copiado!</>
-                              ) : (
-                                <><Copy className="w-3.5 h-3.5" />Copiar</>
-                              )}
-                            </Button>
-                            <Button
-                              size="sm"
-                              asChild
-                              className="h-8 gap-1.5 text-xs"
-                              title="Abrir link"
-                            >
-                              <a href={affiliateLink} target="_blank" rel="noopener noreferrer">
-                                <ExternalLink className="w-3.5 h-3.5" />
-                                Abrir
-                              </a>
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Link exibido em caixa dedicada com quebra de linha controlada */}
-                        <div className="w-full min-w-0 px-3 py-2.5 rounded-md border bg-background/60 cursor-text select-all">
-                          <p className="text-xs font-mono text-muted-foreground break-all leading-relaxed">
-                            {affiliateLink}
-                          </p>
->>>>>>> dd3b8da3d43076dba5b1cb96fbd3a12ed8e8fb0d
                         </div>
                       </div>
                     )}
@@ -1529,7 +1270,7 @@ export function ProductsPage() {
         </Sheet>
       </div>
 
-      {/* Desktop Dialog (unchanged) */}
+      {/* Desktop Dialog */}
       <div className="hidden md:block">
         <Dialog open={detailsDialogOpen} onOpenChange={(open) => {
           setDetailsDialogOpen(open);
