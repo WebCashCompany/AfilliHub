@@ -1,5 +1,5 @@
-// front/src/contexts/WhatsAppContext.tsx - COM SOCKET.IO SINCRONIZADO
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+// front/src/contexts/WhatsAppContext.tsx - CORRIGIDO v2
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { socketService } from '@/api/services/socket.service';
 import { whatsappService, WhatsAppSession, WhatsAppGroup } from '@/api/services/whatsapp.service';
 
@@ -34,16 +34,26 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
-  console.log('🔍 [DEBUG] WhatsApp Context - sessions:', sessions.length, sessions);
+  // ✅ FIX: usar ref para currentSessionId dentro de callbacks sem re-registrar listeners
+  const currentSessionIdRef = useRef<string | null>(null);
+  currentSessionIdRef.current = currentSessionId;
 
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
+  // HELPER: normalizar dados de sessões (array ou objeto)
+  // ─────────────────────────────────────────────────────────
+  const normalizeSessions = (data: any): WhatsAppSession[] => {
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === 'object') return Object.values(data);
+    return [];
+  };
+
+  // ─────────────────────────────────────────────────────────
   // INICIALIZAR SOCKET.IO
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
   useEffect(() => {
     console.log('🔌 Conectando Socket.IO...');
     socketService.connect();
     
-    // Verificar conexão a cada segundo
     const checkInterval = setInterval(() => {
       setSocketConnected(socketService.isConnected());
     }, 1000);
@@ -54,16 +64,14 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
   // CARREGAR DADOS INICIAIS
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
   useEffect(() => {
     const savedCurrentSession = localStorage.getItem('whatsapp_current_session');
     const savedSelectedGroups = localStorage.getItem('whatsapp_selected_groups');
 
-    if (savedCurrentSession) {
-      setCurrentSessionId(savedCurrentSession);
-    }
+    if (savedCurrentSession) setCurrentSessionId(savedCurrentSession);
 
     if (savedSelectedGroups) {
       try {
@@ -72,112 +80,78 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
         console.error('Erro ao carregar grupos selecionados:', e);
       }
     }
-
-    // Solicitar lista de sessões ao conectar
-    if (socketService.isConnected()) {
-      socketService.emit('whatsapp:request-sessions', {});
-    }
   }, []);
 
-  // ═══════════════════════════════════════════════════════════
-  // SOCKET.IO - EVENTOS EM TEMPO REAL
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
+  // SOCKET.IO — EVENTOS EM TEMPO REAL
+  // ✅ FIX: registrar UMA vez só (sem currentSessionId na dep array)
+  // ─────────────────────────────────────────────────────────
   useEffect(() => {
-    // ⭐ QR CODE (recebe de qualquer lugar)
     const handleQRCode = (data: { sessionId: string; qrCode: string }) => {
       console.log('📱 [REAL-TIME] QR Code recebido:', data.sessionId);
-      // Mostrar QR Code independente da sessão atual
       setQrCode(data.qrCode);
       setIsConnecting(false);
     };
 
-    // ⭐ SESSÃO CONECTADA (recebe de qualquer lugar)
     const handleConnected = (data: { sessionId: string; phoneNumber: string; connectedAt: Date }) => {
-      console.log('✅ [REAL-TIME] Sessão conectada:', data.sessionId, data.phoneNumber);
+      console.log('✅ [REAL-TIME] Sessão conectada:', data.sessionId);
       setQrCode(null);
       setIsConnecting(false);
-      
-      // Atualizar lista
-      refreshSessions();
+      // ✅ FIX: não chamar refreshSessions() aqui — o broadcast 'sessions-update' já virá
     };
 
-    // ⭐ SESSÃO DESCONECTADA (recebe de qualquer lugar)
     const handleDisconnected = (data: { sessionId: string; reason: string }) => {
       console.log('❌ [REAL-TIME] Sessão desconectada:', data.sessionId, data.reason);
       
-      // Remover sessão imediatamente da lista
-      setSessions(prev => prev.filter(s => s.sessionId !== data.sessionId));
-      
-      // Se for a sessão atual, limpar
-      if (data.sessionId === currentSessionId) {
+      // ✅ FIX: atualizar localmente SEM chamar refreshSessions() — evita race condition
+      // O broadcast 'sessions-update' chegará logo e atualizará corretamente
+      setSessions(prev => prev.map(s =>
+        s.sessionId === data.sessionId
+          ? { ...s, conectado: false, status: 'offline' as const }
+          : s
+      ));
+
+      if (data.sessionId === currentSessionIdRef.current) {
         setCurrentSessionId(null);
         setGroups([]);
         setQrCode(null);
       }
-      
-      // Atualizar lista completa em seguida
-      refreshSessions();
     };
 
-    // ⭐ LISTA DE SESSÕES ATUALIZADA (broadcast para todos)
-    const handleSessionsUpdate = (data: { sessions: WhatsAppSession[] }) => {
-      console.log('📋 [REAL-TIME] Sessões atualizadas:', data.sessions?.length || 0, 'sessões');
-      console.log('📋 [REAL-TIME] Dados recebidos:', data.sessions);
-      
-      // ⭐ Forçar conversão para array
-      let sessionsArray: WhatsAppSession[] = [];
-      if (Array.isArray(data.sessions)) {
-        sessionsArray = data.sessions;
-      } else if (data.sessions && typeof data.sessions === 'object') {
-        // Se vier como objeto, converter para array
-        sessionsArray = Object.values(data.sessions);
-      }
-      
-      console.log('📋 [REAL-TIME] Convertido para array:', sessionsArray.length, sessionsArray);
-      setSessions(sessionsArray);
+    // ✅ FIX: Backend emite 'whatsapp:sessions-update' — este é o evento correto
+    const handleSessionsUpdate = (data: { sessions: WhatsAppSession[] } | WhatsAppSession[]) => {
+      // Aceita tanto { sessions: [...] } quanto [...] diretamente
+      const raw = Array.isArray(data) ? data : (data as any).sessions;
+      const list = normalizeSessions(raw);
+      console.log('📋 [REAL-TIME] Sessões atualizadas:', list.length, 'sessões');
+      setSessions(list);
     };
 
-    // ⭐ LISTA DE SESSÕES (resposta da solicitação)
-    const handleSessionsList = (data: { sessions: WhatsAppSession[] }) => {
-      console.log('📋 [REAL-TIME] Lista de sessões recebida:', data.sessions?.length || 0);
-      console.log('📋 [REAL-TIME] Dados completos:', data);
-      console.log('📋 [REAL-TIME] Tipo:', typeof data.sessions, Array.isArray(data.sessions));
-      
-      // ⭐ Forçar conversão para array
-      let sessionsList: WhatsAppSession[] = [];
-      if (Array.isArray(data.sessions)) {
-        sessionsList = data.sessions;
-      } else if (data.sessions && typeof data.sessions === 'object') {
-        // Se vier como objeto, converter para array
-        sessionsList = Object.values(data.sessions);
-      }
-      
-      console.log('📋 [REAL-TIME] Após conversão:', sessionsList.length, sessionsList);
-      setSessions(sessionsList);
-      
-      // Se não há sessão atual mas há sessões ativas, selecionar a primeira
-      if (!currentSessionId && sessionsList.length > 0) {
-        const activeSession = sessionsList.find(s => s.conectado);
-        if (activeSession) {
-          console.log('📋 [REAL-TIME] Selecionando sessão ativa:', activeSession.sessionId);
-          setCurrentSessionId(activeSession.sessionId);
-          loadGroups(activeSession.sessionId);
+    // ✅ FIX: Também escutar 'sessions:list' (resposta do backend ao 'sessions:get')
+    const handleSessionsList = (data: { sessions: WhatsAppSession[] } | WhatsAppSession[]) => {
+      const raw = Array.isArray(data) ? data : (data as any).sessions;
+      const list = normalizeSessions(raw);
+      console.log('📋 [REAL-TIME] Lista de sessões recebida:', list.length);
+      setSessions(list);
+
+      // Auto-selecionar primeira sessão ativa se não há nenhuma selecionada
+      if (!currentSessionIdRef.current && list.length > 0) {
+        const active = list.find(s => s.conectado);
+        if (active) {
+          setCurrentSessionId(active.sessionId);
         }
       }
     };
 
-    // ⭐ OFERTA ENVIADA (notificação em tempo real)
     const handleOfferSent = (data: { sessionId: string; groupId: string; offerName: string }) => {
       console.log('✅ [REAL-TIME] Oferta enviada:', data);
-      // Você pode adicionar um toast aqui se quiser
     };
 
-    // Registrar callbacks
     socketService.on('whatsapp:qr', handleQRCode);
     socketService.on('whatsapp:connected', handleConnected);
     socketService.on('whatsapp:disconnected', handleDisconnected);
-    socketService.on('whatsapp:sessions-update', handleSessionsUpdate);
-    socketService.on('whatsapp:sessions-list', handleSessionsList);
+    socketService.on('whatsapp:sessions-update', handleSessionsUpdate); // broadcast do backend
+    socketService.on('sessions:list', handleSessionsList);              // resposta ao sessions:get
     socketService.on('whatsapp:offer-sent', handleOfferSent);
 
     return () => {
@@ -185,14 +159,14 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
       socketService.off('whatsapp:connected', handleConnected);
       socketService.off('whatsapp:disconnected', handleDisconnected);
       socketService.off('whatsapp:sessions-update', handleSessionsUpdate);
-      socketService.off('whatsapp:sessions-list', handleSessionsList);
+      socketService.off('sessions:list', handleSessionsList);
       socketService.off('whatsapp:offer-sent', handleOfferSent);
     };
-  }, [currentSessionId]);
+  }, []); // ✅ FIX: sem dependências — evita re-registrar e perder eventos
 
-  // ═══════════════════════════════════════════════════════════
-  // SALVAR NO LOCALSTORAGE
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
+  // PERSISTÊNCIA NO LOCALSTORAGE
+  // ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (currentSessionId) {
       localStorage.setItem('whatsapp_current_session', currentSessionId);
@@ -205,13 +179,13 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('whatsapp_selected_groups', JSON.stringify(selectedGroups));
   }, [selectedGroups]);
 
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
   // FUNÇÕES
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
   const refreshSessions = useCallback(async () => {
     try {
       const allSessions = await whatsappService.listSessions();
-      setSessions(allSessions);
+      setSessions(Array.isArray(allSessions) ? allSessions : []);
     } catch (error) {
       console.error('Erro ao atualizar sessões:', error);
     }
@@ -233,12 +207,9 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   const connectNewSession = useCallback(async (sessionId: string) => {
     setIsConnecting(true);
     setQrCode(null);
-    
     try {
       await whatsappService.connectSession(sessionId);
       setCurrentSessionId(sessionId);
-      
-      // A atualização virá via Socket.IO em tempo real
     } catch (error) {
       console.error('Erro ao conectar sessão:', error);
       setIsConnecting(false);
@@ -249,25 +220,20 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   const disconnectSession = useCallback(async (sessionId: string) => {
     try {
       await whatsappService.disconnectSession(sessionId);
-      
-      // Se for a sessão atual, limpar
-      if (sessionId === currentSessionId) {
+      if (sessionId === currentSessionIdRef.current) {
         setCurrentSessionId(null);
         setGroups([]);
         setSelectedGroups([]);
         setQrCode(null);
       }
-      
-      // A atualização virá via Socket.IO em tempo real
     } catch (error) {
       console.error('Erro ao desconectar sessão:', error);
       throw error;
     }
-  }, [currentSessionId]);
+  }, []);
 
   const setCurrentSession = useCallback((sessionId: string | null) => {
     setCurrentSessionId(sessionId);
-    
     if (sessionId) {
       loadGroups(sessionId);
     } else {
@@ -277,10 +243,9 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   }, [loadGroups]);
 
   const getActiveSession = useCallback(() => {
-    if (!currentSessionId) return null;
-    if (!Array.isArray(sessions)) return null;
-    return sessions.find(s => s.sessionId === currentSessionId) || null;
-  }, [currentSessionId, sessions]);
+    if (!currentSessionIdRef.current || !Array.isArray(sessions)) return null;
+    return sessions.find(s => s.sessionId === currentSessionIdRef.current) || null;
+  }, [sessions]);
 
   return (
     <WhatsAppContext.Provider
@@ -309,10 +274,6 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
 
 export function useWhatsApp() {
   const context = useContext(WhatsAppContext);
-  
-  if (!context) {
-    throw new Error('useWhatsApp deve ser usado dentro de WhatsAppProvider');
-  }
-  
+  if (!context) throw new Error('useWhatsApp deve ser usado dentro de WhatsAppProvider');
   return context;
 }
