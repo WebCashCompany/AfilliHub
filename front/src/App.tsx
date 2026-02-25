@@ -29,28 +29,31 @@ const queryClient = new QueryClient();
 function AppRoutes() {
   return (
     <AuthProvider>
-      <Routes>
-        {/* Públicas */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/ml/callback" element={<MLCallbackPage />} />
+      {/* ✅ WhatsAppProvider DENTRO do AuthProvider para ter acesso ao useAuth */}
+      <WhatsAppProvider>
+        <Routes>
+          {/* Públicas */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/ml/callback" element={<MLCallbackPage />} />
 
-        {/* Protegidas */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<DashboardLayout />}>
-            <Route path="/" element={<DashboardHome />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/automation" element={<AutomationPage />} />
-            <Route path="/products" element={<ProductsPage />} />
-            <Route path="/distribution" element={<DistributionPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/goals" element={<GoalsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/trash" element={<TrashPage />} />
+          {/* Protegidas */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<DashboardLayout />}>
+              <Route path="/" element={<DashboardHome />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/automation" element={<AutomationPage />} />
+              <Route path="/products" element={<ProductsPage />} />
+              <Route path="/distribution" element={<DistributionPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/goals" element={<GoalsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/trash" element={<TrashPage />} />
+            </Route>
           </Route>
-        </Route>
 
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </WhatsAppProvider>
     </AuthProvider>
   );
 }
@@ -61,13 +64,11 @@ const App = () => (
       <PersistenceProvider>
         <UserPreferencesProvider>
           <DashboardProvider>
-            <WhatsAppProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
-                <AppRoutes />
-              </BrowserRouter>
-            </WhatsAppProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AppRoutes />
+            </BrowserRouter>
           </DashboardProvider>
         </UserPreferencesProvider>
       </PersistenceProvider>
