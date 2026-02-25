@@ -1,4 +1,4 @@
-// src/components/dashboard/AutomationModal.tsx - TIMER MÍNIMO 1 MINUTO
+// src/components/dashboard/AutomationModal.tsx - TIMER MÍNIMO 5 MINUTOS
 
 import { useState, useEffect } from 'react';
 import {
@@ -30,6 +30,8 @@ interface AutomationModalProps {
   availableMarketplaces: string[];
 }
 
+const MIN_INTERVAL = 5;
+
 export function AutomationModal({
   open,
   onClose,
@@ -37,20 +39,16 @@ export function AutomationModal({
   availableCategories,
   availableMarketplaces,
 }: AutomationModalProps) {
-  // ✅ TIMER MÍNIMO AGORA É 1 MINUTO
   const [intervalMinutes, setIntervalMinutes] = useState(() => {
     const saved = localStorage.getItem('automation_modal_interval');
-    return saved ? parseInt(saved) : 30;
+    const parsed = saved ? parseInt(saved) : 30;
+    return Math.max(parsed, MIN_INTERVAL); // garante mínimo mesmo no storage
   });
 
   const [selectedCategories, setSelectedCategories] = useState<string[]>(() => {
     const saved = localStorage.getItem('automation_modal_categories');
     if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return [];
-      }
+      try { return JSON.parse(saved); } catch { return []; }
     }
     return [];
   });
@@ -58,11 +56,7 @@ export function AutomationModal({
   const [selectedMarketplaces, setSelectedMarketplaces] = useState<string[]>(() => {
     const saved = localStorage.getItem('automation_modal_marketplaces');
     if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return [];
-      }
+      try { return JSON.parse(saved); } catch { return []; }
     }
     return [];
   });
@@ -97,6 +91,10 @@ export function AutomationModal({
     localStorage.setItem('automation_modal_all_marketplaces', String(allMarketplaces));
   }, [allMarketplaces]);
 
+  const handleIntervalChange = (value: number) => {
+    setIntervalMinutes(Math.max(value, MIN_INTERVAL));
+  };
+
   const handleStart = () => {
     onStart({
       intervalMinutes,
@@ -108,17 +106,13 @@ export function AutomationModal({
 
   const toggleCategory = (category: string) => {
     setSelectedCategories((prev) =>
-      prev.includes(category)
-        ? prev.filter((c) => c !== category)
-        : [...prev, category]
+      prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category]
     );
   };
 
   const toggleMarketplace = (marketplace: string) => {
     setSelectedMarketplaces((prev) =>
-      prev.includes(marketplace)
-        ? prev.filter((m) => m !== marketplace)
-        : [...prev, marketplace]
+      prev.includes(marketplace) ? prev.filter((m) => m !== marketplace) : [...prev, marketplace]
     );
   };
 
@@ -151,10 +145,16 @@ export function AutomationModal({
                 <div className="relative">
                   <Input
                     type="number"
-                    min={1}
+                    min={MIN_INTERVAL}
                     max={1440}
                     value={intervalMinutes}
-                    onChange={(e) => setIntervalMinutes(Number(e.target.value))}
+                    onChange={(e) => handleIntervalChange(Number(e.target.value))}
+                    onBlur={(e) => {
+                      // garante mínimo ao sair do campo
+                      if (Number(e.target.value) < MIN_INTERVAL) {
+                        setIntervalMinutes(MIN_INTERVAL);
+                      }
+                    }}
                     className="pr-20 text-lg font-medium"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
@@ -162,18 +162,10 @@ export function AutomationModal({
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1.5">
-                  Envios a cada {intervalMinutes} minuto{intervalMinutes > 1 ? 's' : ''} ({Math.floor(1440 / intervalMinutes)} por dia)
+                  Mínimo {MIN_INTERVAL} minutos · Envios a cada {intervalMinutes} minuto{intervalMinutes > 1 ? 's' : ''} ({Math.floor(1440 / intervalMinutes)} por dia)
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIntervalMinutes(1)}
-                  className={intervalMinutes === 1 ? 'border-primary' : ''}
-                >
-                  1min
-                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -198,6 +190,14 @@ export function AutomationModal({
                 >
                   30min
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIntervalMinutes(60)}
+                  className={intervalMinutes === 60 ? 'border-primary' : ''}
+                >
+                  1h
+                </Button>
               </div>
             </div>
           </div>
@@ -218,10 +218,7 @@ export function AutomationModal({
                     if (checked) setSelectedCategories([]);
                   }}
                 />
-                <Label
-                  htmlFor="all-categories"
-                  className="text-sm font-normal cursor-pointer"
-                >
+                <Label htmlFor="all-categories" className="text-sm font-normal cursor-pointer">
                   Todas as categorias
                 </Label>
               </div>
@@ -241,10 +238,7 @@ export function AutomationModal({
                         checked={selectedCategories.includes(category)}
                         onCheckedChange={() => toggleCategory(category)}
                       />
-                      <Label
-                        htmlFor={`cat-${category}`}
-                        className="flex-1 cursor-pointer font-normal"
-                      >
+                      <Label htmlFor={`cat-${category}`} className="flex-1 cursor-pointer font-normal">
                         {category}
                       </Label>
                     </div>
@@ -279,10 +273,7 @@ export function AutomationModal({
                     if (checked) setSelectedMarketplaces([]);
                   }}
                 />
-                <Label
-                  htmlFor="all-marketplaces"
-                  className="text-sm font-normal cursor-pointer"
-                >
+                <Label htmlFor="all-marketplaces" className="text-sm font-normal cursor-pointer">
                   Todos os marketplaces
                 </Label>
               </div>
@@ -301,10 +292,7 @@ export function AutomationModal({
                       checked={selectedMarketplaces.includes(marketplace)}
                       onCheckedChange={() => toggleMarketplace(marketplace)}
                     />
-                    <Label
-                      htmlFor={`mp-${marketplace}`}
-                      className="flex-1 cursor-pointer font-medium text-sm"
-                    >
+                    <Label htmlFor={`mp-${marketplace}`} className="flex-1 cursor-pointer font-medium text-sm">
                       {marketplace}
                     </Label>
                   </div>
@@ -360,7 +348,7 @@ export function AutomationModal({
             onClick={handleStart}
             className="flex-1 gap-2 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700"
             disabled={
-              intervalMinutes < 1 ||
+              intervalMinutes < MIN_INTERVAL ||
               (!allCategories && selectedCategories.length === 0) ||
               (!allMarketplaces && selectedMarketplaces.length === 0)
             }
