@@ -853,31 +853,29 @@ export function ProductsPage() {
                 </TableBody>
               </Table>
 
-              {/* PAGINAÇÃO */}
-              <div className="flex justify-between items-center p-4 border-t">
-                <span className="text-sm text-muted-foreground">
+              {/* PAGINAÇÃO — centralizada */}
+              <div className="flex items-center justify-center gap-3 p-4 border-t">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+
+                <span className="text-sm text-muted-foreground min-w-[80px] text-center">
                   Página {page} de {totalPages || 1}
                 </span>
 
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
               </div>
             </CardContent>
           </Card>
