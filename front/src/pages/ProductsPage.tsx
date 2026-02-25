@@ -1,4 +1,4 @@
-// src/pages/ProductsPage.tsx — VERSÃO FINAL PREMIUM
+// src/pages/ProductsPage.tsx
 
 import { useState, useMemo } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
@@ -23,7 +23,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Sheet, SheetContent, SheetHeader, SheetTitle,
+  Sheet, SheetContent,
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -42,8 +42,6 @@ import { useToast } from '@/hooks/useToast';
 import { formatNumber, Marketplace, ProductStatus } from '@/lib/mockData';
 import { productsService } from '@/api/services/products.service';
 import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib/priceUtils';
-
-// ← Importe os componentes premium criados em MobileProductCard.tsx
 import { MobileProductCard, MobileProductDetailSheet } from './MobileProductCard';
 
 type CleanupType = 'all' | 'marketplace' | 'old' | 'selected';
@@ -83,19 +81,12 @@ function MobileFiltersSheet({
     </p>
   );
 
-  const OptionButton = ({
-    active, onClick, children,
-  }: { active: boolean; onClick: () => void; children: React.ReactNode }) => (
+  const OptionButton = ({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) => (
     <button
       onClick={onClick}
-      className={`
-        w-full flex items-center justify-between py-3 px-4 rounded-xl text-sm font-medium
-        border transition-all active:scale-[0.98]
-        ${active
-          ? 'bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20'
-          : 'bg-card border-border text-foreground hover:bg-muted/50'
-        }
-      `}
+      className={`w-full flex items-center justify-between py-3 px-4 rounded-xl text-sm font-medium border transition-all active:scale-[0.98] ${
+        active ? 'bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20' : 'bg-card border-border text-foreground hover:bg-muted/50'
+      }`}
     >
       <span>{children}</span>
       {active && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
@@ -105,79 +96,43 @@ function MobileFiltersSheet({
   return (
     <Sheet open={open} onOpenChange={onClose}>
       <SheetContent side="bottom" className="rounded-t-3xl p-0 max-h-[88vh]">
-        {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-9 h-[3px] rounded-full bg-foreground/15" />
         </div>
-
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b">
           <div>
             <h2 className="text-base font-bold">Filtros</h2>
-            {activeCount > 0 && (
-              <p className="text-xs text-muted-foreground">{activeCount} ativo{activeCount > 1 ? 's' : ''}</p>
-            )}
+            {activeCount > 0 && <p className="text-xs text-muted-foreground">{activeCount} ativo{activeCount > 1 ? 's' : ''}</p>}
           </div>
           {activeCount > 0 && (
-            <button
-              onClick={() => {
-                setMarketplaceFilter('all');
-                setCategoryFilter('all');
-                setSortField(null);
-                clearDateFilter();
-                setPage(1);
-                onClose(false);
-              }}
-              className="text-xs font-semibold text-rose-500 px-3 py-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors"
-            >
+            <button onClick={() => { setMarketplaceFilter('all'); setCategoryFilter('all'); setSortField(null); clearDateFilter(); setPage(1); onClose(false); }}
+              className="text-xs font-semibold text-rose-500 px-3 py-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/20 transition-colors">
               Limpar tudo
             </button>
           )}
         </div>
-
         <ScrollArea className="max-h-[calc(88vh-100px)]">
           <div className="px-5 py-5 space-y-6 pb-10">
-
-            {/* Marketplace */}
             <div>
               <SectionLabel>Marketplace</SectionLabel>
               <div className="grid grid-cols-2 gap-2">
-                {[
-                  { value: 'all', label: 'Todos' },
-                  { value: 'mercadolivre', label: 'Mercado Livre' },
-                  { value: 'amazon', label: 'Amazon' },
-                  { value: 'shopee', label: 'Shopee' },
-                  { value: 'magalu', label: 'Magalu' },
-                ].map(opt => (
-                  <OptionButton
-                    key={opt.value}
-                    active={marketplaceFilter === opt.value}
-                    onClick={() => { setMarketplaceFilter(opt.value); setPage(1); }}
-                  >
-                    {opt.label}
-                  </OptionButton>
+                {[{ value: 'all', label: 'Todos' }, { value: 'mercadolivre', label: 'Mercado Livre' }, { value: 'amazon', label: 'Amazon' }, { value: 'shopee', label: 'Shopee' }, { value: 'magalu', label: 'Magalu' }].map(opt => (
+                  <OptionButton key={opt.value} active={marketplaceFilter === opt.value} onClick={() => { setMarketplaceFilter(opt.value); setPage(1); }}>{opt.label}</OptionButton>
                 ))}
               </div>
             </div>
-
             {availableCategories.length > 0 && (
               <div>
                 <SectionLabel>Categoria</SectionLabel>
                 <Select value={categoryFilter} onValueChange={v => { setCategoryFilter(v); setPage(1); }}>
-                  <SelectTrigger className="h-12 rounded-xl border-border">
-                    <SelectValue placeholder="Todas as categorias" />
-                  </SelectTrigger>
+                  <SelectTrigger className="h-12 rounded-xl border-border"><SelectValue placeholder="Todas as categorias" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas as categorias</SelectItem>
-                    {availableCategories.map((cat: string) => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                    ))}
+                    {availableCategories.map((cat: string) => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
             )}
-
-            {/* Ordenação */}
             <div>
               <SectionLabel>Ordenar por</SectionLabel>
               <div className="space-y-2">
@@ -190,21 +145,8 @@ function MobileFiltersSheet({
                 ].map((opt, i) => {
                   const isActive = sortField === opt.field && (opt.field === null || sortDirection === opt.dir);
                   return (
-                    <button
-                      key={i}
-                      onClick={() => {
-                        setSortField(opt.field as SortField);
-                        setSortDirection(opt.dir as SortDirection);
-                        setPage(1);
-                      }}
-                      className={`
-                        w-full flex items-center justify-between py-3 px-4 rounded-xl border transition-all text-left active:scale-[0.98]
-                        ${isActive
-                          ? 'bg-primary/8 border-primary/30 text-primary dark:bg-primary/15'
-                          : 'bg-card border-border hover:bg-muted/50'
-                        }
-                      `}
-                    >
+                    <button key={i} onClick={() => { setSortField(opt.field as SortField); setSortDirection(opt.dir as SortDirection); setPage(1); }}
+                      className={`w-full flex items-center justify-between py-3 px-4 rounded-xl border transition-all text-left active:scale-[0.98] ${isActive ? 'bg-primary/8 border-primary/30 text-primary dark:bg-primary/15' : 'bg-card border-border hover:bg-muted/50'}`}>
                       <div>
                         <p className={`text-sm font-semibold ${isActive ? 'text-primary' : ''}`}>{opt.label}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">{opt.sub}</p>
@@ -215,32 +157,18 @@ function MobileFiltersSheet({
                 })}
               </div>
             </div>
-
-            {/* Período */}
             <div>
               <SectionLabel>Período</SectionLabel>
               <div className="space-y-2">
                 {(['all', 'today', 'yesterday', 'last7', 'last30'] as QuickFilter[]).map(q => {
                   const labels: Record<QuickFilter, { label: string; sub: string }> = {
-                    all: { label: 'Qualquer data', sub: 'Sem filtro de data' },
-                    today: { label: 'Hoje', sub: 'Produtos de hoje' },
-                    yesterday: { label: 'Ontem', sub: 'Produtos de ontem' },
-                    last7: { label: 'Últimos 7 dias', sub: 'Última semana' },
-                    last30: { label: 'Últimos 30 dias', sub: 'Último mês' },
+                    all: { label: 'Qualquer data', sub: 'Sem filtro de data' }, today: { label: 'Hoje', sub: 'Produtos de hoje' },
+                    yesterday: { label: 'Ontem', sub: 'Produtos de ontem' }, last7: { label: 'Últimos 7 dias', sub: 'Última semana' }, last30: { label: 'Últimos 30 dias', sub: 'Último mês' },
                   };
                   const isActive = quickFilter === q && !dateRange?.from;
                   return (
-                    <button
-                      key={q}
-                      onClick={() => { setQuickFilter(q); setDateRange(undefined); setPage(1); }}
-                      className={`
-                        w-full flex items-center justify-between py-3 px-4 rounded-xl border transition-all text-left active:scale-[0.98]
-                        ${isActive
-                          ? 'bg-primary/8 border-primary/30 dark:bg-primary/15'
-                          : 'bg-card border-border hover:bg-muted/50'
-                        }
-                      `}
-                    >
+                    <button key={q} onClick={() => { setQuickFilter(q); setDateRange(undefined); setPage(1); }}
+                      className={`w-full flex items-center justify-between py-3 px-4 rounded-xl border transition-all text-left active:scale-[0.98] ${isActive ? 'bg-primary/8 border-primary/30 dark:bg-primary/15' : 'bg-card border-border hover:bg-muted/50'}`}>
                       <div>
                         <p className={`text-sm font-semibold ${isActive ? 'text-primary' : ''}`}>{labels[q].label}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">{labels[q].sub}</p>
@@ -251,12 +179,8 @@ function MobileFiltersSheet({
                 })}
               </div>
             </div>
-
-            {/* Botão aplicar */}
-            <button
-              onClick={() => onClose(false)}
-              className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-bold text-sm shadow-md shadow-primary/20 active:scale-[0.98] transition-transform"
-            >
+            <button onClick={() => onClose(false)}
+              className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-bold text-sm shadow-md shadow-primary/20 active:scale-[0.98] transition-transform">
               Aplicar filtros
             </button>
           </div>
@@ -291,7 +215,10 @@ export function ProductsPage() {
   const [cleanupDays, setCleanupDays] = useState(7);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
 
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  // ← Estados SEPARADOS para mobile e desktop
+  const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
+  const [desktopDetailsOpen, setDesktopDetailsOpen] = useState(false);
+
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [originalProductData, setOriginalProductData] = useState<any>(null);
@@ -378,11 +305,18 @@ export function ProductsPage() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
+  // ← Abre modal CERTO dependendo do dispositivo
   const handleProductClick = async (product: any) => {
     setSelectedProduct(product);
     setOriginalProductData(null);
-    setDetailsOpen(true);
     setCopiedLink(false);
+
+    if (window.innerWidth < 768) {
+      setMobileDetailsOpen(true);
+    } else {
+      setDesktopDetailsOpen(true);
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`);
       const data = await response.json();
@@ -478,7 +412,6 @@ export function ProductsPage() {
 
       {/* ─── MOBILE HEADER ─── */}
       <div className="md:hidden">
-        {/* Top bar */}
         <div className="flex items-center justify-between px-4 pt-5 pb-2">
           <div>
             <h1 className="text-[22px] font-black tracking-tight">Gerenciamento</h1>
@@ -497,9 +430,7 @@ export function ProductsPage() {
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl">
-                  <MoreVertical className="w-4 h-4" />
-                </Button>
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl"><MoreVertical className="w-4 h-4" /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem onClick={() => { setCleanupType('all'); setCleanupDialogOpen(true); }}><Trash2 className="w-4 h-4 mr-2 text-destructive" />Deletar todos</DropdownMenuItem>
@@ -513,33 +444,21 @@ export function ProductsPage() {
           </div>
         </div>
 
-        {/* Search + filtros */}
         <div className="flex gap-2 px-4 pt-1 pb-3">
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar produto..."
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1); }}
-              className="pl-10 h-11 rounded-2xl bg-muted/50 border-transparent focus:border-primary focus:bg-background transition-all text-sm"
-            />
+            <Input placeholder="Buscar produto..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+              className="pl-10 h-11 rounded-2xl bg-muted/50 border-transparent focus:border-primary focus:bg-background transition-all text-sm" />
             {search && (
               <button className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted" onClick={() => { setSearch(''); setPage(1); }}>
                 <X className="w-3.5 h-3.5 text-muted-foreground" />
               </button>
             )}
           </div>
-          <button
-            onClick={() => setFiltersOpen(true)}
-            className={`
-              relative h-11 w-11 rounded-2xl flex items-center justify-center flex-shrink-0
-              border transition-all active:scale-95
-              ${activeFiltersCount > 0
-                ? 'bg-primary border-primary text-primary-foreground shadow-md shadow-primary/20'
-                : 'bg-muted/50 border-transparent text-muted-foreground hover:bg-muted'
-              }
-            `}
-          >
+          <button onClick={() => setFiltersOpen(true)}
+            className={`relative h-11 w-11 rounded-2xl flex items-center justify-center flex-shrink-0 border transition-all active:scale-95 ${
+              activeFiltersCount > 0 ? 'bg-primary border-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted/50 border-transparent text-muted-foreground hover:bg-muted'
+            }`}>
             <SlidersHorizontal className="w-4 h-4" />
             {activeFiltersCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-black text-white flex items-center justify-center shadow-sm">
@@ -549,7 +468,6 @@ export function ProductsPage() {
           </button>
         </div>
 
-        {/* Active filter chips */}
         {activeFiltersCount > 0 && (
           <div className="flex gap-2 px-4 pb-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
             {marketplaceFilter !== 'all' && (
@@ -583,26 +501,17 @@ export function ProductsPage() {
           </div>
         )}
 
-        {/* Selection action bar */}
         {selectedIds.length > 0 && (
           <div className="mx-4 mb-3 flex items-center justify-between bg-primary text-primary-foreground rounded-2xl px-4 py-3 shadow-lg shadow-primary/25">
             <div className="flex items-center gap-2.5">
-              <button
-                onClick={() => setSelectedIds([])}
-                className="w-6 h-6 rounded-full bg-primary-foreground/20 flex items-center justify-center active:scale-90"
-              >
+              <button onClick={() => setSelectedIds([])} className="w-6 h-6 rounded-full bg-primary-foreground/20 flex items-center justify-center active:scale-90">
                 <X className="w-3.5 h-3.5" strokeWidth={3} />
               </button>
-              <span className="text-sm font-bold">
-                {selectedIds.length} selecionado{selectedIds.length > 1 ? 's' : ''}
-              </span>
+              <span className="text-sm font-bold">{selectedIds.length} selecionado{selectedIds.length > 1 ? 's' : ''}</span>
             </div>
-            <button
-              onClick={() => { setCleanupType('selected'); setCleanupDialogOpen(true); }}
-              className="flex items-center gap-1.5 bg-primary-foreground/20 hover:bg-primary-foreground/30 px-3 py-1.5 rounded-xl text-sm font-bold transition-colors active:scale-95"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Excluir
+            <button onClick={() => { setCleanupType('selected'); setCleanupDialogOpen(true); }}
+              className="flex items-center gap-1.5 bg-primary-foreground/20 hover:bg-primary-foreground/30 px-3 py-1.5 rounded-xl text-sm font-bold transition-colors active:scale-95">
+              <Trash2 className="w-3.5 h-3.5" />Excluir
             </button>
           </div>
         )}
@@ -613,12 +522,8 @@ export function ProductsPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="px-4 md:px-0">
             <TabsList className="w-full md:w-auto">
-              <TabsTrigger value="products" className="flex-1 md:flex-none gap-2">
-                <Filter className="w-4 h-4" />Produtos
-              </TabsTrigger>
-              <TabsTrigger value="coupons" className="flex-1 md:flex-none gap-2">
-                <Ticket className="w-4 h-4" />Cupons
-              </TabsTrigger>
+              <TabsTrigger value="products" className="flex-1 md:flex-none gap-2"><Filter className="w-4 h-4" />Produtos</TabsTrigger>
+              <TabsTrigger value="coupons" className="flex-1 md:flex-none gap-2"><Ticket className="w-4 h-4" />Cupons</TabsTrigger>
             </TabsList>
           </div>
 
@@ -778,24 +683,21 @@ export function ProductsPage() {
                   <p className="font-bold text-foreground text-base">Nenhum produto encontrado</p>
                   <p className="text-sm mt-1 text-center px-8">Tente ajustar os filtros ou buscar por outro termo</p>
                   {(activeFiltersCount > 0 || search) && (
-                    <button
-                      onClick={() => { setMarketplaceFilter('all'); setCategoryFilter('all'); setSortField(null); clearDateFilter(); setSearch(''); }}
-                      className="mt-5 text-sm text-primary font-semibold px-5 py-2.5 rounded-xl border border-primary/20 bg-primary/5 active:scale-95 transition-transform"
-                    >
+                    <button onClick={() => { setMarketplaceFilter('all'); setCategoryFilter('all'); setSortField(null); clearDateFilter(); setSearch(''); }}
+                      className="mt-5 text-sm text-primary font-semibold px-5 py-2.5 rounded-xl border border-primary/20 bg-primary/5 active:scale-95 transition-transform">
                       Limpar filtros
                     </button>
                   )}
                 </div>
               ) : (
                 <>
-                  {/* Select all */}
                   <div className="flex items-center justify-between pb-1 pt-0.5">
                     <button onClick={handleSelectAll} className="flex items-center gap-2 text-xs text-muted-foreground font-medium active:opacity-70">
                       <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${selectedIds.length === paginatedProducts.length ? 'bg-primary border-primary' : 'border-muted-foreground/40'}`}>
                         {selectedIds.length === paginatedProducts.length && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
                         {selectedIds.length > 0 && selectedIds.length < paginatedProducts.length && <div className="w-1.5 h-0.5 bg-muted-foreground rounded" />}
                       </div>
-                      {selectedIds.length === paginatedProducts.length ? 'Desmarcar todos' : `Selecionar todos`}
+                      {selectedIds.length === paginatedProducts.length ? 'Desmarcar todos' : 'Selecionar todos'}
                     </button>
                     <span className="text-xs text-muted-foreground">{paginatedProducts.length} nesta página</span>
                   </div>
@@ -811,37 +713,25 @@ export function ProductsPage() {
                     />
                   ))}
 
-                  {/* Mobile Pagination */}
                   {totalPages > 1 && (
                     <div className="flex items-center justify-between pt-4 pb-8">
-                      <button
-                        onClick={() => setPage(p => Math.max(1, p - 1))}
-                        disabled={page === 1}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all"
-                      >
+                      <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all">
                         <ChevronLeft className="w-4 h-4" />Anterior
                       </button>
-
                       <div className="flex items-center gap-1.5">
                         {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                           const p = totalPages <= 5 ? i + 1 : page <= 3 ? i + 1 : page >= totalPages - 2 ? totalPages - 4 + i : page - 2 + i;
                           return (
-                            <button
-                              key={p}
-                              onClick={() => setPage(p)}
-                              className={`w-8 h-8 rounded-xl text-xs font-bold transition-all active:scale-90 ${p === page ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
-                            >
+                            <button key={p} onClick={() => setPage(p)}
+                              className={`w-8 h-8 rounded-xl text-xs font-bold transition-all active:scale-90 ${p === page ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}>
                               {p}
                             </button>
                           );
                         })}
                       </div>
-
-                      <button
-                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                        disabled={page >= totalPages}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all"
-                      >
+                      <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all">
                         Próxima<ChevronRight className="w-4 h-4" />
                       </button>
                     </div>
@@ -878,88 +768,84 @@ export function ProductsPage() {
         clearDateFilter={clearDateFilter}
       />
 
-      {/* ─── MOBILE PRODUCT DETAIL (premium Sheet) ─── */}
-      <div className="md:hidden">
-        <MobileProductDetailSheet
-          open={detailsOpen}
-          onClose={() => { setDetailsOpen(false); setOriginalProductData(null); }}
-          displayProduct={displayProduct}
-        />
-      </div>
+      {/* ─── MOBILE PRODUCT DETAIL ─── */}
+      <MobileProductDetailSheet
+        open={mobileDetailsOpen}
+        onClose={() => { setMobileDetailsOpen(false); setOriginalProductData(null); }}
+        displayProduct={displayProduct}
+      />
 
-      {/* ─── DESKTOP PRODUCT DETAIL DIALOG (unchanged) ─── */}
-      <div className="hidden md:block">
-        <Dialog open={detailsOpen} onOpenChange={(open) => { setDetailsOpen(open); if (!open) setOriginalProductData(null); }}>
-          <DialogContent className="max-w-4xl max-h-[85vh]">
-            {displayProduct && (
-              <>
-                <DialogHeader>
-                  <DialogTitle className="text-xl pr-6">Detalhes do Produto</DialogTitle>
-                  <DialogDescription>Informações completas e link de afiliado</DialogDescription>
-                </DialogHeader>
-                <ScrollArea className="max-h-[calc(85vh-180px)] pr-4">
-                  <div className="space-y-6">
-                    <div className="flex gap-6">
-                      <div className="flex-shrink-0">
-                        <img src={displayProduct.imagem || displayProduct.image || '/no-image.png'} alt={displayProduct.nome || displayProduct.name} className="w-48 h-48 object-cover rounded-lg border shadow-sm" onError={(e) => { (e.target as HTMLImageElement).src = '/no-image.png'; }} />
-                      </div>
-                      <div className="flex-1 space-y-3">
-                        <div>
-                          <h3 className="font-bold text-lg leading-tight mb-3">{displayProduct.nome || displayProduct.nome_normalizado || displayProduct.name}</h3>
-                          <div className="flex flex-wrap gap-2">
-                            <MarketplaceBadge marketplace={displayProduct.marketplace} />
-                            <StatusBadge status={displayProduct.status || 'active'} />
-                            {displayProduct.categoria && <Badge variant="outline" className="gap-1"><Tag className="w-3 h-3" />{displayProduct.categoria}</Badge>}
-                          </div>
+      {/* ─── DESKTOP PRODUCT DETAIL DIALOG ─── */}
+      <Dialog open={desktopDetailsOpen} onOpenChange={(open) => { setDesktopDetailsOpen(open); if (!open) setOriginalProductData(null); }}>
+        <DialogContent className="max-w-4xl max-h-[85vh]">
+          {displayProduct && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl pr-6">Detalhes do Produto</DialogTitle>
+                <DialogDescription>Informações completas e link de afiliado</DialogDescription>
+              </DialogHeader>
+              <ScrollArea className="max-h-[calc(85vh-180px)] pr-4">
+                <div className="space-y-6">
+                  <div className="flex gap-6">
+                    <div className="flex-shrink-0">
+                      <img src={displayProduct.imagem || displayProduct.image || '/no-image.png'} alt={displayProduct.nome || displayProduct.name} className="w-48 h-48 object-cover rounded-lg border shadow-sm" onError={(e) => { (e.target as HTMLImageElement).src = '/no-image.png'; }} />
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      <div>
+                        <h3 className="font-bold text-lg leading-tight mb-3">{displayProduct.nome || displayProduct.nome_normalizado || displayProduct.name}</h3>
+                        <div className="flex flex-wrap gap-2">
+                          <MarketplaceBadge marketplace={displayProduct.marketplace} />
+                          <StatusBadge status={displayProduct.status || 'active'} />
+                          {displayProduct.categoria && <Badge variant="outline" className="gap-1"><Tag className="w-3 h-3" />{displayProduct.categoria}</Badge>}
                         </div>
-                        <div className="bg-muted/50 p-4 rounded-lg">
-                          <div className="flex items-baseline gap-3 flex-wrap">
-                            {displayProduct.preco && <span className="text-3xl font-bold text-green-600">{displayProduct.preco?.startsWith?.('R$') ? displayProduct.preco : `R$ ${displayProduct.preco}`}</span>}
-                            {displayProduct.preco_anterior && <span className="text-lg line-through text-muted-foreground">{displayProduct.preco_anterior?.startsWith?.('R$') ? displayProduct.preco_anterior : `R$ ${displayProduct.preco_anterior}`}</span>}
-                            {displayProduct.desconto && <Badge variant="destructive" className="gap-1"><TrendingDown className="w-3 h-3" />{displayProduct.desconto}</Badge>}
-                          </div>
+                      </div>
+                      <div className="bg-muted/50 p-4 rounded-lg">
+                        <div className="flex items-baseline gap-3 flex-wrap">
+                          {displayProduct.preco && <span className="text-3xl font-bold text-green-600">{displayProduct.preco?.startsWith?.('R$') ? displayProduct.preco : `R$ ${displayProduct.preco}`}</span>}
+                          {displayProduct.preco_anterior && <span className="text-lg line-through text-muted-foreground">{displayProduct.preco_anterior?.startsWith?.('R$') ? displayProduct.preco_anterior : `R$ ${displayProduct.preco_anterior}`}</span>}
+                          {displayProduct.desconto && <Badge variant="destructive" className="gap-1"><TrendingDown className="w-3 h-3" />{displayProduct.desconto}</Badge>}
                         </div>
                       </div>
                     </div>
-                    <Separator />
-                    <div className="grid grid-cols-2 gap-4">
-                      {displayProduct.vendedor && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Store className="w-3.5 h-3.5" />Vendedor</Label><p className="font-medium text-sm">{displayProduct.vendedor}</p></div>}
-                      {displayProduct.frete && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" />Frete</Label><p className="font-medium text-sm">{displayProduct.frete}</p></div>}
-                      {displayProduct.parcelas && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5" />Parcelamento</Label><p className="font-medium text-sm">{displayProduct.parcelas}</p></div>}
-                      {displayProduct.numero_avaliacoes && displayProduct.numero_avaliacoes !== '0' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Star className="w-3.5 h-3.5" />Avaliações</Label><p className="font-medium text-sm">{displayProduct.avaliacao && `${displayProduct.avaliacao} - `}{displayProduct.numero_avaliacoes}</p></div>}
-                      {displayProduct.porcentagem_vendido && displayProduct.porcentagem_vendido !== 'N/A' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><ShoppingCart className="w-3.5 h-3.5" />Vendas</Label><p className="font-medium text-sm">{displayProduct.porcentagem_vendido}</p></div>}
-                      {displayProduct.tempo_restante && displayProduct.tempo_restante !== 'N/A' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />Tempo Restante</Label><p className="font-medium text-sm">{displayProduct.tempo_restante}</p></div>}
-                    </div>
-                    <Separator />
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      {(displayProduct.createdAt || displayProduct.createdat) && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Criado</Label><p className="text-xs">{formatDate(displayProduct.createdAt || displayProduct.createdat)}</p></div>}
-                      {(displayProduct.updatedAt || displayProduct.updatedat) && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Atualizado</Label><p className="text-xs">{formatDate(displayProduct.updatedAt || displayProduct.updatedat)}</p></div>}
-                      {displayProduct.ultima_verificacao && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Verificado</Label><p className="text-xs">{formatDate(displayProduct.ultima_verificacao)}</p></div>}
-                    </div>
-                    {affiliateLink && (
-                      <>
-                        <Separator />
-                        <div className="space-y-3 bg-green-50 dark:bg-green-950/20 p-4 rounded-lg border border-green-200 dark:border-green-900">
-                          <Label className="text-sm font-semibold flex items-center gap-2 text-green-700 dark:text-green-400"><Link2 className="w-4 h-4" />Link de Afiliado</Label>
-                          <div className="flex gap-2 items-center">
-                            <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border bg-background/60 text-sm font-mono text-muted-foreground overflow-hidden select-all cursor-text"><span className="truncate">{affiliateLink}</span></div>
-                            <Button variant="outline" size="icon" onClick={() => handleCopyLink(affiliateLink)}>{copiedLink ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}</Button>
-                            <Button size="icon" asChild><a href={affiliateLink} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-4 h-4" /></a></Button>
-                          </div>
-                        </div>
-                      </>
-                    )}
                   </div>
-                </ScrollArea>
-                <DialogFooter className="gap-2">
-                  <Button variant="outline" onClick={() => setDetailsOpen(false)}>Fechar</Button>
-                  {affiliateLink && <Button asChild><a href={affiliateLink} target="_blank" rel="noopener noreferrer" className="gap-2"><ExternalLink className="w-4 h-4" />Abrir Produto</a></Button>}
-                </DialogFooter>
-              </>
-            )}
-          </DialogContent>
-        </Dialog>
-      </div>
+                  <Separator />
+                  <div className="grid grid-cols-2 gap-4">
+                    {displayProduct.vendedor && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Store className="w-3.5 h-3.5" />Vendedor</Label><p className="font-medium text-sm">{displayProduct.vendedor}</p></div>}
+                    {displayProduct.frete && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" />Frete</Label><p className="font-medium text-sm">{displayProduct.frete}</p></div>}
+                    {displayProduct.parcelas && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5" />Parcelamento</Label><p className="font-medium text-sm">{displayProduct.parcelas}</p></div>}
+                    {displayProduct.numero_avaliacoes && displayProduct.numero_avaliacoes !== '0' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Star className="w-3.5 h-3.5" />Avaliações</Label><p className="font-medium text-sm">{displayProduct.avaliacao && `${displayProduct.avaliacao} - `}{displayProduct.numero_avaliacoes}</p></div>}
+                    {displayProduct.porcentagem_vendido && displayProduct.porcentagem_vendido !== 'N/A' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><ShoppingCart className="w-3.5 h-3.5" />Vendas</Label><p className="font-medium text-sm">{displayProduct.porcentagem_vendido}</p></div>}
+                    {displayProduct.tempo_restante && displayProduct.tempo_restante !== 'N/A' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />Tempo Restante</Label><p className="font-medium text-sm">{displayProduct.tempo_restante}</p></div>}
+                  </div>
+                  <Separator />
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    {(displayProduct.createdAt || displayProduct.createdat) && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Criado</Label><p className="text-xs">{formatDate(displayProduct.createdAt || displayProduct.createdat)}</p></div>}
+                    {(displayProduct.updatedAt || displayProduct.updatedat) && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Atualizado</Label><p className="text-xs">{formatDate(displayProduct.updatedAt || displayProduct.updatedat)}</p></div>}
+                    {displayProduct.ultima_verificacao && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Verificado</Label><p className="text-xs">{formatDate(displayProduct.ultima_verificacao)}</p></div>}
+                  </div>
+                  {affiliateLink && (
+                    <>
+                      <Separator />
+                      <div className="space-y-3 bg-green-50 dark:bg-green-950/20 p-4 rounded-lg border border-green-200 dark:border-green-900">
+                        <Label className="text-sm font-semibold flex items-center gap-2 text-green-700 dark:text-green-400"><Link2 className="w-4 h-4" />Link de Afiliado</Label>
+                        <div className="flex gap-2 items-center">
+                          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border bg-background/60 text-sm font-mono text-muted-foreground overflow-hidden select-all cursor-text"><span className="truncate">{affiliateLink}</span></div>
+                          <Button variant="outline" size="icon" onClick={() => handleCopyLink(affiliateLink)}>{copiedLink ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}</Button>
+                          <Button size="icon" asChild><a href={affiliateLink} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-4 h-4" /></a></Button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </ScrollArea>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setDesktopDetailsOpen(false)}>Fechar</Button>
+                {affiliateLink && <Button asChild><a href={affiliateLink} target="_blank" rel="noopener noreferrer" className="gap-2"><ExternalLink className="w-4 h-4" />Abrir Produto</a></Button>}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ─── CLEANUP DIALOG ─── */}
       <Dialog open={cleanupDialogOpen} onOpenChange={setCleanupDialogOpen}>
@@ -967,7 +853,7 @@ export function ProductsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-destructive/10 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="w-4.5 h-4.5 text-destructive" />
+                <AlertTriangle className="w-4 h-4 text-destructive" />
               </div>
               {getCleanupTitle()}
             </DialogTitle>
