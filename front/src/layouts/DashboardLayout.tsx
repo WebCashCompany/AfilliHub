@@ -24,6 +24,8 @@ import {
   Moon,
   Menu,
   X,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -62,7 +64,6 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/trash', label: 'Lixeira', icon: Trash2 },
 ];
 
-// Itens que aparecem na bottom nav mobile (os mais usados)
 const MOBILE_BOTTOM_ITEMS: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/automation', label: 'Automação', icon: Zap, allowedRoles: ['administrador', 'empresa', 'colaborador'] },
@@ -76,7 +77,6 @@ const ROLE_LABELS: Record<string, { label: string; icon: React.ElementType; colo
   colaborador: { label: 'Colaborador', icon: Users, color: 'text-green-400' },
 };
 
-// ── Hook para detectar mobile ────────────────────────────────
 function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < breakpoint);
 
@@ -91,7 +91,6 @@ function useIsMobile(breakpoint = 768) {
   return isMobile;
 }
 
-// ── Item de navegação desktop ────────────────────────────────
 function SidebarNavItem({
   path,
   label,
@@ -133,7 +132,6 @@ function SidebarNavItem({
   );
 }
 
-// ── Item de navegação no drawer mobile ──────────────────────
 function DrawerNavItem({
   path,
   label,
@@ -169,7 +167,6 @@ function DrawerNavItem({
   );
 }
 
-// ── Botão de toggle de tema ──────────────────────────────────
 function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
   const { preferences, updateTheme } = useUserPreferences();
 
@@ -207,7 +204,6 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-// ── Bottom Navigation Bar (Mobile) ──────────────────────────
 function MobileBottomNav({
   items,
   onMenuOpen,
@@ -262,7 +258,6 @@ function MobileBottomNav({
         );
       })}
 
-      {/* Botão "Mais" para abrir o drawer */}
       <button
         onClick={onMenuOpen}
         className="flex-1 flex flex-col items-center justify-center gap-0.5 h-full transition-colors duration-150"
@@ -276,7 +271,6 @@ function MobileBottomNav({
   );
 }
 
-// ── Mobile Top Header ────────────────────────────────────────
 function MobileHeader({
   profile,
   role,
@@ -302,7 +296,6 @@ function MobileHeader({
       className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between bg-card border-b border-border px-4"
       style={{ height: 56, paddingTop: 'env(safe-area-inset-top)' }}
     >
-      {/* Logo */}
       <NavLink to="/" end className="flex items-center gap-2 cursor-pointer select-none">
         <img
           src={logoSrc}
@@ -314,9 +307,7 @@ function MobileHeader({
         </span>
       </NavLink>
 
-      {/* Ações */}
       <div className="flex items-center gap-1">
-        {/* Toggle tema */}
         <button
           onClick={() => updateTheme(isDark ? 'light' : 'dark')}
           className="w-9 h-9 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors"
@@ -327,7 +318,6 @@ function MobileHeader({
             : <Moon style={{ width: 18, height: 18 }} />}
         </button>
 
-        {/* Avatar + menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-muted transition-colors">
@@ -358,7 +348,6 @@ function MobileHeader({
   );
 }
 
-// ── Mobile Drawer (menu lateral deslizante) ──────────────────
 function MobileDrawer({
   open,
   onClose,
@@ -380,7 +369,6 @@ function MobileDrawer({
   const getInitials = (name: string) =>
     name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 
-  // Fechar com ESC
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -388,7 +376,6 @@ function MobileDrawer({
     return () => document.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
-  // Bloquear scroll do body quando aberto
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
@@ -396,7 +383,6 @@ function MobileDrawer({
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className={cn(
           'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm transition-opacity duration-300',
@@ -406,7 +392,6 @@ function MobileDrawer({
         aria-hidden="true"
       />
 
-      {/* Drawer panel */}
       <div
         className={cn(
           'fixed top-0 left-0 bottom-0 z-50 w-72 bg-card border-r border-border flex flex-col',
@@ -415,7 +400,6 @@ function MobileDrawer({
         )}
         style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
-        {/* Header do drawer */}
         <div className="flex items-center justify-between h-14 px-4 border-b border-border shrink-0">
           <NavLink to="/" end onClick={onClose} className="flex items-center gap-2 cursor-pointer select-none">
             <img
@@ -435,7 +419,6 @@ function MobileDrawer({
           </button>
         </div>
 
-        {/* Perfil do usuário */}
         <div className="px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-3">
             <Avatar style={{ width: 36, height: 36 }}>
@@ -453,7 +436,6 @@ function MobileDrawer({
           </div>
         </div>
 
-        {/* Itens de navegação */}
         <nav className="flex-1 overflow-y-auto py-3 px-3 flex flex-col gap-1">
           {items.map((item) => (
             <DrawerNavItem
@@ -466,7 +448,6 @@ function MobileDrawer({
           ))}
         </nav>
 
-        {/* Rodapé: sair */}
         <div className="border-t border-border p-3 shrink-0">
           <button
             onClick={() => { onClose(); onSignOut(); }}
@@ -481,7 +462,6 @@ function MobileDrawer({
   );
 }
 
-// ── Botão flutuante com logo ─────────────────────────────────
 function FloatingLogoButton() {
   return (
     <a
@@ -528,6 +508,47 @@ function FloatingLogoButton() {
   );
 }
 
+// ── Botão de colapso inline no header do sidebar ─────────────
+function CollapseButton({
+  collapsed,
+  onClick,
+}: {
+  collapsed: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onClick}
+          aria-label={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
+          className={cn(
+            'group relative flex items-center justify-center rounded-md transition-all duration-150',
+            'w-7 h-7 shrink-0',
+            'text-muted-foreground/60',
+            'hover:text-foreground',
+            'hover:bg-muted',
+            'border border-transparent hover:border-border',
+          )}
+        >
+          {/* Ícone troca suavemente */}
+          <span
+            className="transition-transform duration-200"
+            style={{ transform: collapsed ? 'rotate(0deg)' : 'rotate(0deg)' }}
+          >
+            {collapsed
+              ? <PanelLeftOpen style={{ width: 15, height: 15 }} />
+              : <PanelLeftClose style={{ width: 15, height: 15 }} />}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="text-xs font-medium">
+        {collapsed ? 'Expandir' : 'Recolher'}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 // ── Layout principal ─────────────────────────────────────────
 export function DashboardLayout() {
   const { profile, signOut, role } = useAuth();
@@ -553,7 +574,6 @@ export function DashboardLayout() {
     return item.allowedRoles.includes(role);
   });
 
-  // Filtra também os itens da bottom nav de acordo com as permissões
   const visibleBottomItems = MOBILE_BOTTOM_ITEMS.filter((item) => {
     const full = NAV_ITEMS.find((n) => n.path === item.path);
     if (!full) return false;
@@ -573,7 +593,6 @@ export function DashboardLayout() {
     return (
       <TooltipProvider delayDuration={200}>
         <div className="flex flex-col h-[100dvh] bg-background">
-          {/* Header fixo no topo */}
           <MobileHeader
             profile={profile}
             role={role}
@@ -581,7 +600,6 @@ export function DashboardLayout() {
             onSignOut={handleSignOut}
           />
 
-          {/* Drawer lateral */}
           <MobileDrawer
             open={drawerOpen}
             onClose={() => setDrawerOpen(false)}
@@ -591,7 +609,6 @@ export function DashboardLayout() {
             onSignOut={handleSignOut}
           />
 
-          {/* Conteúdo com padding para header e bottom nav */}
           <main
             className="flex-1 overflow-auto"
             style={{ paddingTop: 56, paddingBottom: 64 }}
@@ -599,20 +616,18 @@ export function DashboardLayout() {
             <Outlet />
           </main>
 
-          {/* Bottom Navigation */}
           <MobileBottomNav
             items={visibleBottomItems}
             onMenuOpen={() => setDrawerOpen(true)}
           />
 
-          {/* Botão flutuante */}
           <FloatingLogoButton />
         </div>
       </TooltipProvider>
     );
   }
 
-  // ── RENDER DESKTOP (100% igual ao original) ──────────────
+  // ── RENDER DESKTOP ───────────────────────────────────────
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-screen bg-background overflow-hidden">
@@ -621,7 +636,7 @@ export function DashboardLayout() {
         <div
           style={{
             width: collapsed ? 60 : 240,
-            transition: 'width 120ms ease',
+            transition: 'width 150ms ease',
             flexShrink: 0,
             position: 'relative',
           }}
@@ -629,20 +644,56 @@ export function DashboardLayout() {
           {/* ══════════════════════ SIDEBAR ══════════════════════ */}
           <aside className="absolute inset-0 flex flex-col bg-card border-r border-border">
 
-            {/* ── Logo ── */}
-            <div className="h-16 flex items-center border-b border-border shrink-0 px-4">
-              <NavLink to="/" end className="flex items-center gap-3 cursor-pointer select-none" style={{ minWidth: 0 }}>
+            {/* ── Logo + botão de colapso ── */}
+            <div
+              className={cn(
+                'h-16 flex items-center border-b border-border shrink-0 px-3 gap-2',
+                collapsed ? 'justify-center' : 'justify-between',
+              )}
+            >
+              {/* Logo — clicável só quando expandido; quando colapsado só ícone */}
+              <NavLink
+                to="/"
+                end
+                className="flex items-center gap-2.5 cursor-pointer select-none min-w-0 flex-1 overflow-hidden"
+                tabIndex={collapsed ? -1 : 0}
+                style={{ pointerEvents: collapsed ? 'none' : 'auto' }}
+              >
                 <img
                   src={logoSrc}
                   alt="Logo"
-                  style={{ width: 48, height: 48, flexShrink: 0, objectFit: 'contain', display: 'block', filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))', marginTop: 6 }}
+                  style={{
+                    width: 38,
+                    height: 38,
+                    flexShrink: 0,
+                    objectFit: 'contain',
+                    display: 'block',
+                    filter: 'drop-shadow(0 0 8px rgba(0,180,255,0.5))',
+                  }}
                 />
-                {!collapsed && (
-                  <span style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '1.15rem', letterSpacing: '0.18em', color: 'var(--foreground)', whiteSpace: 'nowrap', lineHeight: 1, display: 'flex', alignItems: 'center' }}>
-                    VANT
-                  </span>
-                )}
+                <span
+                  style={{
+                    fontFamily: "'Orbitron', sans-serif",
+                    fontWeight: 700,
+                    fontSize: '1.05rem',
+                    letterSpacing: '0.18em',
+                    color: 'var(--foreground)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    opacity: collapsed ? 0 : 1,
+                    width: collapsed ? 0 : 'auto',
+                    transition: 'opacity 120ms ease, width 120ms ease',
+                  }}
+                >
+                  VANT
+                </span>
               </NavLink>
+
+              {/* Botão de colapso elegante — sempre visível */}
+              <CollapseButton
+                collapsed={collapsed}
+                onClick={() => setCollapsed((c) => !c)}
+              />
             </div>
 
             {/* ── Navegação ── */}
@@ -723,42 +774,6 @@ export function DashboardLayout() {
               </DropdownMenu>
             </div>
           </aside>
-
-          {/* ══ Botão colapso ══ */}
-          <button
-            onClick={() => setCollapsed((c) => !c)}
-            style={{
-              position: 'absolute',
-              right: -12,
-              top: 68,
-              zIndex: 50,
-              width: 24,
-              height: 24,
-              borderRadius: '50%',
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--card)',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: 'var(--muted-foreground)',
-              transition: 'background-color 100ms, color 100ms',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--muted)';
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--foreground)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)';
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--muted-foreground)';
-            }}
-            aria-label={collapsed ? 'Expandir' : 'Recolher'}
-          >
-            {collapsed
-              ? <ChevronRight style={{ width: 12, height: 12 }} />
-              : <ChevronLeft style={{ width: 12, height: 12 }} />}
-          </button>
         </div>
 
         {/* ══════════════════════ MAIN ══════════════════════ */}
@@ -766,7 +781,6 @@ export function DashboardLayout() {
           <Outlet />
         </main>
 
-        {/* Botão flutuante */}
         <FloatingLogoButton />
 
       </div>
