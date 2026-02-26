@@ -4,6 +4,14 @@ import { ENV } from '@/config/environment';
 
 const API_URL = `${ENV.API_BASE_URL}/api`;
 
+// ─────────────────────────────────────────────────────────
+// HEADERS PADRÃO — ngrok obrigatório em todas as requisições
+// ─────────────────────────────────────────────────────────
+const NGROK_HEADERS = {
+  'ngrok-skip-browser-warning': 'true',
+  'Content-Type': 'application/json',
+};
+
 export type Marketplace = 'mercadolivre' | 'amazon' | 'magalu' | 'shopee';
 
 export function useMarketplaceConnections() {
@@ -19,8 +27,8 @@ export function useMarketplaceConnections() {
   const checkConnections = async () => {
     try {
       const [mlResponse, magaluResponse] = await Promise.allSettled([
-        axios.get(`${API_URL}/ml/status`),
-        axios.get(`${API_URL}/integrations/magalu`),
+        axios.get(`${API_URL}/ml/status`, { headers: NGROK_HEADERS }),
+        axios.get(`${API_URL}/integrations/magalu`, { headers: NGROK_HEADERS }),
       ]);
 
       const hasActiveMl =
