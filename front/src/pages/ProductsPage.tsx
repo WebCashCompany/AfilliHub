@@ -798,71 +798,228 @@ export function ProductsPage() {
 
       {/* ─── DESKTOP PRODUCT DETAIL DIALOG ─── */}
       <Dialog open={desktopDetailsOpen} onOpenChange={(open) => { setDesktopDetailsOpen(open); if (!open) setOriginalProductData(null); }}>
-        <DialogContent className="max-w-4xl max-h-[85vh]">
+        <DialogContent className="max-w-2xl max-h-[90vh] p-0 gap-0 overflow-hidden">
           {displayProduct && (
             <>
-              <DialogHeader>
-                <DialogTitle className="text-xl pr-6">Detalhes do Produto</DialogTitle>
-                <DialogDescription>Informações completas e link de afiliado</DialogDescription>
-              </DialogHeader>
-              <ScrollArea className="max-h-[calc(85vh-180px)] pr-4">
-                <div className="space-y-6">
-                  <div className="flex gap-6">
-                    <div className="flex-shrink-0">
-                      <img src={displayProduct.imagem || displayProduct.image || '/no-image.png'} alt={displayProduct.nome || displayProduct.name} className="w-48 h-48 object-cover rounded-lg border shadow-sm" onError={(e) => { (e.target as HTMLImageElement).src = '/no-image.png'; }} />
+              {/* ── Header com imagem de fundo suave ── */}
+              <div className="relative px-6 pt-6 pb-5 border-b bg-muted/30">
+                <button
+                  onClick={() => setDesktopDetailsOpen(false)}
+                  className="absolute right-4 top-4 w-7 h-7 rounded-full flex items-center justify-center bg-muted hover:bg-muted-foreground/20 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+                <div className="flex gap-5 pr-8">
+                  {/* Imagem */}
+                  <div className="flex-shrink-0 w-24 h-24 rounded-xl border bg-background shadow-sm overflow-hidden">
+                    <img
+                      src={displayProduct.imagem || displayProduct.image || '/no-image.png'}
+                      alt={displayProduct.nome || displayProduct.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).src = '/no-image.png'; }}
+                    />
+                  </div>
+                  {/* Info principal */}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <p className="font-bold text-base leading-snug line-clamp-2">
+                      {displayProduct.nome || displayProduct.nome_normalizado || displayProduct.name}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      <MarketplaceBadge marketplace={displayProduct.marketplace} />
+                      <StatusBadge status={displayProduct.status || 'active'} />
+                      {displayProduct.categoria && (
+                        <Badge variant="outline" className="gap-1 text-xs">
+                          <Tag className="w-2.5 h-2.5" />{displayProduct.categoria}
+                        </Badge>
+                      )}
                     </div>
-                    <div className="flex-1 space-y-3 min-w-0">
-                      <div>
-                        <h3 className="font-bold text-lg leading-tight mb-3">{displayProduct.nome || displayProduct.nome_normalizado || displayProduct.name}</h3>
-                        <div className="flex flex-wrap gap-2">
-                          <MarketplaceBadge marketplace={displayProduct.marketplace} />
-                          <StatusBadge status={displayProduct.status || 'active'} />
-                          {displayProduct.categoria && <Badge variant="outline" className="gap-1"><Tag className="w-3 h-3" />{displayProduct.categoria}</Badge>}
-                        </div>
-                      </div>
-                      <div className="bg-muted/50 p-4 rounded-lg">
-                        <div className="flex items-baseline gap-3 flex-wrap">
-                          {displayProduct.preco && <span className="text-3xl font-bold text-green-600">{displayProduct.preco?.startsWith?.('R$') ? displayProduct.preco : `R$ ${displayProduct.preco}`}</span>}
-                          {displayProduct.preco_anterior && <span className="text-lg line-through text-muted-foreground">{displayProduct.preco_anterior?.startsWith?.('R$') ? displayProduct.preco_anterior : `R$ ${displayProduct.preco_anterior}`}</span>}
-                          {displayProduct.desconto && <Badge variant="destructive" className="gap-1"><TrendingDown className="w-3 h-3" />{displayProduct.desconto}</Badge>}
-                        </div>
-                      </div>
+                    {/* Preço inline */}
+                    <div className="flex items-baseline gap-2.5 flex-wrap pt-0.5">
+                      {displayProduct.preco && (
+                        <span className="text-2xl font-black text-green-600">
+                          {displayProduct.preco?.startsWith?.('R$') ? displayProduct.preco : `R$ ${displayProduct.preco}`}
+                        </span>
+                      )}
+                      {displayProduct.preco_anterior && (
+                        <span className="text-sm line-through text-muted-foreground">
+                          {displayProduct.preco_anterior?.startsWith?.('R$') ? displayProduct.preco_anterior : `R$ ${displayProduct.preco_anterior}`}
+                        </span>
+                      )}
+                      {displayProduct.desconto && (
+                        <Badge variant="destructive" className="gap-1 text-xs px-2 py-0.5">
+                          <TrendingDown className="w-3 h-3" />{displayProduct.desconto}
+                        </Badge>
+                      )}
                     </div>
                   </div>
-                  <Separator />
-                  <div className="grid grid-cols-2 gap-4">
-                    {displayProduct.vendedor && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Store className="w-3.5 h-3.5" />Vendedor</Label><p className="font-medium text-sm">{displayProduct.vendedor}</p></div>}
-                    {displayProduct.frete && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" />Frete</Label><p className="font-medium text-sm">{displayProduct.frete}</p></div>}
-                    {displayProduct.parcelas && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5" />Parcelamento</Label><p className="font-medium text-sm">{displayProduct.parcelas}</p></div>}
-                    {displayProduct.numero_avaliacoes && displayProduct.numero_avaliacoes !== '0' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Star className="w-3.5 h-3.5" />Avaliações</Label><p className="font-medium text-sm">{displayProduct.avaliacao && `${displayProduct.avaliacao} - `}{displayProduct.numero_avaliacoes}</p></div>}
-                    {displayProduct.porcentagem_vendido && displayProduct.porcentagem_vendido !== 'N/A' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><ShoppingCart className="w-3.5 h-3.5" />Vendas</Label><p className="font-medium text-sm">{displayProduct.porcentagem_vendido}</p></div>}
-                    {displayProduct.tempo_restante && displayProduct.tempo_restante !== 'N/A' && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />Tempo Restante</Label><p className="font-medium text-sm">{displayProduct.tempo_restante}</p></div>}
-                  </div>
-                  <Separator />
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    {(displayProduct.createdAt || displayProduct.createdat) && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Criado</Label><p className="text-xs">{formatDate(displayProduct.createdAt || displayProduct.createdat)}</p></div>}
-                    {(displayProduct.updatedAt || displayProduct.updatedat) && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Atualizado</Label><p className="text-xs">{formatDate(displayProduct.updatedAt || displayProduct.updatedat)}</p></div>}
-                    {displayProduct.ultima_verificacao && <div className="space-y-1"><Label className="text-xs text-muted-foreground flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Verificado</Label><p className="text-xs">{formatDate(displayProduct.ultima_verificacao)}</p></div>}
-                  </div>
+                </div>
+              </div>
+
+              {/* ── Corpo com scroll ── */}
+              <ScrollArea className="max-h-[calc(90vh-280px)]">
+                <div className="px-6 py-4 space-y-4">
+
+                  {/* ── Detalhes do produto (vendedor, frete, etc) ── */}
+                  {(displayProduct.vendedor || displayProduct.frete || displayProduct.parcelas || displayProduct.numero_avaliacoes || displayProduct.porcentagem_vendido || displayProduct.tempo_restante) && (
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                      {displayProduct.vendedor && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <Store className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Vendedor</p>
+                            <p className="text-sm font-semibold truncate">{displayProduct.vendedor}</p>
+                          </div>
+                        </div>
+                      )}
+                      {displayProduct.frete && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <Truck className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Frete</p>
+                            <p className="text-sm font-semibold truncate">{displayProduct.frete}</p>
+                          </div>
+                        </div>
+                      )}
+                      {displayProduct.parcelas && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <CreditCard className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Parcelamento</p>
+                            <p className="text-sm font-semibold truncate">{displayProduct.parcelas}</p>
+                          </div>
+                        </div>
+                      )}
+                      {displayProduct.numero_avaliacoes && displayProduct.numero_avaliacoes !== '0' && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <Star className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Avaliações</p>
+                            <p className="text-sm font-semibold">{displayProduct.avaliacao && `${displayProduct.avaliacao} · `}{displayProduct.numero_avaliacoes}</p>
+                          </div>
+                        </div>
+                      )}
+                      {displayProduct.porcentagem_vendido && displayProduct.porcentagem_vendido !== 'N/A' && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <ShoppingCart className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Vendas</p>
+                            <p className="text-sm font-semibold">{displayProduct.porcentagem_vendido}</p>
+                          </div>
+                        </div>
+                      )}
+                      {displayProduct.tempo_restante && displayProduct.tempo_restante !== 'N/A' && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">Tempo Restante</p>
+                            <p className="text-sm font-semibold">{displayProduct.tempo_restante}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Datas em linha horizontal ── */}
+                  {(displayProduct.createdAt || displayProduct.createdat || displayProduct.updatedAt || displayProduct.updatedat || displayProduct.ultima_verificacao) && (
+                    <>
+                      <Separator />
+                      <div className="flex items-center gap-6 text-xs text-muted-foreground flex-wrap">
+                        {(displayProduct.createdAt || displayProduct.createdat) && (
+                          <div className="flex items-center gap-1.5">
+                            <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="text-muted-foreground/70">Criado</span>
+                            <span className="font-semibold text-foreground">{formatDate(displayProduct.createdAt || displayProduct.createdat)}</span>
+                          </div>
+                        )}
+                        {(displayProduct.updatedAt || displayProduct.updatedat) && (
+                          <div className="flex items-center gap-1.5">
+                            <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="text-muted-foreground/70">Atualizado</span>
+                            <span className="font-semibold text-foreground">{formatDate(displayProduct.updatedAt || displayProduct.updatedat)}</span>
+                          </div>
+                        )}
+                        {displayProduct.ultima_verificacao && (
+                          <div className="flex items-center gap-1.5">
+                            <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="text-muted-foreground/70">Verificado</span>
+                            <span className="font-semibold text-foreground">{formatDate(displayProduct.ultima_verificacao)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* ── Link de afiliado ── */}
                   {affiliateLink && (
                     <>
                       <Separator />
-                      <div className="space-y-3 bg-green-50 dark:bg-green-950/20 p-4 rounded-lg border border-green-200 dark:border-green-900">
-                        <Label className="text-sm font-semibold flex items-center gap-2 text-green-700 dark:text-green-400"><Link2 className="w-4 h-4" />Link de Afiliado</Label>
-                        <div className="flex gap-2 items-center">
-                          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border bg-background/60 text-sm font-mono text-muted-foreground overflow-hidden select-all cursor-text min-w-0"><span className="truncate">{affiliateLink}</span></div>
-                          <Button variant="outline" size="icon" onClick={() => handleCopyLink(affiliateLink)}>{copiedLink ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}</Button>
-                          <Button size="icon" asChild><a href={affiliateLink} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-4 h-4" /></a></Button>
+                      <div className="rounded-xl border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/20 overflow-hidden">
+                        {/* Label */}
+                        <div className="flex items-center justify-between px-4 py-2.5 border-b border-green-200 dark:border-green-900">
+                          <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                            <Link2 className="w-4 h-4" />
+                            <span className="text-sm font-semibold">Link de Afiliado</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleCopyLink(affiliateLink)}
+                              className="h-7 px-2.5 gap-1.5 text-xs font-semibold text-green-700 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/40"
+                            >
+                              {copiedLink
+                                ? <><Check className="w-3.5 h-3.5" />Copiado!</>
+                                : <><Copy className="w-3.5 h-3.5" />Copiar</>
+                              }
+                            </Button>
+                            <Button
+                              size="sm"
+                              asChild
+                              className="h-7 px-2.5 gap-1.5 text-xs font-semibold"
+                            >
+                              <a href={affiliateLink} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="w-3.5 h-3.5" />Abrir
+                              </a>
+                            </Button>
+                          </div>
+                        </div>
+                        {/* URL truncada com tooltip visual */}
+                        <div className="px-4 py-3">
+                          <p className="text-xs font-mono text-muted-foreground leading-relaxed break-all line-clamp-2 select-all">
+                            {affiliateLink}
+                          </p>
                         </div>
                       </div>
                     </>
                   )}
                 </div>
               </ScrollArea>
-              <DialogFooter className="gap-2">
-                <Button variant="outline" onClick={() => setDesktopDetailsOpen(false)}>Fechar</Button>
-                {affiliateLink && <Button asChild><a href={affiliateLink} target="_blank" rel="noopener noreferrer" className="gap-2"><ExternalLink className="w-4 h-4" />Abrir Produto</a></Button>}
-              </DialogFooter>
+
+              {/* ── Footer ── */}
+              <div className="flex items-center justify-between gap-3 px-6 py-4 border-t bg-muted/20">
+                <Button variant="outline" onClick={() => setDesktopDetailsOpen(false)} className="h-9">
+                  Fechar
+                </Button>
+                {affiliateLink && (
+                  <Button asChild className="h-9 gap-2">
+                    <a href={affiliateLink} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="w-4 h-4" />Abrir Produto
+                    </a>
+                  </Button>
+                )}
+              </div>
             </>
           )}
         </DialogContent>
