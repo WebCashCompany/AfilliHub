@@ -7,13 +7,21 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { 
-  Settings, Plus, Trash2, Power, Store, ExternalLink, CheckCircle, XCircle, Loader2
+  Settings, Plus, Trash2, Store, ExternalLink, CheckCircle, XCircle, Loader2
 } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import axios from 'axios';
 
 import { ENV } from '@/config/environment';
 const API_URL = `${ENV.API_BASE_URL}/api`;
+
+// ─────────────────────────────────────────────────────────
+// HEADERS PADRÃO — ngrok obrigatório em todas as requisições
+// ─────────────────────────────────────────────────────────
+const NGROK_HEADERS = {
+  'ngrok-skip-browser-warning': 'true',
+  'Content-Type': 'application/json',
+};
 
 type Marketplace = 'mercadolivre' | 'amazon' | 'magalu' | 'shopee';
 
@@ -49,7 +57,7 @@ export function SettingsPage() {
   const [magaluLoading, setMagaluLoading] = useState(false);
 
   // Refs para highlight
-  const mlCardRef    = useRef<HTMLDivElement>(null);
+  const mlCardRef     = useRef<HTMLDivElement>(null);
   const amazonCardRef = useRef<HTMLDivElement>(null);
   const magaluCardRef = useRef<HTMLDivElement>(null);
   const shopeeCardRef = useRef<HTMLDivElement>(null);
@@ -118,7 +126,9 @@ export function SettingsPage() {
   const loadMLStatus = async () => {
     setMlLoading(true);
     try {
-      const { data } = await axios.get(`${API_URL}/ml/status`);
+      const { data } = await axios.get(`${API_URL}/ml/status`, {
+        headers: NGROK_HEADERS,
+      });
       setMlStatus(data);
       if (data.authenticated) setMlAwaitingReturn(false);
     } catch (error) {
@@ -135,7 +145,9 @@ export function SettingsPage() {
 
   const disconnectML = async () => {
     try {
-      await axios.delete(`${API_URL}/ml/disconnect`);
+      await axios.delete(`${API_URL}/ml/disconnect`, {
+        headers: NGROK_HEADERS,
+      });
       setMlStatus(null);
       toast({ title: 'Conta desconectada', description: 'Mercado Livre foi desvinculado.' });
     } catch (error) {
@@ -146,7 +158,9 @@ export function SettingsPage() {
   // ─── Magalu Actions ────────────────────────────────────────────────────────
   const loadMagaluConfig = async () => {
     try {
-      const { data } = await axios.get(`${API_URL}/integrations/magalu`);
+      const { data } = await axios.get(`${API_URL}/integrations/magalu`, {
+        headers: NGROK_HEADERS,
+      });
       if (data?.affiliateId) {
         setSavedMagaluId(data.affiliateId);
         setMagaluId(data.affiliateId);
@@ -164,7 +178,11 @@ export function SettingsPage() {
     }
     setMagaluLoading(true);
     try {
-      await axios.post(`${API_URL}/integrations/magalu`, { provider: 'magalu', affiliateId: magaluId });
+      await axios.post(
+        `${API_URL}/integrations/magalu`,
+        { provider: 'magalu', affiliateId: magaluId },
+        { headers: NGROK_HEADERS }
+      );
       setSavedMagaluId(magaluId);
       setOpenMagaluDialog(false);
       window.dispatchEvent(new CustomEvent('magalu-config-updated', { detail: { affiliateId: magaluId } }));
