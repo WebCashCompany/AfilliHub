@@ -52,6 +52,14 @@ type QuickFilter = 'all' | 'today' | 'yesterday' | 'last7' | 'last30';
 import { ENV } from '@/config/environment';
 const API_BASE_URL = ENV.API_BASE_URL;
 
+// ─────────────────────────────────────────────────────────
+// HEADERS PADRÃO — ngrok obrigatório em todas as requisições
+// ─────────────────────────────────────────────────────────
+const DEFAULT_HEADERS: HeadersInit = {
+  'Content-Type': 'application/json',
+  'ngrok-skip-browser-warning': 'true',
+};
+
 // ─── Mobile Filters Sheet ─────────────────────────────────────────────────────
 function MobileFiltersSheet({
   open, onClose,
@@ -304,6 +312,9 @@ export function ProductsPage() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
+  // ─────────────────────────────────────────────────────────
+  // CORREÇÃO: header ngrok adicionado no fetch de detalhes
+  // ─────────────────────────────────────────────────────────
   const handleProductClick = async (product: any) => {
     setSelectedProduct(product);
     setOriginalProductData(null);
@@ -316,7 +327,9 @@ export function ProductsPage() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`);
+      const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`, {
+        headers: DEFAULT_HEADERS,
+      });
       const data = await response.json();
       if (data.success && data.data) setOriginalProductData(data.data);
     } catch {
@@ -380,7 +393,6 @@ export function ProductsPage() {
   const activeFiltersCount = [marketplaceFilter !== 'all', categoryFilter !== 'all', sortField !== null, isDateFilterActive].filter(Boolean).length;
 
   return (
-    // FIX: overflow-x-hidden no container raiz impede scroll horizontal em toda a página mobile
     <div className="min-h-screen bg-background overflow-x-hidden w-full">
 
       {/* ─── DESKTOP HEADER ─── */}
@@ -411,7 +423,6 @@ export function ProductsPage() {
 
       {/* ─── MOBILE HEADER ─── */}
       <div className="md:hidden w-full">
-        {/* Título e ações */}
         <div className="flex items-center justify-between px-4 pt-5 pb-2">
           <div className="min-w-0 flex-1 mr-3">
             <h1 className="text-[22px] font-black tracking-tight truncate">Gerenciamento</h1>
@@ -444,8 +455,6 @@ export function ProductsPage() {
           </div>
         </div>
 
-        {/* Search + filtros button */}
-        {/* FIX: w-full garante que não extrapola, gap e itens alinhados corretamente */}
         <div className="flex gap-2 px-4 pt-1 pb-3 w-full">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -461,7 +470,6 @@ export function ProductsPage() {
               </button>
             )}
           </div>
-          {/* FIX: flex-shrink-0 para não comprimir o botão */}
           <button
             onClick={() => setFiltersOpen(true)}
             className={`relative h-11 w-11 rounded-2xl flex items-center justify-center flex-shrink-0 border transition-all active:scale-95 ${
@@ -479,46 +487,32 @@ export function ProductsPage() {
           </button>
         </div>
 
-        {/* Active filter chips */}
-        {/* FIX: overflow-x-auto apenas neste container interno, com padding seguro e sem vazar para fora */}
         {activeFiltersCount > 0 && (
-          <div
-            className="pb-3 overflow-x-auto"
-            style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
-          >
-            {/* FIX: inline-flex + px-4 + pr-6 garante que chips não vazam nas bordas */}
+          <div className="pb-3 overflow-x-auto" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
             <div className="inline-flex gap-2 px-4 pr-6 min-w-full">
               {marketplaceFilter !== 'all' && (
-                <button
-                  onClick={() => { setMarketplaceFilter('all'); setPage(1); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0"
-                >
+                <button onClick={() => { setMarketplaceFilter('all'); setPage(1); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0">
                   {marketplaceFilter} <X className="w-3 h-3" />
                 </button>
               )}
               {categoryFilter !== 'all' && (
-                <button
-                  onClick={() => { setCategoryFilter('all'); setPage(1); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0"
-                >
+                <button onClick={() => { setCategoryFilter('all'); setPage(1); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0">
                   <Tag className="w-3 h-3" />{categoryFilter} <X className="w-3 h-3" />
                 </button>
               )}
               {sortField && (
-                <button
-                  onClick={() => { setSortField(null); setPage(1); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0"
-                >
+                <button onClick={() => { setSortField(null); setPage(1); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0">
                   <ArrowUpDown className="w-3 h-3" />
                   {sortField === 'price' ? 'Preço' : 'Desconto'} ({sortDirection === 'asc' ? '↑' : '↓'})
                   <X className="w-3 h-3" />
                 </button>
               )}
               {isDateFilterActive && (
-                <button
-                  onClick={clearDateFilter}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0"
-                >
+                <button onClick={clearDateFilter}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0">
                   <CalendarDays className="w-3 h-3" />
                   {quickFilter !== 'all' ? quickFilterLabels[quickFilter] : calendarLabel}
                   <X className="w-3 h-3" />
@@ -528,7 +522,6 @@ export function ProductsPage() {
           </div>
         )}
 
-        {/* Selected items bar */}
         {selectedIds.length > 0 && (
           <div className="mx-4 mb-3 flex items-center justify-between bg-primary text-primary-foreground rounded-2xl px-4 py-3 shadow-lg shadow-primary/25">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -537,10 +530,8 @@ export function ProductsPage() {
               </button>
               <span className="text-sm font-bold truncate">{selectedIds.length} selecionado{selectedIds.length > 1 ? 's' : ''}</span>
             </div>
-            <button
-              onClick={() => { setCleanupType('selected'); setCleanupDialogOpen(true); }}
-              className="flex items-center gap-1.5 bg-primary-foreground/20 hover:bg-primary-foreground/30 px-3 py-1.5 rounded-xl text-sm font-bold transition-colors active:scale-95 flex-shrink-0 ml-2"
-            >
+            <button onClick={() => { setCleanupType('selected'); setCleanupDialogOpen(true); }}
+              className="flex items-center gap-1.5 bg-primary-foreground/20 hover:bg-primary-foreground/30 px-3 py-1.5 rounded-xl text-sm font-bold transition-colors active:scale-95 flex-shrink-0 ml-2">
               <Trash2 className="w-3.5 h-3.5" />Excluir
             </button>
           </div>
@@ -548,7 +539,6 @@ export function ProductsPage() {
       </div>
 
       {/* ─── TABS ─── */}
-      {/* FIX: overflow-x-hidden no wrapper das tabs para mobile */}
       <div className="md:px-6 overflow-x-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="px-4 md:px-0">
@@ -705,7 +695,6 @@ export function ProductsPage() {
             </div>
 
             {/* ─── MOBILE PRODUCT LIST ─── */}
-            {/* FIX: overflow-hidden + w-full no container mobile para não vazar conteúdo */}
             <div className="md:hidden px-4 space-y-2 w-full overflow-hidden">
               {paginatedProducts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
@@ -715,17 +704,14 @@ export function ProductsPage() {
                   <p className="font-bold text-foreground text-base">Nenhum produto encontrado</p>
                   <p className="text-sm mt-1 text-center px-8">Tente ajustar os filtros ou buscar por outro termo</p>
                   {(activeFiltersCount > 0 || search) && (
-                    <button
-                      onClick={() => { setMarketplaceFilter('all'); setCategoryFilter('all'); setSortField(null); clearDateFilter(); setSearch(''); }}
-                      className="mt-5 text-sm text-primary font-semibold px-5 py-2.5 rounded-xl border border-primary/20 bg-primary/5 active:scale-95 transition-transform"
-                    >
+                    <button onClick={() => { setMarketplaceFilter('all'); setCategoryFilter('all'); setSortField(null); clearDateFilter(); setSearch(''); }}
+                      className="mt-5 text-sm text-primary font-semibold px-5 py-2.5 rounded-xl border border-primary/20 bg-primary/5 active:scale-95 transition-transform">
                       Limpar filtros
                     </button>
                   )}
                 </div>
               ) : (
                 <>
-                  {/* Select all bar */}
                   <div className="flex items-center justify-between pb-1 pt-0.5">
                     <button onClick={handleSelectAll} className="flex items-center gap-2 text-xs text-muted-foreground font-medium active:opacity-70">
                       <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedIds.length === paginatedProducts.length ? 'bg-primary border-primary' : 'border-muted-foreground/40'}`}>
@@ -737,7 +723,6 @@ export function ProductsPage() {
                     <span className="text-xs text-muted-foreground">{paginatedProducts.length} nesta página</span>
                   </div>
 
-                  {/* Product cards */}
                   {paginatedProducts.map((product, i) => (
                     <MobileProductCard
                       key={product.id}
@@ -749,36 +734,25 @@ export function ProductsPage() {
                     />
                   ))}
 
-                  {/* Pagination */}
                   {totalPages > 1 && (
                     <div className="flex items-center justify-between pt-4 pb-8">
-                      <button
-                        onClick={() => setPage(p => Math.max(1, p - 1))}
-                        disabled={page === 1}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all"
-                      >
+                      <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all">
                         <ChevronLeft className="w-4 h-4" />Anterior
                       </button>
-                      {/* FIX: page numbers com overflow: hidden no container para não vazar */}
                       <div className="flex items-center gap-1.5 overflow-hidden">
                         {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                           const p = totalPages <= 5 ? i + 1 : page <= 3 ? i + 1 : page >= totalPages - 2 ? totalPages - 4 + i : page - 2 + i;
                           return (
-                            <button
-                              key={p}
-                              onClick={() => setPage(p)}
-                              className={`w-8 h-8 rounded-xl text-xs font-bold transition-all active:scale-90 flex-shrink-0 ${p === page ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
-                            >
+                            <button key={p} onClick={() => setPage(p)}
+                              className={`w-8 h-8 rounded-xl text-xs font-bold transition-all active:scale-90 flex-shrink-0 ${p === page ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}>
                               {p}
                             </button>
                           );
                         })}
                       </div>
-                      <button
-                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                        disabled={page >= totalPages}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all"
-                      >
+                      <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all">
                         Próxima<ChevronRight className="w-4 h-4" />
                       </button>
                     </div>
