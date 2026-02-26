@@ -27,6 +27,14 @@ import { ENV } from '@/config/environment';
 
 const API_BASE_URL = ENV.API_BASE_URL;
 
+// ─────────────────────────────────────────────────────────
+// HEADERS PADRÃO — ngrok obrigatório em todas as requisições
+// ─────────────────────────────────────────────────────────
+const DEFAULT_HEADERS: HeadersInit = {
+  'Content-Type': 'application/json',
+  'ngrok-skip-browser-warning': 'true',
+};
+
 interface DashboardContextType {
   products: Product[];
   dailyMetrics: DailyMetrics[];
@@ -54,7 +62,6 @@ export interface ScrapingConfig {
   maxPrice: number;
 }
 
-// 🔥 INTERFACE COMPLETA COM HISTÓRICO
 export interface ScrapingStatus {
   isRunning: boolean;
   progress: number;
@@ -87,7 +94,6 @@ export interface ScrapingStatus {
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
 
-// 🔥 CARREGAR HISTÓRICO DO LOCALSTORAGE
 function getInitialScrapingStatus(): ScrapingStatus {
   const savedHistory = localStorage.getItem('scraping_history');
   let recentHistory = [];
@@ -146,7 +152,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return new Intl.NumberFormat('pt-BR').format(num);
   }
 
-  // 🔥 FUNÇÃO PARA SALVAR HISTÓRICO
   const saveToHistory = (data: any) => {
     const duration = scrapingStartTimeRef.current 
       ? Math.floor((Date.now() - scrapingStartTimeRef.current) / 1000)
@@ -168,12 +173,18 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return newHistory;
   };
 
+  // ─────────────────────────────────────────────────────────
+  // REFRESH PRODUCTS — com header ngrok
+  // ─────────────────────────────────────────────────────────
   const refreshProducts = async () => {
     setIsLoading(true);
     const url = `${API_BASE_URL}/api/products`;
 
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: DEFAULT_HEADERS,
+      });
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
 
@@ -286,14 +297,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }, 1000);
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // SSE
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
+  // SSE — EventSource não suporta headers customizados.
+  // Solução: passar o header como query param que o backend lê.
+  // ─────────────────────────────────────────────────────────
   const connectSSE = (sessionId: string) => {
     disconnectSSE();
     isCompletedRef.current = false;
 
-    const sseUrl = `${API_BASE_URL}/api/scraping/progress/${sessionId}`;
+    // ngrok aceita o bypass via query param também
+    const sseUrl = `${API_BASE_URL}/api/scraping/progress/${sessionId}?ngrok-skip-browser-warning=true`;
     console.log('🔌 CONECTANDO SSE:', sseUrl);
 
     const eventSource = new EventSource(sseUrl);
@@ -344,9 +357,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     eventSourceRef.current = eventSource;
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // BACKUP POLLING
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
+  // BACKUP POLLING — com header ngrok
+  // ─────────────────────────────────────────────────────────
   const backupPollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const startBackupPolling = () => {
@@ -358,7 +371,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       try {
         const url = `${API_BASE_URL}/api/scraping/status`;
-        const response = await fetch(url);
+        const response = await fetch(url, { headers: DEFAULT_HEADERS });
         const json = await response.json();
 
         if (json.success && json.data) {
@@ -394,9 +407,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // FALLBACK POLLING
-  // ═══════════════════════════════════════════════════════════
+  // ─────────────────────────────────────────────────────────
+  // FALLBACK POLLING — com header ngrok
+  // ─────────────────────────────────────────────────────────
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const startFallbackPolling = (sessionId: string) => {
@@ -409,7 +422,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
       try {
         const url = `${API_BASE_URL}/api/scraping/status`;
-        const response = await fetch(url);
+        const response = await fetch(url, { headers: DEFAULT_HEADERS });
         const json = await response.json();
 
         if (json.success && json.data) {
@@ -455,17 +468,23 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     stopBackupPolling();
   };
 
+  // ─────────────────────────────────────────────────────────
+  // DELETE / CLEANUP — com header ngrok
+  // ─────────────────────────────────────────────────────────
   const deleteProducts = async (ids: string[]) => {
     await fetch(`${API_BASE_URL}/api/products/bulk-delete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: DEFAULT_HEADERS,
       body: JSON.stringify({ ids })
     });
     await refreshProducts();
   };
 
   const runCleanup = async (): Promise<number> => {
-    await fetch(`${API_BASE_URL}/api/products/cleanup/all`, { method: 'DELETE' });
+    await fetch(`${API_BASE_URL}/api/products/cleanup/all`, {
+      method: 'DELETE',
+      headers: DEFAULT_HEADERS,
+    });
     await refreshProducts();
     return 0;
   };
@@ -508,9 +527,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }));
 
     try {
-      // ✅ FIX PRINCIPAL: passa cada marketplace com os campos achatados no nível raiz
-      // O backend lê: options.searchTerm, options.categoria, options.minDiscount, options.maxPrice
-      // ⛔ NÃO envolver em "filters: {}" — o backend não lê de dentro dessa chave
       const payload: ScrapingRequestPayload = {
         marketplaces: Object.fromEntries(
           Object.entries(config.marketplaces).map(([key, mp]: [string, any]) => {
@@ -520,7 +536,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
               {
                 enabled: mp.enabled ?? false,
                 quantity: mp.quantity ?? 0,
-                // Campos achatados diretamente — sem "filters" aninhado
                 ...(mp.searchTerm  ? { searchTerm:  mp.searchTerm  } : {}),
                 ...(mp.categoria   ? { categoria:   mp.categoria   } : {}),
                 ...(mp.categoryKey ? { categoryKey: mp.categoryKey } : {}),
@@ -532,7 +547,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         ),
         minDiscount: config.minDiscount,
         maxPrice: config.maxPrice,
-        // ⛔ Sem "filters" no nível raiz — campo removido
       } as any;
 
       console.log('🚀 Iniciando scraping...');
