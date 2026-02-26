@@ -215,7 +215,6 @@ export function ProductsPage() {
   const [cleanupDays, setCleanupDays] = useState(7);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
 
-  // ← Estados SEPARADOS para mobile e desktop
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
   const [desktopDetailsOpen, setDesktopDetailsOpen] = useState(false);
 
@@ -305,7 +304,6 @@ export function ProductsPage() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  // ← Abre modal CERTO dependendo do dispositivo
   const handleProductClick = async (product: any) => {
     setSelectedProduct(product);
     setOriginalProductData(null);
@@ -382,7 +380,8 @@ export function ProductsPage() {
   const activeFiltersCount = [marketplaceFilter !== 'all', categoryFilter !== 'all', sortField !== null, isDateFilterActive].filter(Boolean).length;
 
   return (
-    <div className="min-h-screen bg-background">
+    // FIX: overflow-x-hidden no container raiz impede scroll horizontal em toda a página mobile
+    <div className="min-h-screen bg-background overflow-x-hidden w-full">
 
       {/* ─── DESKTOP HEADER ─── */}
       <div className="hidden md:flex p-6 justify-between items-center">
@@ -411,10 +410,11 @@ export function ProductsPage() {
       </div>
 
       {/* ─── MOBILE HEADER ─── */}
-      <div className="md:hidden">
+      <div className="md:hidden w-full">
+        {/* Título e ações */}
         <div className="flex items-center justify-between px-4 pt-5 pb-2">
-          <div>
-            <h1 className="text-[22px] font-black tracking-tight">Gerenciamento</h1>
+          <div className="min-w-0 flex-1 mr-3">
+            <h1 className="text-[22px] font-black tracking-tight truncate">Gerenciamento</h1>
             <p className="text-[12px] text-muted-foreground mt-0.5 font-medium">
               {formatNumber(filteredProducts.length)} produto{filteredProducts.length !== 1 ? 's' : ''}
               {activeFiltersCount > 0 && (
@@ -424,7 +424,7 @@ export function ProductsPage() {
               )}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={refreshProducts} disabled={isLoading}>
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
@@ -444,21 +444,32 @@ export function ProductsPage() {
           </div>
         </div>
 
-        <div className="flex gap-2 px-4 pt-1 pb-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Buscar produto..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-              className="pl-10 h-11 rounded-2xl bg-muted/50 border-transparent focus:border-primary focus:bg-background transition-all text-sm" />
+        {/* Search + filtros button */}
+        {/* FIX: w-full garante que não extrapola, gap e itens alinhados corretamente */}
+        <div className="flex gap-2 px-4 pt-1 pb-3 w-full">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Buscar produto..."
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+              className="pl-10 h-11 rounded-2xl bg-muted/50 border-transparent focus:border-primary focus:bg-background transition-all text-sm w-full"
+            />
             {search && (
               <button className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted" onClick={() => { setSearch(''); setPage(1); }}>
                 <X className="w-3.5 h-3.5 text-muted-foreground" />
               </button>
             )}
           </div>
-          <button onClick={() => setFiltersOpen(true)}
+          {/* FIX: flex-shrink-0 para não comprimir o botão */}
+          <button
+            onClick={() => setFiltersOpen(true)}
             className={`relative h-11 w-11 rounded-2xl flex items-center justify-center flex-shrink-0 border transition-all active:scale-95 ${
-              activeFiltersCount > 0 ? 'bg-primary border-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted/50 border-transparent text-muted-foreground hover:bg-muted'
-            }`}>
+              activeFiltersCount > 0
+                ? 'bg-primary border-primary text-primary-foreground shadow-md shadow-primary/20'
+                : 'bg-muted/50 border-transparent text-muted-foreground hover:bg-muted'
+            }`}
+          >
             <SlidersHorizontal className="w-4 h-4" />
             {activeFiltersCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-black text-white flex items-center justify-center shadow-sm">
@@ -468,49 +479,68 @@ export function ProductsPage() {
           </button>
         </div>
 
+        {/* Active filter chips */}
+        {/* FIX: overflow-x-auto apenas neste container interno, com padding seguro e sem vazar para fora */}
         {activeFiltersCount > 0 && (
-          <div className="flex gap-2 px-4 pb-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-            {marketplaceFilter !== 'all' && (
-              <button onClick={() => { setMarketplaceFilter('all'); setPage(1); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0">
-                {marketplaceFilter} <X className="w-3 h-3" />
-              </button>
-            )}
-            {categoryFilter !== 'all' && (
-              <button onClick={() => { setCategoryFilter('all'); setPage(1); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0">
-                <Tag className="w-3 h-3" />{categoryFilter} <X className="w-3 h-3" />
-              </button>
-            )}
-            {sortField && (
-              <button onClick={() => { setSortField(null); setPage(1); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0">
-                <ArrowUpDown className="w-3 h-3" />
-                {sortField === 'price' ? 'Preço' : 'Desconto'} ({sortDirection === 'asc' ? '↑' : '↓'})
-                <X className="w-3 h-3" />
-              </button>
-            )}
-            {isDateFilterActive && (
-              <button onClick={clearDateFilter}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0">
-                <CalendarDays className="w-3 h-3" />
-                {quickFilter !== 'all' ? quickFilterLabels[quickFilter] : calendarLabel}
-                <X className="w-3 h-3" />
-              </button>
-            )}
+          <div
+            className="pb-3 overflow-x-auto"
+            style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+          >
+            {/* FIX: inline-flex + px-4 + pr-6 garante que chips não vazam nas bordas */}
+            <div className="inline-flex gap-2 px-4 pr-6 min-w-full">
+              {marketplaceFilter !== 'all' && (
+                <button
+                  onClick={() => { setMarketplaceFilter('all'); setPage(1); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0"
+                >
+                  {marketplaceFilter} <X className="w-3 h-3" />
+                </button>
+              )}
+              {categoryFilter !== 'all' && (
+                <button
+                  onClick={() => { setCategoryFilter('all'); setPage(1); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0"
+                >
+                  <Tag className="w-3 h-3" />{categoryFilter} <X className="w-3 h-3" />
+                </button>
+              )}
+              {sortField && (
+                <button
+                  onClick={() => { setSortField(null); setPage(1); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0"
+                >
+                  <ArrowUpDown className="w-3 h-3" />
+                  {sortField === 'price' ? 'Preço' : 'Desconto'} ({sortDirection === 'asc' ? '↑' : '↓'})
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {isDateFilterActive && (
+                <button
+                  onClick={clearDateFilter}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold whitespace-nowrap border border-primary/20 active:scale-95 transition-transform flex-shrink-0"
+                >
+                  <CalendarDays className="w-3 h-3" />
+                  {quickFilter !== 'all' ? quickFilterLabels[quickFilter] : calendarLabel}
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
         )}
 
+        {/* Selected items bar */}
         {selectedIds.length > 0 && (
           <div className="mx-4 mb-3 flex items-center justify-between bg-primary text-primary-foreground rounded-2xl px-4 py-3 shadow-lg shadow-primary/25">
-            <div className="flex items-center gap-2.5">
-              <button onClick={() => setSelectedIds([])} className="w-6 h-6 rounded-full bg-primary-foreground/20 flex items-center justify-center active:scale-90">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button onClick={() => setSelectedIds([])} className="w-6 h-6 rounded-full bg-primary-foreground/20 flex items-center justify-center active:scale-90 flex-shrink-0">
                 <X className="w-3.5 h-3.5" strokeWidth={3} />
               </button>
-              <span className="text-sm font-bold">{selectedIds.length} selecionado{selectedIds.length > 1 ? 's' : ''}</span>
+              <span className="text-sm font-bold truncate">{selectedIds.length} selecionado{selectedIds.length > 1 ? 's' : ''}</span>
             </div>
-            <button onClick={() => { setCleanupType('selected'); setCleanupDialogOpen(true); }}
-              className="flex items-center gap-1.5 bg-primary-foreground/20 hover:bg-primary-foreground/30 px-3 py-1.5 rounded-xl text-sm font-bold transition-colors active:scale-95">
+            <button
+              onClick={() => { setCleanupType('selected'); setCleanupDialogOpen(true); }}
+              className="flex items-center gap-1.5 bg-primary-foreground/20 hover:bg-primary-foreground/30 px-3 py-1.5 rounded-xl text-sm font-bold transition-colors active:scale-95 flex-shrink-0 ml-2"
+            >
               <Trash2 className="w-3.5 h-3.5" />Excluir
             </button>
           </div>
@@ -518,7 +548,8 @@ export function ProductsPage() {
       </div>
 
       {/* ─── TABS ─── */}
-      <div className="md:px-6">
+      {/* FIX: overflow-x-hidden no wrapper das tabs para mobile */}
+      <div className="md:px-6 overflow-x-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="px-4 md:px-0">
             <TabsList className="w-full md:w-auto">
@@ -674,7 +705,8 @@ export function ProductsPage() {
             </div>
 
             {/* ─── MOBILE PRODUCT LIST ─── */}
-            <div className="md:hidden px-4 space-y-2">
+            {/* FIX: overflow-hidden + w-full no container mobile para não vazar conteúdo */}
+            <div className="md:hidden px-4 space-y-2 w-full overflow-hidden">
               {paginatedProducts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
                   <div className="w-24 h-24 rounded-3xl bg-muted/60 flex items-center justify-center mb-5 shadow-inner">
@@ -683,17 +715,20 @@ export function ProductsPage() {
                   <p className="font-bold text-foreground text-base">Nenhum produto encontrado</p>
                   <p className="text-sm mt-1 text-center px-8">Tente ajustar os filtros ou buscar por outro termo</p>
                   {(activeFiltersCount > 0 || search) && (
-                    <button onClick={() => { setMarketplaceFilter('all'); setCategoryFilter('all'); setSortField(null); clearDateFilter(); setSearch(''); }}
-                      className="mt-5 text-sm text-primary font-semibold px-5 py-2.5 rounded-xl border border-primary/20 bg-primary/5 active:scale-95 transition-transform">
+                    <button
+                      onClick={() => { setMarketplaceFilter('all'); setCategoryFilter('all'); setSortField(null); clearDateFilter(); setSearch(''); }}
+                      className="mt-5 text-sm text-primary font-semibold px-5 py-2.5 rounded-xl border border-primary/20 bg-primary/5 active:scale-95 transition-transform"
+                    >
                       Limpar filtros
                     </button>
                   )}
                 </div>
               ) : (
                 <>
+                  {/* Select all bar */}
                   <div className="flex items-center justify-between pb-1 pt-0.5">
                     <button onClick={handleSelectAll} className="flex items-center gap-2 text-xs text-muted-foreground font-medium active:opacity-70">
-                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${selectedIds.length === paginatedProducts.length ? 'bg-primary border-primary' : 'border-muted-foreground/40'}`}>
+                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all flex-shrink-0 ${selectedIds.length === paginatedProducts.length ? 'bg-primary border-primary' : 'border-muted-foreground/40'}`}>
                         {selectedIds.length === paginatedProducts.length && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
                         {selectedIds.length > 0 && selectedIds.length < paginatedProducts.length && <div className="w-1.5 h-0.5 bg-muted-foreground rounded" />}
                       </div>
@@ -702,6 +737,7 @@ export function ProductsPage() {
                     <span className="text-xs text-muted-foreground">{paginatedProducts.length} nesta página</span>
                   </div>
 
+                  {/* Product cards */}
                   {paginatedProducts.map((product, i) => (
                     <MobileProductCard
                       key={product.id}
@@ -713,25 +749,36 @@ export function ProductsPage() {
                     />
                   ))}
 
+                  {/* Pagination */}
                   {totalPages > 1 && (
                     <div className="flex items-center justify-between pt-4 pb-8">
-                      <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all">
+                      <button
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                        disabled={page === 1}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all"
+                      >
                         <ChevronLeft className="w-4 h-4" />Anterior
                       </button>
-                      <div className="flex items-center gap-1.5">
+                      {/* FIX: page numbers com overflow: hidden no container para não vazar */}
+                      <div className="flex items-center gap-1.5 overflow-hidden">
                         {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                           const p = totalPages <= 5 ? i + 1 : page <= 3 ? i + 1 : page >= totalPages - 2 ? totalPages - 4 + i : page - 2 + i;
                           return (
-                            <button key={p} onClick={() => setPage(p)}
-                              className={`w-8 h-8 rounded-xl text-xs font-bold transition-all active:scale-90 ${p === page ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}>
+                            <button
+                              key={p}
+                              onClick={() => setPage(p)}
+                              className={`w-8 h-8 rounded-xl text-xs font-bold transition-all active:scale-90 flex-shrink-0 ${p === page ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                            >
                               {p}
                             </button>
                           );
                         })}
                       </div>
-                      <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all">
+                      <button
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                        disabled={page >= totalPages}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold disabled:opacity-40 disabled:pointer-events-none active:scale-95 transition-all"
+                      >
                         Próxima<ChevronRight className="w-4 h-4" />
                       </button>
                     </div>
@@ -790,7 +837,7 @@ export function ProductsPage() {
                     <div className="flex-shrink-0">
                       <img src={displayProduct.imagem || displayProduct.image || '/no-image.png'} alt={displayProduct.nome || displayProduct.name} className="w-48 h-48 object-cover rounded-lg border shadow-sm" onError={(e) => { (e.target as HTMLImageElement).src = '/no-image.png'; }} />
                     </div>
-                    <div className="flex-1 space-y-3">
+                    <div className="flex-1 space-y-3 min-w-0">
                       <div>
                         <h3 className="font-bold text-lg leading-tight mb-3">{displayProduct.nome || displayProduct.nome_normalizado || displayProduct.name}</h3>
                         <div className="flex flex-wrap gap-2">
@@ -829,7 +876,7 @@ export function ProductsPage() {
                       <div className="space-y-3 bg-green-50 dark:bg-green-950/20 p-4 rounded-lg border border-green-200 dark:border-green-900">
                         <Label className="text-sm font-semibold flex items-center gap-2 text-green-700 dark:text-green-400"><Link2 className="w-4 h-4" />Link de Afiliado</Label>
                         <div className="flex gap-2 items-center">
-                          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border bg-background/60 text-sm font-mono text-muted-foreground overflow-hidden select-all cursor-text"><span className="truncate">{affiliateLink}</span></div>
+                          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border bg-background/60 text-sm font-mono text-muted-foreground overflow-hidden select-all cursor-text min-w-0"><span className="truncate">{affiliateLink}</span></div>
                           <Button variant="outline" size="icon" onClick={() => handleCopyLink(affiliateLink)}>{copiedLink ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}</Button>
                           <Button size="icon" asChild><a href={affiliateLink} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-4 h-4" /></a></Button>
                         </div>
