@@ -192,17 +192,20 @@ function MobileMarketplaceCard({
   onToggle,
   onQuantityChange,
   onOpenFilters,
+  onOpenSearch,
 }: {
   mp: Marketplace;
   mpConfig: MarketplaceConfig;
   onToggle: () => void;
   onQuantityChange: (v: number) => void;
   onOpenFilters: () => void;
+  onOpenSearch: () => void;
 }) {
   const hasActiveFilter = !!(
     mpConfig.filters?.searchTerm?.trim() ||
     (mpConfig.filters?.categoria && mpConfig.filters.categoria !== 'todas' && mpConfig.filters.categoria !== '')
   );
+  const hasSearch = !!mpConfig.filters?.searchTerm?.trim();
 
   return (
     <div
@@ -240,6 +243,21 @@ function MobileMarketplaceCard({
 
           <div className="flex items-center gap-1.5">
             <ActiveFilterBadge filters={mpConfig.filters} />
+            {/* Search shortcut button */}
+            <button
+              onClick={onOpenSearch}
+              className={`relative w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
+                hasSearch
+                  ? 'bg-blue-500/15 text-blue-600'
+                  : 'bg-muted/60 text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              <Search className="w-3.5 h-3.5" />
+              {hasSearch && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-background" />
+              )}
+            </button>
+            {/* Filters button */}
             <button
               onClick={onOpenFilters}
               className={`relative w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
@@ -249,7 +267,7 @@ function MobileMarketplaceCard({
               }`}
             >
               <Settings2 className="w-3.5 h-3.5" />
-              {hasActiveFilter && (
+              {hasActiveFilter && !hasSearch && (
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full border-2 border-background" />
               )}
             </button>
@@ -506,6 +524,8 @@ export function AutomationPage() {
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [currentMarketplace, setCurrentMarketplace] = useState<Marketplace | null>(null);
   const [tempFilters, setTempFilters] = useState<MarketplaceFilters>({});
+  const [focusSearchOnOpen, setFocusSearchOnOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const smoothProgress = useSmoothProgress(scrapingStatus.progress, scrapingStatus.isRunning);
   const isSearchActive = !!(tempFilters.searchTerm?.trim());
@@ -569,10 +589,14 @@ export function AutomationPage() {
       },
     }));
 
-  const openFiltersModal = (mp: Marketplace) => {
+  const openFiltersModal = (mp: Marketplace, focusSearch = false) => {
     setCurrentMarketplace(mp);
     setTempFilters(config.marketplaces[mp].filters || {});
+    setFocusSearchOnOpen(focusSearch);
     setConfigModalOpen(true);
+    if (focusSearch) {
+      setTimeout(() => searchInputRef.current?.focus(), 150);
+    }
   };
 
   const handleCategoryChange = (value: string) => {
@@ -931,6 +955,7 @@ export function AutomationPage() {
                 onToggle={() => handleMarketplaceToggle(mp)}
                 onQuantityChange={(v) => handleQuantityChange(mp, v)}
                 onOpenFilters={() => openFiltersModal(mp)}
+                onOpenSearch={() => openFiltersModal(mp, true)}
               />
             ))
           ) : (
@@ -1157,11 +1182,13 @@ export function AutomationPage() {
                     <div className="relative">
                       <Input
                         id="modal-search"
+                        ref={searchInputRef}
                         placeholder="Ex: smartphone, tênis nike..."
                         value={tempFilters.searchTerm || ''}
                         onChange={(e) => handleSearchTermChange(e.target.value)}
                         className="pr-8 text-sm h-10"
                         autoComplete="off"
+                        autoFocus={focusSearchOnOpen}
                       />
                       {tempFilters.searchTerm && (
                         <button
