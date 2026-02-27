@@ -1,6 +1,5 @@
 // front/src/api/services/whatsapp.service.ts
 import { io, Socket } from 'socket.io-client';
-
 import { ENV } from '@/config/environment';
 
 const API_BASE = ENV.API_BASE_URL;
@@ -43,6 +42,11 @@ class WhatsAppService {
   private connectedCallback: ((sessionId: string, phoneNumber: string) => void) | null = null;
   private disconnectedCallback: ((sessionId: string, reason: string) => void) | null = null;
   private sessionsUpdateCallback: ((sessions: WhatsAppSession[]) => void) | null = null;
+
+  // Header padrão para contornar a tela de aviso do ngrok no plano gratuito
+  private defaultHeaders = {
+    'ngrok-skip-browser-warning': 'true'
+  };
 
   constructor() {
     this.initializeSocket();
@@ -124,7 +128,10 @@ class WhatsAppService {
   async connectSession(sessionId: string): Promise<{ success: boolean; message: string }> {
     const response = await fetch(`${API_BASE}${this.BASE_PATH}/connect`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...this.defaultHeaders // ⭐ Ngrok bypass
+      },
       body: JSON.stringify({ sessionId })
     });
     
@@ -141,7 +148,10 @@ class WhatsAppService {
   async disconnectSession(sessionId: string): Promise<{ success: boolean; message: string }> {
     const response = await fetch(`${API_BASE}${this.BASE_PATH}/disconnect`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...this.defaultHeaders // ⭐ Ngrok bypass
+      },
       body: JSON.stringify({ sessionId })
     });
     
@@ -159,21 +169,27 @@ class WhatsAppService {
 
   // Listar todas as sessões
   async listSessions(): Promise<WhatsAppSession[]> {
-    const response = await fetch(`${API_BASE}${this.BASE_PATH}/sessions`);
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/sessions`, {
+      headers: this.defaultHeaders // ⭐ Ngrok bypass
+    });
     const data = await response.json();
     return data.sessions || [];
   }
 
   // Status de sessão específica
   async getSessionStatus(sessionId: string): Promise<WhatsAppSession> {
-    const response = await fetch(`${API_BASE}${this.BASE_PATH}/status/${sessionId}`);
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/status/${sessionId}`, {
+      headers: this.defaultHeaders // ⭐ Ngrok bypass
+    });
     const data = await response.json();
     return data.session;
   }
 
   // Listar grupos de uma sessão
   async listGroups(sessionId: string): Promise<WhatsAppGroup[]> {
-    const response = await fetch(`${API_BASE}${this.BASE_PATH}/groups/${sessionId}`);
+    const response = await fetch(`${API_BASE}${this.BASE_PATH}/groups/${sessionId}`, {
+      headers: this.defaultHeaders // ⭐ Ngrok bypass
+    });
     const data = await response.json();
     return data.grupos || [];
   }
@@ -182,7 +198,10 @@ class WhatsAppService {
   async sendOffers(payload: SendOffersPayload): Promise<SendOffersResponse> {
     const response = await fetch(`${API_BASE}${this.BASE_PATH}/send-offers`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...this.defaultHeaders // ⭐ Ngrok bypass
+      },
       body: JSON.stringify(payload)
     });
     
@@ -199,7 +218,10 @@ class WhatsAppService {
   async sendTest(sessionId: string, grupoId: string): Promise<SendOffersResponse> {
     const response = await fetch(`${API_BASE}${this.BASE_PATH}/send-test`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        ...this.defaultHeaders // ⭐ Ngrok bypass
+      },
       body: JSON.stringify({ sessionId, grupoId })
     });
     
