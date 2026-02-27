@@ -12,7 +12,6 @@ import { AuthProvider } from "@/contexts/AuthContext.tsx";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/LoginPage";
-import { MLCallbackPage } from "@/pages/MLCallbackPage";
 import { DashboardHome } from "@/pages/DashboardHome";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { AutomationPage } from "@/pages/AutomationPage";
@@ -34,7 +33,6 @@ function AppRoutes() {
         <Routes>
           {/* Públicas */}
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/ml/callback" element={<MLCallbackPage />} />
 
           {/* Protegidas */}
           <Route element={<ProtectedRoute />}>

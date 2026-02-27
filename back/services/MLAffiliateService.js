@@ -4,6 +4,10 @@
  * @version 3.0.0 - Lê credenciais do MongoDB, sem dependência de .env p/ cookies
  * ═══════════════════════════════════════════════════════════
  */
+const NGROK_HEADERS = {
+  'ngrok-skip-browser-warning': 'true',
+  'Content-Type': 'application/json',
+};
 
 const axios = require('axios');
 
