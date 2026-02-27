@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { PersistenceProvider } from "@/contexts/PersistenceContext.tsx";
 import { UserPreferencesProvider } from "@/contexts/UserPreferencesContext.tsx";
 import { DashboardProvider } from "@/contexts/DashboardContext.tsx";
@@ -67,6 +68,7 @@ const App = () => (
             <BrowserRouter>
               <AppRoutes />
             </BrowserRouter>
+            <SpeedInsights />
           </DashboardProvider>
         </UserPreferencesProvider>
       </PersistenceProvider>
