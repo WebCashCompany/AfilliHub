@@ -5,6 +5,10 @@ import { ENV } from '@/config/environment';
 
 const API_BASE_URL = ENV.API_BASE_URL;
 
+const NGROK_HEADERS = {
+  'ngrok-skip-browser-warning': 'true',
+  'Content-Type': 'application/json',
+};
 export interface UserPreferences {
   userId: string;
   theme: 'light' | 'dark' | 'system';
