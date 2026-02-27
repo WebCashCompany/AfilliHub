@@ -3,6 +3,10 @@ const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 
+const NGROK_HEADERS = {
+  'ngrok-skip-browser-warning': 'true',
+  'Content-Type': 'application/json',
+};
 /**
  * ═══════════════════════════════════════════════════════════════
  * CONFIGURAÇÃO INICIAL - MERCADO LIVRE

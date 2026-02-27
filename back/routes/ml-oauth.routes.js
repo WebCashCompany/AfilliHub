@@ -5,6 +5,11 @@
  * ═══════════════════════════════════════════════════════════
  */
 
+const NGROK_HEADERS = {
+  'ngrok-skip-browser-warning': 'true',
+  'Content-Type': 'application/json',
+};
+
 const express  = require('express');
 const router   = express.Router();
 const mlAffiliate = require('../services/MLAffiliateService');
