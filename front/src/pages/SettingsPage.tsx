@@ -15,9 +15,6 @@ import axios from 'axios';
 import { ENV } from '@/config/environment';
 const API_URL = `${ENV.API_BASE_URL}/api`;
 
-// ─────────────────────────────────────────────────────────
-// HEADERS PADRÃO — ngrok obrigatório em todas as requisições
-// ─────────────────────────────────────────────────────────
 const NGROK_HEADERS = {
   'ngrok-skip-browser-warning': 'true',
   'Content-Type': 'application/json',
@@ -45,18 +42,15 @@ export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
 
-  // Mercado Livre State
   const [mlStatus, setMlStatus] = useState<MLStatus | null>(null);
   const [mlLoading, setMlLoading] = useState(false);
   const [mlAwaitingReturn, setMlAwaitingReturn] = useState(false);
 
-  // Magalu State
   const [magaluId, setMagaluId] = useState('');
   const [savedMagaluId, setSavedMagaluId] = useState('');
   const [openMagaluDialog, setOpenMagaluDialog] = useState(false);
   const [magaluLoading, setMagaluLoading] = useState(false);
 
-  // Refs para highlight
   const mlCardRef     = useRef<HTMLDivElement>(null);
   const amazonCardRef = useRef<HTMLDivElement>(null);
   const magaluCardRef = useRef<HTMLDivElement>(null);
@@ -74,7 +68,6 @@ export function SettingsPage() {
     loadMagaluConfig();
   }, []);
 
-  // Processa retorno do OAuth ML
   useEffect(() => {
     const mlConnected = searchParams.get('ml_connected');
     const mlError     = searchParams.get('ml_error');
@@ -106,7 +99,6 @@ export function SettingsPage() {
     }
   }, [searchParams]);
 
-  // Highlight ao vir de outra página
   useEffect(() => {
     const state = location.state as { highlightMarketplace?: Marketplace } | null;
     if (state?.highlightMarketplace) {
@@ -122,11 +114,10 @@ export function SettingsPage() {
     }
   }, [location.state]);
 
-  // ─── Mercado Livre Actions ─────────────────────────────────────────────────
   const loadMLStatus = async () => {
     setMlLoading(true);
     try {
-      const { data } = await axios.get(`${API_URL}/mercadolivre/status`, {
+      const { data } = await axios.get(`${API_URL}/ml/status`, {
         headers: NGROK_HEADERS,
       });
       setMlStatus(data);
@@ -140,12 +131,12 @@ export function SettingsPage() {
 
   const connectML = () => {
     setMlAwaitingReturn(true);
-    window.open(`${ENV.API_BASE_URL}/api/mercadolivre/auth`, '_blank');
+    window.open(`${ENV.API_BASE_URL}/api/ml/auth`, '_blank');
   };
 
   const disconnectML = async () => {
     try {
-      await axios.delete(`${API_URL}/mercadolivre/disconnect`, {
+      await axios.delete(`${API_URL}/ml/disconnect`, {
         headers: NGROK_HEADERS,
       });
       setMlStatus(null);
@@ -155,7 +146,6 @@ export function SettingsPage() {
     }
   };
 
-  // ─── Magalu Actions ────────────────────────────────────────────────────────
   const loadMagaluConfig = async () => {
     try {
       const { data } = await axios.get(`${API_URL}/integrations/magalu`, {
@@ -198,7 +188,6 @@ export function SettingsPage() {
     }
   };
 
-  // ─── Helpers de UI ────────────────────────────────────────────────────────
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '—';
     return new Date(dateStr).toLocaleString('pt-BR');

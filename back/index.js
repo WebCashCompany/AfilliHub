@@ -116,8 +116,7 @@ async function startServer() {
     app.use('/api/sessions',     require('./routes/sessions.routes'));
     app.use('/api/preferences',  require('./routes/preferences.routes')(preferencesModel, io));
     app.use('/api/integrations', require('./routes/integrations')(integrationModel));
-    app.use('/api/mercadolivre', require('./routes/ml-oauth.routes'));
-
+    app.use('/api/ml',           require('./routes/ml-oauth.routes'));
 
     server.listen(PORT, () => {
       console.log('\n╔════════════════════════════════════════════════════╗');
