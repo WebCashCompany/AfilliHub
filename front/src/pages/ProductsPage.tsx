@@ -798,7 +798,13 @@ export function ProductsPage() {
 
       {/* ─── DESKTOP PRODUCT DETAIL DIALOG ─── */}
       <Dialog open={desktopDetailsOpen} onOpenChange={(open) => { setDesktopDetailsOpen(open); if (!open) setOriginalProductData(null); }}>
-        <DialogContent className="max-w-3xl w-full max-h-[88vh] p-0 gap-0 overflow-hidden rounded-2xl">
+        {/* [&>button]:hidden suprime o X nativo do shadcn/ui DialogContent */}
+        <DialogContent className="max-w-3xl w-full max-h-[88vh] p-0 gap-0 overflow-hidden rounded-2xl [&>button]:hidden">
+          {/* DialogTitle + Description invisíveis para acessibilidade (screen readers) */}
+          <DialogTitle className="sr-only">
+            {displayProduct ? (displayProduct.nome || displayProduct.name || 'Detalhes do Produto') : 'Detalhes do Produto'}
+          </DialogTitle>
+          <DialogDescription className="sr-only">Informações completas e link de afiliado do produto</DialogDescription>
           {displayProduct && (
             <div className="flex flex-col h-full max-h-[88vh]">
 
@@ -816,7 +822,7 @@ export function ProductsPage() {
                     style={{ aspectRatio: '1/1' }}
                     onError={(e) => { (e.target as HTMLImageElement).src = '/no-image.png'; }}
                   />
-                  {/* Overlay com badge de desconto sobre a imagem */}
+                  {/* Badge de desconto sobre a imagem */}
                   {displayProduct.desconto && (
                     <div className="absolute top-3 left-3">
                       <Badge variant="destructive" className="gap-1 text-sm px-2.5 py-1 shadow-lg font-bold">
@@ -829,7 +835,7 @@ export function ProductsPage() {
                 {/* Info principal */}
                 <div className="flex-1 min-w-0 px-7 py-6 flex flex-col justify-between">
                   {/* Badges + título */}
-                  <div className="space-y-3">
+                  <div className="space-y-3 pr-12">
                     <div className="flex flex-wrap gap-2">
                       <MarketplaceBadge marketplace={displayProduct.marketplace} />
                       <StatusBadge status={displayProduct.status || 'active'} />
@@ -844,7 +850,7 @@ export function ProductsPage() {
                     </h2>
                   </div>
 
-                  {/* Bloco de preço destacado */}
+                  {/* Bloco de preço */}
                   <div className="mt-4 p-4 rounded-xl bg-muted/40 border">
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1.5">Preço atual</p>
                     <div className="flex items-baseline gap-3 flex-wrap">
@@ -867,10 +873,10 @@ export function ProductsPage() {
                   </div>
                 </div>
 
-                {/* Botão fechar */}
+                {/* Botão fechar — único, no canto superior direito */}
                 <button
                   onClick={() => setDesktopDetailsOpen(false)}
-                  className="absolute right-4 top-4 w-8 h-8 rounded-full flex items-center justify-center bg-background/80 backdrop-blur-sm border hover:bg-muted transition-colors shadow-sm"
+                  className="absolute right-4 top-4 w-8 h-8 rounded-full flex items-center justify-center bg-background/80 backdrop-blur-sm border hover:bg-muted transition-colors shadow-sm z-10"
                 >
                   <X className="w-4 h-4" />
                 </button>
