@@ -126,7 +126,7 @@ export function SettingsPage() {
   const loadMLStatus = async () => {
     setMlLoading(true);
     try {
-      const { data } = await axios.get(`${API_URL}/ml/status`, {
+      const { data } = await axios.get(`${API_URL}/mercadolivre/status`, {
         headers: NGROK_HEADERS,
       });
       setMlStatus(data);
@@ -140,12 +140,12 @@ export function SettingsPage() {
 
   const connectML = () => {
     setMlAwaitingReturn(true);
-    window.open(`${ENV.API_BASE_URL}/api/ml/auth`, '_blank');
+    window.open(`${ENV.API_BASE_URL}/api/mercadolivre/auth`, '_blank');
   };
 
   const disconnectML = async () => {
     try {
-      await axios.delete(`${API_URL}/ml/disconnect`, {
+      await axios.delete(`${API_URL}/mercadolivre/disconnect`, {
         headers: NGROK_HEADERS,
       });
       setMlStatus(null);
