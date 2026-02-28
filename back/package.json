@@ -1,7 +1,7 @@
 {
   "name": "back",
   "version": "1.0.0",
-  "description": "Affiliate Hub Pro Backend",
+  "description": "Vant backend",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
