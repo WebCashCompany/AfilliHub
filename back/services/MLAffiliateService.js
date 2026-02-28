@@ -1,13 +1,9 @@
 /**
  * ═══════════════════════════════════════════════════════════
  * ML AFFILIATE SERVICE
- * @version 3.0.0 - Lê credenciais do MongoDB, sem dependência de .env p/ cookies
+ * @version 4.0.0 - Usa endpoint oficial da API ML (sem ssid/csrf)
  * ═══════════════════════════════════════════════════════════
  */
-const NGROK_HEADERS = {
-  'ngrok-skip-browser-warning': 'true',
-  'Content-Type': 'application/json',
-};
 
 const axios = require('axios');
 
@@ -18,23 +14,19 @@ const ML_AFFILIATE_TAG = process.env.ML_AFFILIATE_TAG || 'baga20231223204119';
 
 class MLAffiliateService {
   constructor() {
-    // Carrega do .env como fallback inicial
     this.accessToken  = process.env.ML_ACCESS_TOKEN  || null;
     this.refreshToken = process.env.ML_REFRESH_TOKEN || null;
     this.tokenExpiry  = null;
-    this.ssid         = process.env.ML_COOKIE_SSID   || '';
-    this.csrf         = process.env.ML_COOKIE_CSRF   || '';
+    this.userId       = null;
     this.linkCache    = new Map();
     this._initialized = false;
 
-    // Carrega do banco assincronamente na primeira oportunidade
     this._initFromDB();
   }
 
   // ─── Carrega credenciais do MongoDB ───────────────────────────────────────
   async _initFromDB() {
     try {
-      // Import dinâmico para evitar dependência circular no bootstrap
       const { getProductConnection } = require('../database/mongodb');
       const IntegrationModel = require('../models/Integration');
 
@@ -47,8 +39,7 @@ class MLAffiliateService {
         if (config.accessToken)  this.accessToken  = config.accessToken;
         if (config.refreshToken) this.refreshToken = config.refreshToken;
         if (config.tokenExpiry)  this.tokenExpiry  = config.tokenExpiry;
-        if (config.ssid)         this.ssid         = config.ssid;
-        if (config.csrf)         this.csrf         = config.csrf;
+        if (config.userId)       this.userId       = config.userId;
 
         console.log('✅ [MLAffiliateService] Credenciais carregadas do MongoDB');
       } else {
@@ -57,32 +48,21 @@ class MLAffiliateService {
 
       this._initialized = true;
     } catch (error) {
-      // Banco pode não estar pronto ainda na inicialização — não é fatal
       this._initialized = true;
     }
   }
 
-  // ─── Garante que tentou carregar do DB antes de usar ──────────────────────
   async _ensureInit() {
     if (!this._initialized) {
       await this._initFromDB();
     }
   }
 
-  // ─── Atualiza cookies em memória (chamado pelo callback OAuth) ────────────
-  updateCookies(ssid, csrf) {
-    if (ssid) this.ssid = ssid;
-    if (csrf)  this.csrf = csrf;
-    console.log('🍪 [MLAffiliateService] Cookies atualizados em memória');
-  }
-
-  // ─── Desconecta (limpa estado em memória) ─────────────────────────────────
   disconnect() {
     this.accessToken  = null;
     this.refreshToken = null;
     this.tokenExpiry  = null;
-    this.ssid         = '';
-    this.csrf         = '';
+    this.userId       = null;
     this.linkCache.clear();
     console.log('🔌 [MLAffiliateService] Desconectado');
   }
@@ -114,6 +94,7 @@ class MLAffiliateService {
     this.accessToken  = response.data.access_token;
     this.refreshToken = response.data.refresh_token;
     this.tokenExpiry  = Date.now() + (response.data.expires_in * 1000);
+    this.userId       = response.data.user_id;
 
     console.log('✅ [ML OAuth] Token obtido!');
     return response.data;
@@ -137,7 +118,7 @@ class MLAffiliateService {
     this.refreshToken = response.data.refresh_token;
     this.tokenExpiry  = Date.now() + (response.data.expires_in * 1000);
 
-    // Persiste o token renovado no MongoDB
+    // Persiste no MongoDB
     try {
       const { getProductConnection } = require('../database/mongodb');
       const IntegrationModel = require('../models/Integration');
@@ -172,41 +153,12 @@ class MLAffiliateService {
     return !!this.accessToken;
   }
 
-  // ─── Helpers de link ──────────────────────────────────────────────────────
   isAffiliateLink(link) {
     return link && typeof link === 'string' && (link.includes('meli.la') || link.includes('/sec/'));
   }
 
-  extractAffiliateLink(data) {
-    if (!data) return null;
-
-    if (typeof data === 'string' && this.isAffiliateLink(data)) return data;
-
-    const candidates = [
-      data.short_url,
-      data.url,
-      data.link,
-      data.affiliate_url,
-      data.affiliateUrl,
-    ];
-
-    for (const candidate of candidates) {
-      if (candidate && typeof candidate === 'string' && this.isAffiliateLink(candidate)) {
-        return candidate;
-      }
-    }
-
-    for (const value of Object.values(data)) {
-      if (typeof value === 'string' && this.isAffiliateLink(value)) {
-        return value;
-      }
-    }
-
-    return null;
-  }
-
-  // ─── Gera link de afiliado ────────────────────────────────────────────────
-  async generateAffiliateLink(productUrl) {
+  // ─── Gera link de afiliado via API oficial do ML ──────────────────────────
+  async generateAffiliateLink(productUrl, _retryCount = 0) {
     await this._ensureInit();
 
     if (this.linkCache.has(productUrl)) {
@@ -216,46 +168,99 @@ class MLAffiliateService {
     try {
       await this.ensureValidToken();
 
-      const response = await axios.post(
-        'https://www.mercadolivre.com.br/affiliate-program/api/v2/stripe/user/links',
-        { url: productUrl, tag: ML_AFFILIATE_TAG },
+      // Extrai o item ID da URL (ex: MLB123456789)
+      const itemIdMatch = productUrl.match(/MLB[\-]?(\d+)/i);
+      if (!itemIdMatch) {
+        console.warn(`⚠️  [Affiliate] Não foi possível extrair item ID de: ${productUrl}`);
+        return null;
+      }
+
+      const itemId = `MLB${itemIdMatch[1]}`;
+
+      // Endpoint oficial da API do ML para afiliados
+      const response = await axios.get(
+        `https://api.mercadolibre.com/products/MLB${itemIdMatch[1]}/affiliate_link`,
         {
+          params: {
+            tag: ML_AFFILIATE_TAG,
+            site_id: 'MLB',
+          },
           headers: {
-            'Content-Type':  'application/json',
             'Authorization': `Bearer ${this.accessToken}`,
-            ...(this.ssid && {
-              'Cookie':       `ssid=${this.ssid}; _csrf_token=${this.csrf}`,
-              'x-csrf-token': this.csrf,
-            }),
-            'origin':        'https://produto.mercadolivre.com.br',
-            'referer':       'https://www.mercadolivre.com.br/',
-            'user-agent':    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
           },
           timeout: 8000
         }
       );
 
-      const affiliateLink = this.extractAffiliateLink(response.data);
+      const affiliateLink = response.data?.link || response.data?.url || response.data?.short_url;
 
-      if (affiliateLink) {
+      if (affiliateLink && this.isAffiliateLink(affiliateLink)) {
         this.linkCache.set(productUrl, affiliateLink);
         console.log(`✅ [Affiliate] Link gerado: ${affiliateLink}`);
         return affiliateLink;
       }
 
-      console.warn(`⚠️  [Affiliate] Resposta sem meli.la:`, JSON.stringify(response.data));
+      // Fallback: tenta endpoint alternativo
+      return await this._generateAffiliateLinkFallback(productUrl, itemId);
+
+    } catch (error) {
+      // Se 401 e ainda não tentou refresh, tenta uma vez
+      if (error.response?.status === 401 && _retryCount === 0) {
+        try {
+          await this.refreshAccessToken();
+          return await this.generateAffiliateLink(productUrl, 1);
+        } catch (e) {
+          console.error('❌ [Affiliate] Falha ao renovar token:', e.message);
+          return null;
+        }
+      }
+
+      // Tenta fallback se o endpoint principal falhou
+      if (_retryCount === 0) {
+        return await this._generateAffiliateLinkFallback(productUrl, null);
+      }
+
+      console.error(`❌ [Affiliate] ${error.response?.status || ''} ${error.message}`);
+      return null;
+    }
+  }
+
+  // ─── Fallback: endpoint alternativo de criação de links ───────────────────
+  async _generateAffiliateLinkFallback(productUrl, itemId) {
+    try {
+      // Tenta via endpoint de short links da API oficial
+      const response = await axios.post(
+        `https://api.mercadolibre.com/affiliates/MLB/links`,
+        {
+          tag:  ML_AFFILIATE_TAG,
+          url:  productUrl,
+          ...(itemId && { item_id: itemId }),
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type':  'application/json',
+          },
+          timeout: 8000
+        }
+      );
+
+      const affiliateLink = response.data?.link || response.data?.url || response.data?.short_url;
+
+      if (affiliateLink && this.isAffiliateLink(affiliateLink)) {
+        this.linkCache.set(productUrl, affiliateLink);
+        console.log(`✅ [Affiliate] Link gerado (fallback): ${affiliateLink}`);
+        return affiliateLink;
+      }
+
+      console.warn(`⚠️  [Affiliate] Fallback sem link meli.la:`, JSON.stringify(response.data));
       return null;
 
     } catch (error) {
-      if (error.response?.status === 401 && this.refreshToken) {
-        try {
-          await this.refreshAccessToken();
-          return await this.generateAffiliateLink(productUrl);
-        } catch (e) {
-          console.error('❌ [Affiliate] Falha ao renovar token:', e.message);
-        }
+      console.error(`❌ [Affiliate] Fallback falhou: ${error.response?.status || ''} ${error.message}`);
+      if (error.response?.data) {
+        console.error(`❌ [Affiliate] Detalhe:`, JSON.stringify(error.response.data));
       }
-      console.error(`❌ [Affiliate] ${error.response?.status || ''} ${error.message}`);
       return null;
     }
   }
