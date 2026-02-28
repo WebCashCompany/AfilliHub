@@ -1,10 +1,19 @@
+# ngrok.yml — AfilliHub PC Local (Backup)
+# ─────────────────────────────────────────────────────────────────
+# Salve em: back/ngrok.yml
+# ─────────────────────────────────────────────────────────────────
+# Para usar a URL fixa (hostname) é necessário plano pago do ngrok.
+# Com plano gratuito, remova a linha "hostname" e use a URL aleatória.
+# ─────────────────────────────────────────────────────────────────
+
 version: "2"
 authtoken: 3AAp4aFiXq370txwuVOSeQHE1B4_HXMVjjm5XBG6L7wJNBiX
 
 tunnels:
-  backend:
+  afillihub:
     proto: http
     addr: 3001
+    hostname: salvatore-crossbanded-aurorally.ngrok-free.app
     request_header:
       add:
         - "ngrok-skip-browser-warning: true"
