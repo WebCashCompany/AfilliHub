@@ -1,22 +1,26 @@
 /**
  * ═══════════════════════════════════════════════════════════
  * ML OAUTH ROUTES
- * @version 2.1.0 - Exchange direto no callback (sem redirect intermediário)
+ * @version 2.2.0 - Playwright captura ssid/csrf após OAuth
+ *                  Adaptado para ngrok
  * ═══════════════════════════════════════════════════════════
  */
 
-const NGROK_HEADERS = {
-  'ngrok-skip-browser-warning': 'true',
-  'Content-Type': 'application/json',
-};
-
-const express  = require('express');
-const router   = express.Router();
+const express     = require('express');
+const router      = express.Router();
 const mlAffiliate = require('../services/MLAffiliateService');
 const { getProductConnection } = require('../database/mongodb');
 const IntegrationModel = require('../models/Integration');
 
+// ✅ Ngrok exige este header para não mostrar a página de aviso
+router.use((req, res, next) => {
+  res.setHeader('ngrok-skip-browser-warning', 'true');
+  next();
+});
+
 // ─── Captura cookies ssid e csrf via Playwright headless ────────────────────
+// Fluxo: recebe access_token → abre browser headless → navega no ML autenticado
+// → extrai ssid/_csrf_token que o endpoint de afiliados exige
 async function captureMLCookies(accessToken) {
   let browser;
   try {
@@ -24,12 +28,17 @@ async function captureMLCookies(accessToken) {
 
     browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+      ]
     });
 
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 720 }
+      viewport:  { width: 1280, height: 720 }
     });
 
     const page = await context.newPage();
@@ -40,7 +49,7 @@ async function captureMLCookies(accessToken) {
 
     await page.goto('https://www.mercadolivre.com.br/', {
       waitUntil: 'domcontentloaded',
-      timeout: 20000
+      timeout:   20000
     });
 
     await page.evaluate((token) => {
@@ -55,21 +64,26 @@ async function captureMLCookies(accessToken) {
     try {
       await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
         waitUntil: 'domcontentloaded',
-        timeout: 15000
+        timeout:   15000
       });
       await page.waitForTimeout(2000);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('⚠️  [captureMLCookies] affiliate-program não carregou (não fatal):', e.message);
+    }
 
     const cookies = await context.cookies(['https://www.mercadolivre.com.br']);
 
     const ssidCookie = cookies.find(c => c.name === 'ssid' || c.name === 'SSID');
     const csrfCookie = cookies.find(c =>
       c.name === '_csrf_token' ||
-      c.name === 'csrf_token' ||
+      c.name === 'csrf_token'  ||
       c.name === 'XSRF-TOKEN'
     );
 
     await browser.close();
+
+    console.log(`🍪 [captureMLCookies] ssid: ${ssidCookie ? '✅ capturado' : '❌ não encontrado'}`);
+    console.log(`🍪 [captureMLCookies] csrf: ${csrfCookie ? '✅ capturado' : '❌ não encontrado'}`);
 
     return {
       ssid: ssidCookie?.value || null,
@@ -77,7 +91,7 @@ async function captureMLCookies(accessToken) {
     };
 
   } catch (error) {
-    console.error('⚠️  [ML OAuth] Falha ao capturar cookies:', error.message);
+    console.error('⚠️  [ML OAuth] Falha ao capturar cookies via Playwright:', error.message);
     try { if (browser) await browser.close(); } catch (e) {}
     return { ssid: null, csrf: null };
   }
@@ -86,21 +100,21 @@ async function captureMLCookies(accessToken) {
 // ─── Salva credenciais no MongoDB ───────────────────────────────────────────
 async function saveMLCredentials(data) {
   try {
-    const conn = getProductConnection();
+    const conn        = getProductConnection();
     const Integration = IntegrationModel(conn);
 
     await Integration.findOneAndUpdate(
       { provider: 'mercadolivre' },
       {
-        provider:      'mercadolivre',
-        accessToken:   data.accessToken,
-        refreshToken:  data.refreshToken,
-        tokenExpiry:   data.tokenExpiry,
-        userId:        data.userId,
-        ssid:          data.ssid,
-        csrf:          data.csrf,
-        connectedAt:   new Date(),
-        isActive:      true
+        provider:     'mercadolivre',
+        accessToken:  data.accessToken,
+        refreshToken: data.refreshToken,
+        tokenExpiry:  data.tokenExpiry,
+        userId:       data.userId,
+        ssid:         data.ssid,
+        csrf:         data.csrf,
+        connectedAt:  new Date(),
+        isActive:     true
       },
       { upsert: true, new: true }
     );
@@ -120,15 +134,13 @@ router.get('/auth', (req, res) => {
 });
 
 // ─── GET /api/ml/callback ────────────────────────────────────────────────────
-// ML redireciona aqui após login — backend troca o code DIRETAMENTE
 router.get('/callback', async (req, res) => {
   const { code, error } = req.query;
-
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://vantpromo.vercel.app';
 
   if (error) {
     console.error('❌ [ML OAuth] Erro retornado pelo ML:', error);
-    return res.redirect(`${frontendUrl}/settings?ml_error=${error}`);
+    return res.redirect(`${frontendUrl}/settings?ml_error=${encodeURIComponent(error)}`);
   }
 
   if (!code) {
@@ -136,21 +148,23 @@ router.get('/callback', async (req, res) => {
   }
 
   try {
-    console.log('🔄 [ML OAuth] Trocando código por tokens diretamente no callback...');
+    // 1. Troca code por tokens
+    console.log('🔄 [ML OAuth] Trocando código por tokens...');
     const tokenData = await mlAffiliate.exchangeCode(code);
     console.log('✅ [ML OAuth] Tokens obtidos! User ID:', tokenData.user_id);
 
-    console.log('🍪 [ML OAuth] Capturando cookies de sessão (headless)...');
+    // 2. Captura ssid/csrf via Playwright headless
+    console.log('🍪 [ML OAuth] Capturando cookies de sessão via Playwright...');
     const { ssid, csrf } = await captureMLCookies(tokenData.access_token);
 
-    if (ssid) {
-      console.log('✅ [ML OAuth] Cookie ssid capturado');
-    } else {
-      console.warn('⚠️  [ML OAuth] Cookie ssid não capturado');
+    if (!ssid) {
+      console.warn('⚠️  [ML OAuth] ssid não capturado — links afiliados podem não funcionar corretamente');
     }
 
+    // 3. Atualiza memória do service
     mlAffiliate.updateCookies(ssid, csrf);
 
+    // 4. Persiste tudo no MongoDB
     await saveMLCredentials({
       accessToken:  tokenData.access_token,
       refreshToken: tokenData.refresh_token,
@@ -160,17 +174,16 @@ router.get('/callback', async (req, res) => {
       csrf:         csrf || '',
     });
 
-    // Redireciona para o frontend com sucesso
+    // 5. Redireciona para o frontend com sucesso
     return res.redirect(`${frontendUrl}/settings?ml_connected=true`);
 
   } catch (err) {
-    console.error('❌ [ML OAuth] Erro ao trocar código:', err.response?.data || err.message);
+    console.error('❌ [ML OAuth] Erro no callback:', err.response?.data || err.message);
     return res.redirect(`${frontendUrl}/settings?ml_error=token_exchange_failed`);
   }
 });
 
 // ─── POST /api/ml/exchange-code ──────────────────────────────────────────────
-// Mantido para compatibilidade, mas o fluxo principal agora usa o callback direto
 router.post('/exchange-code', async (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Code obrigatório' });
@@ -180,7 +193,9 @@ router.post('/exchange-code', async (req, res) => {
     const tokenData = await mlAffiliate.exchangeCode(code);
     console.log('✅ [ML OAuth] Tokens obtidos! User ID:', tokenData.user_id);
 
+    console.log('🍪 [ML OAuth] Capturando cookies via Playwright...');
     const { ssid, csrf } = await captureMLCookies(tokenData.access_token);
+
     mlAffiliate.updateCookies(ssid, csrf);
 
     await saveMLCredentials({
@@ -192,25 +207,32 @@ router.post('/exchange-code', async (req, res) => {
       csrf:         csrf || '',
     });
 
-    res.json({ success: true, userId: tokenData.user_id });
+    res.json({
+      success:    true,
+      userId:     tokenData.user_id,
+      hasCookies: !!ssid
+    });
 
   } catch (err) {
     console.error('❌ [ML OAuth] Erro ao trocar código:', err.response?.data || err.message);
-    res.status(500).json({ success: false, error: err.response?.data?.message || err.message });
+    res.status(500).json({
+      success: false,
+      error:   err.response?.data?.message || err.message
+    });
   }
 });
 
 // ─── GET /api/ml/status ──────────────────────────────────────────────────────
 router.get('/status', async (req, res) => {
   try {
-    const conn = getProductConnection();
+    const conn        = getProductConnection();
     const Integration = IntegrationModel(conn);
-    const config = await Integration.findOne({ provider: 'mercadolivre' });
+    const config      = await Integration.findOne({ provider: 'mercadolivre' });
 
     res.json({
       authenticated: mlAffiliate.isAuthenticated(),
       connectedAt:   config?.connectedAt || null,
-      userId:        config?.userId || null,
+      userId:        config?.userId      || null,
       hasCookies:    !!(config?.ssid),
       tokenExpiry:   config?.tokenExpiry || null,
     });
@@ -227,13 +249,13 @@ router.get('/status', async (req, res) => {
 // ─── DELETE /api/ml/disconnect ───────────────────────────────────────────────
 router.delete('/disconnect', async (req, res) => {
   try {
-    const conn = getProductConnection();
+    const conn        = getProductConnection();
     const Integration = IntegrationModel(conn);
     await Integration.deleteOne({ provider: 'mercadolivre' });
 
     mlAffiliate.disconnect();
 
-    res.json({ success: true, message: 'Conta ML desconectada' });
+    res.json({ success: true, message: 'Conta ML desconectada com sucesso' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -246,10 +268,14 @@ router.post('/test-link', async (req, res) => {
 
   try {
     const affiliateLink = await mlAffiliate.generateAffiliateLink(url);
+
     res.json({
       original:  url,
       affiliate: affiliateLink,
-      success:   !!(affiliateLink && (affiliateLink.includes('meli.la') || affiliateLink.includes('/sec/')))
+      success:   !!affiliateLink,
+      message:   affiliateLink
+        ? `✅ Link afiliado gerado: ${affiliateLink}`
+        : '❌ API não retornou link afiliado — verifique se o ssid está presente'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
