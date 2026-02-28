@@ -1,8 +1,7 @@
 // back/database/mongodb.js
 //
 // ESTRUTURA DOS DATABASES:
-//   produtos  → ML, shopee, amazon, magalu (collections de produtos)
-//   cupons    → ML, shopee, amazon, magalu (collections de cupons)
+//   produtos  → ML, shopee, amazon, magalu (collections de produtos)//   cupons    → ML, shopee, amazon, magalu (collections de cupons)
 //   whatsapp  → whatsapp_sessions, whatsapp_creds, whatsapp_keys
 //
 
@@ -14,7 +13,7 @@ const URI_PARAMS = '?retryWrites=true&w=majority&appName=Promoforia';
 const connections = {
   produtos:  null,
   cupons:    null,
-  whatsapp:  null   // ← novo
+  whatsapp:  null
 };
 
 let isConnected = false;
@@ -32,25 +31,28 @@ const connectDB = async () => {
     // DATABASE: produtos
     const produtosUri = `${MONGODB_BASE_URI}/produtos${URI_PARAMS}`;
     connections.produtos = await mongoose.createConnection(produtosUri, {
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
-    });
+      directConnection: false,
+    }).asPromise();
     console.log(`   ✅ Database produtos: ${connections.produtos.host}`);
 
     // DATABASE: cupons
     const cuponsUri = `${MONGODB_BASE_URI}/cupons${URI_PARAMS}`;
     connections.cupons = await mongoose.createConnection(cuponsUri, {
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
-    });
+      directConnection: false,
+    }).asPromise();
     console.log(`   ✅ Database cupons: ${connections.cupons.host}`);
 
     // DATABASE: whatsapp (sessões + chaves de autenticação)
     const whatsappUri = `${MONGODB_BASE_URI}/whatsapp${URI_PARAMS}`;
     connections.whatsapp = await mongoose.createConnection(whatsappUri, {
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
-    });
+      directConnection: false,
+    }).asPromise();
     console.log(`   ✅ Database whatsapp: ${connections.whatsapp.host}`);
 
     isConnected = true;
@@ -102,7 +104,7 @@ module.exports = {
   connectDB,
   getProductConnection,
   getCouponConnection,
-  getWhatsAppConnection,   // ← exportado
+  getWhatsAppConnection,
   getAllConnections,
   getConnectionStatus,
   normalizeMarketplace

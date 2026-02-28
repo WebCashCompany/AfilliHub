@@ -27,9 +27,6 @@ import { ENV } from '@/config/environment';
 
 const API_BASE_URL = ENV.API_BASE_URL;
 
-// ─────────────────────────────────────────────────────────
-// HEADERS PADRÃO — ngrok obrigatório em todas as requisições
-// ─────────────────────────────────────────────────────────
 const DEFAULT_HEADERS: HeadersInit = {
   'Content-Type': 'application/json',
   'ngrok-skip-browser-warning': 'true',
@@ -132,7 +129,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>(getInitialScrapingStatus);
 
   const { toast } = useToast();
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourceRef = useRef<any>(null);
   const sessionIdRef = useRef<string | null>(null);
   const scrapingStartTimeRef = useRef<number | null>(null);
   const isCompletedRef = useRef(false);
@@ -173,9 +170,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     return newHistory;
   };
 
-  // ─────────────────────────────────────────────────────────
-  // REFRESH PRODUCTS — com header ngrok
-  // ─────────────────────────────────────────────────────────
   const refreshProducts = async () => {
     setIsLoading(true);
     const url = `${API_BASE_URL}/api/products`;
@@ -298,67 +292,95 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   // ─────────────────────────────────────────────────────────
-  // SSE — EventSource não suporta headers customizados.
-  // Solução: passar o header como query param que o backend lê.
+  // SSE via fetch — suporta headers customizados (ngrok)
   // ─────────────────────────────────────────────────────────
   const connectSSE = (sessionId: string) => {
     disconnectSSE();
     isCompletedRef.current = false;
 
-    // ngrok aceita o bypass via query param também
-    const sseUrl = `${API_BASE_URL}/api/scraping/progress/${sessionId}?ngrok-skip-browser-warning=true`;
+    const sseUrl = `${API_BASE_URL}/api/scraping/progress/${sessionId}`;
     console.log('🔌 CONECTANDO SSE:', sseUrl);
 
-    const eventSource = new EventSource(sseUrl);
+    const controller = new AbortController();
+    eventSourceRef.current = { close: () => controller.abort() };
 
-    eventSource.onopen = () => {
-      console.log('✅ SSE CONECTADO COM SUCESSO!');
-      startBackupPolling();
-    };
-
-    eventSource.onmessage = (event) => {
+    (async () => {
       try {
-        const data = JSON.parse(event.data);
-        console.log('📊 SSE:', {
-          progress: data.progress,
-          items: `${data.itemsCollected}/${data.totalItems}`,
-          status: data.status,
-          marketplace: data.currentMarketplace
+        const response = await fetch(sseUrl, {
+          headers: {
+            'ngrok-skip-browser-warning': 'true',
+            'Accept': 'text/event-stream',
+          },
+          signal: controller.signal,
         });
 
-        setScrapingStatus(prev => ({
-          ...prev,
-          isRunning: !checkIfCompleted(data),
-          progress: Math.min(data.progress || 0, 100),
-          currentMarketplace: data.currentMarketplace
-            ? normalizeMarketplace(data.currentMarketplace)
-            : prev.currentMarketplace,
-          itemsCollected: data.itemsCollected || 0,
-          totalItems: data.totalItems || prev.totalItems,
-          lastProducts: data.lastProducts || prev.lastProducts,
-          liveProducts: data.liveProducts || prev.liveProducts
-        }));
-
-        if (checkIfCompleted(data)) {
-          handleCompletion(data);
+        if (!response.ok || !response.body) {
+          console.error('❌ SSE falhou, usando fallback polling...');
+          startFallbackPolling(sessionId);
+          return;
         }
-      } catch (error) {
-        console.error('❌ ERRO AO PROCESSAR SSE:', error, event.data);
-      }
-    };
 
-    eventSource.onerror = (error) => {
-      console.error('❌ ERRO SSE CONNECTION:', error);
-      if (eventSource.readyState === EventSource.CLOSED) {
-        console.log('⚠️ SSE fechou, confiando no backup polling...');
-      }
-    };
+        console.log('✅ SSE CONECTADO COM SUCESSO!');
+        startBackupPolling();
 
-    eventSourceRef.current = eventSource;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue;
+            const raw = line.slice(5).trim();
+            if (!raw) continue;
+
+            try {
+              const data = JSON.parse(raw);
+              console.log('📊 SSE:', {
+                progress: data.progress,
+                items: `${data.itemsCollected}/${data.totalItems}`,
+                status: data.status,
+                marketplace: data.currentMarketplace
+              });
+
+              setScrapingStatus(prev => ({
+                ...prev,
+                isRunning: !checkIfCompleted(data),
+                progress: Math.min(data.progress || 0, 100),
+                currentMarketplace: data.currentMarketplace
+                  ? normalizeMarketplace(data.currentMarketplace)
+                  : prev.currentMarketplace,
+                itemsCollected: data.itemsCollected || 0,
+                totalItems: data.totalItems || prev.totalItems,
+                lastProducts: data.lastProducts || prev.lastProducts,
+                liveProducts: data.liveProducts || prev.liveProducts
+              }));
+
+              if (checkIfCompleted(data)) handleCompletion(data);
+            } catch (e) {
+              console.error('❌ ERRO AO PROCESSAR SSE:', e);
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          console.log('⏹️ SSE abortado');
+        } else {
+          console.error('❌ ERRO SSE:', err);
+          startFallbackPolling(sessionId);
+        }
+      }
+    })();
   };
 
   // ─────────────────────────────────────────────────────────
-  // BACKUP POLLING — com header ngrok
+  // BACKUP POLLING
   // ─────────────────────────────────────────────────────────
   const backupPollingRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -408,7 +430,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   // ─────────────────────────────────────────────────────────
-  // FALLBACK POLLING — com header ngrok
+  // FALLBACK POLLING
   // ─────────────────────────────────────────────────────────
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -468,9 +490,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     stopBackupPolling();
   };
 
-  // ─────────────────────────────────────────────────────────
-  // DELETE / CLEANUP — com header ngrok
-  // ─────────────────────────────────────────────────────────
   const deleteProducts = async (ids: string[]) => {
     await fetch(`${API_BASE_URL}/api/products/bulk-delete`, {
       method: 'POST',
@@ -589,7 +608,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         refreshProducts,
         runScraping,
         scrapingStatus,
-        resetScrapingStatus
+        resetScrapingStatus,
       }}
     >
       {children}
@@ -597,8 +616,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export const useDashboard = () => {
-  const ctx = useContext(DashboardContext);
-  if (!ctx) throw new Error('useDashboard fora do Provider');
-  return ctx;
-};
+export function useDashboard() {
+  const context = useContext(DashboardContext);
+  if (!context) throw new Error('useDashboard must be used within DashboardProvider');
+  return context;
+}

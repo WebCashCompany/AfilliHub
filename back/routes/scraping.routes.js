@@ -101,8 +101,6 @@ router.post('/start', async (req, res) => {
         });
 
         try {
-          // ✅ FIX PRINCIPAL: lê os campos diretamente de mpConfig (não de mpConfig.filters)
-          // O frontend envia tudo achatado: mpConfig.searchTerm, mpConfig.categoria, etc.
           const options = {
             minDiscount:  mpConfig.minDiscount  ?? minDiscount ?? 30,
             limit:        mpConfig.quantity,
@@ -152,7 +150,6 @@ router.post('/start', async (req, res) => {
             }
           };
 
-          // ✅ categoryKey para Magalu — lê direto de mpConfig
           if (marketplaceName === 'magalu') {
             if (mpConfig.categoryKey) {
               options.categoryKey = mpConfig.categoryKey;
@@ -264,7 +261,10 @@ router.get('/progress/:sessionId', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); 
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning');
+  res.setHeader('ngrok-skip-browser-warning', 'true');
 
   res.flushHeaders();
 
