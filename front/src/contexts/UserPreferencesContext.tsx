@@ -5,10 +5,12 @@ import { ENV } from '@/config/environment';
 
 const API_BASE_URL = ENV.API_BASE_URL;
 
+// ✅ Headers obrigatórios para todas as chamadas ao backend via ngrok
 const NGROK_HEADERS = {
   'ngrok-skip-browser-warning': 'true',
   'Content-Type': 'application/json',
 };
+
 export interface UserPreferences {
   userId: string;
   theme: 'light' | 'dark' | 'system';
@@ -105,14 +107,14 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
   const loadPreferences = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/preferences?userId=default`);
+      const response = await fetch(`${API_BASE_URL}/api/preferences?userId=default`, {
+        headers: NGROK_HEADERS, // ✅ ngrok header
+      });
       const data = await response.json();
       
       if (data.success && data.preferences) {
         console.log('✅ Preferências carregadas do servidor:', data.preferences);
         setPreferences(data.preferences);
-        
-        // Aplicar tema imediatamente
         applyTheme(data.preferences.theme);
       } else {
         console.warn('⚠️ Sem preferências no servidor, usando padrão');
@@ -155,8 +157,6 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
       console.log('🔄 [REAL-TIME] Preferências atualizadas por outro dispositivo:', data.userId);
       setPreferences(data.preferences);
       applyTheme(data.preferences.theme);
-      
-      // Salvar no localStorage também
       localStorage.setItem('user_preferences', JSON.stringify(data.preferences));
     };
 
@@ -199,7 +199,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/preferences`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: NGROK_HEADERS, // ✅ ngrok header
         body: JSON.stringify({
           userId: 'default',
           updates
@@ -263,7 +263,8 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     setIsSyncing(true);
     try {
       const response = await fetch(`${API_BASE_URL}/api/preferences?userId=default`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: NGROK_HEADERS, // ✅ ngrok header
       });
 
       const data = await response.json();
