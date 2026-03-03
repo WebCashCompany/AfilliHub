@@ -351,4 +351,3 @@ class MercadoLivreScraper {
 }
 
 module.exports = MercadoLivreScraper;
- 
