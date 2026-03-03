@@ -24,8 +24,8 @@ async function saveMLCredentials(data) {
         refreshToken: data.refreshToken,
         tokenExpiry:  data.tokenExpiry,
         userId:       data.userId,
-        ssid:         data.ssid,
-        csrf:         data.csrf,
+        ssid:         data.ssid || '',
+        csrf:         data.csrf || '',
         connectedAt:  new Date(),
         isActive:     true
       },
@@ -62,18 +62,15 @@ router.get('/callback', async (req, res) => {
     console.log('🔄 [ML OAuth] Trocando código por tokens...');
     const tokenData = await mlAffiliate.exchangeCode(code);
     
-    console.log('✅ [ML OAuth] Tokens obtidos! User ID:', tokenData.user_id);
-    
     await saveMLCredentials({
       accessToken:  tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       tokenExpiry:  Date.now() + (tokenData.expires_in * 1000),
       userId:       tokenData.user_id,
-      ssid:         '', // Será preenchido manualmente depois
-      csrf:         '', // Será preenchido manualmente depois
+      ssid:         '',
+      csrf:         '',
     });
 
-    // Redireciona para as configurações com um parâmetro para abrir o modal de SSID
     return res.redirect(`${redirectUrl}?ml_connected=true&need_session=true`);
   } catch (err) {
     console.error('❌ [ML OAuth] Erro no callback:', err.message);
@@ -82,14 +79,11 @@ router.get('/callback', async (req, res) => {
 });
 
 // ─── POST /api/ml/session ────────────────────────────────────────────────────
-// ✅ NOVA ROTA: Recebe o SSID e CSRF manualmente do frontend
 router.post('/session', async (req, res) => {
   const { ssid, csrf } = req.body;
   if (!ssid) return res.status(400).json({ error: 'SSID é obrigatório' });
 
   try {
-    console.log('🔄 [ML OAuth] Atualizando SSID e CSRF manualmente...');
-    
     const conn        = getProductConnection();
     const Integration = IntegrationModel(conn);
     
@@ -99,39 +93,37 @@ router.post('/session', async (req, res) => {
       { new: true }
     );
 
-    if (!config) return res.status(404).json({ error: 'Integração não encontrada. Conecte o OAuth primeiro.' });
+    if (!config) return res.status(404).json({ error: 'Integração não encontrada.' });
 
-    // Atualiza o serviço em memória
     mlAffiliate.updateSession(ssid, csrf);
-
-    res.json({ success: true, message: 'Sessão atualizada com sucesso!' });
+    res.json({ success: true });
   } catch (err) {
-    console.error('❌ [ML OAuth] Erro ao atualizar sessão:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ─── GET /api/ml/status ──────────────────────────────────────────────────────
+// ✅ AJUSTE AQUI: Garantir que o retorno seja exatamente o que o frontend espera
 router.get('/status', async (req, res) => {
   try {
     const conn        = getProductConnection();
     const Integration = IntegrationModel(conn);
     const config      = await Integration.findOne({ provider: 'mercadolivre' });
 
-    res.json({
-      authenticated: mlAffiliate.isAuthenticated(),
+    // Força o retorno de um objeto limpo
+    const status = {
+      authenticated: !!(config && config.accessToken),
       connectedAt:   config?.connectedAt || null,
       userId:        config?.userId      || null,
       hasCookies:    !!(config?.ssid),
       tokenExpiry:   config?.tokenExpiry || null,
-    });
+    };
+
+    console.log(`📊 [ML Status] Authenticated: ${status.authenticated} | HasCookies: ${status.hasCookies}`);
+    res.json(status);
   } catch (error) {
-    res.json({
-      authenticated: mlAffiliate.isAuthenticated(),
-      connectedAt:   null,
-      userId:        null,
-      hasCookies:    false,
-    });
+    console.error('❌ [ML Status] Erro:', error.message);
+    res.json({ authenticated: false, hasCookies: false });
   }
 });
 
@@ -140,14 +132,11 @@ router.delete('/disconnect', async (req, res) => {
   try {
     const conn        = getProductConnection();
     const Integration = IntegrationModel(conn);
-    
     await Integration.deleteMany({ provider: 'mercadolivre' });
     mlAffiliate.disconnect();
-
-    res.json({ success: true, message: 'Conta ML desconectada com sucesso' });
+    res.json({ success: true });
   } catch (error) {
-    console.error('❌ [ML OAuth] Erro ao desconectar:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
