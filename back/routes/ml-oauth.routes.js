@@ -1,7 +1,7 @@
 /**
  * ═══════════════════════════════════════════════════════════
  * ML OAUTH ROUTES
- * @version 2.2.1 - Playwright captura ssid/csrf e mata conta zumbi
+ * @version 2.2.2 - Playwright captura ssid/csrf e mata conta zumbi
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -17,19 +17,21 @@ router.use((req, res, next) => {
   next();
 });
 
-// ─── Captura cookies ssid e csrf via Playwright headless ────────────────────
+// ─── Captura cookies ssid e csrf via Playwright ────────────────────
 async function captureMLCookies(accessToken) {
   let browser;
   try {
     const { chromium } = require('playwright');
 
+    // 🔥 HEADLESS FALSE: O navegador vai abrir na sua tela para você ver o que o ML está fazendo
     browser = await chromium.launch({
-      headless: true,
+      headless: false, 
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
+        '--disable-blink-features=AutomationControlled', // Tática anti-bot
       ]
     });
 
@@ -44,10 +46,8 @@ async function captureMLCookies(accessToken) {
       window.__ml_access_token = token;
     }, accessToken);
 
-    await page.goto('https://www.mercadolivre.com.br/', {
-      waitUntil: 'domcontentloaded',
-      timeout:   20000
-    });
+    console.log('⏳ [Playwright] Navegando para o Mercado Livre...');
+    await page.goto('https://www.mercadolivre.com.br/', { waitUntil: 'domcontentloaded', timeout: 20000 });
 
     await page.evaluate((token) => {
       try {
@@ -56,31 +56,30 @@ async function captureMLCookies(accessToken) {
       } catch (e) {}
     }, accessToken);
 
-    await page.waitForTimeout(2000);
+    // Dá um tempo maior pro ML respirar e validar o token
+    await page.waitForTimeout(3000); 
 
+    console.log('⏳ [Playwright] Tentando acessar a página de Afiliados...');
     try {
       await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
         waitUntil: 'domcontentloaded',
-        timeout:   15000
+        timeout: 20000
       });
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(4000); // Espera o carregamento completo
     } catch (e) {
       console.warn('⚠️  [captureMLCookies] affiliate-program não carregou (não fatal):', e.message);
     }
 
     const cookies = await context.cookies(['https://www.mercadolivre.com.br']);
-
-    const ssidCookie = cookies.find(c => c.name === 'ssid' || c.name === 'SSID');
-    const csrfCookie = cookies.find(c =>
-      c.name === '_csrf_token' ||
-      c.name === 'csrf_token'  ||
-      c.name === 'XSRF-TOKEN'
-    );
+    
+    // Captura o cookie independente se for maiúsculo ou minúsculo
+    const ssidCookie = cookies.find(c => c.name.toLowerCase() === 'ssid');
+    const csrfCookie = cookies.find(c => ['_csrf_token', 'csrf_token', 'xsrf-token'].includes(c.name.toLowerCase()));
 
     await browser.close();
 
-    console.log(`🍪 [captureMLCookies] ssid: ${ssidCookie ? '✅ capturado' : '❌ não encontrado'}`);
-    console.log(`🍪 [captureMLCookies] csrf: ${csrfCookie ? '✅ capturado' : '❌ não encontrado'}`);
+    console.log(`🍪 [captureMLCookies] ssid: ${ssidCookie ? '✅ CAPTURADO' : '❌ FALHOU'}`);
+    console.log(`🍪 [captureMLCookies] csrf: ${csrfCookie ? '✅ CAPTURADO' : '❌ FALHOU'}`);
 
     return {
       ssid: ssidCookie?.value || null,
@@ -88,7 +87,7 @@ async function captureMLCookies(accessToken) {
     };
 
   } catch (error) {
-    console.error('⚠️  [ML OAuth] Falha ao capturar cookies via Playwright:', error.message);
+    console.error('⚠️  [ML OAuth] Falha no Playwright:', error.message);
     try { if (browser) await browser.close(); } catch (e) {}
     return { ssid: null, csrf: null };
   }
@@ -133,23 +132,23 @@ router.get('/auth', (req, res) => {
 // ─── GET /api/ml/callback ────────────────────────────────────────────────────
 router.get('/callback', async (req, res) => {
   const { code, error } = req.query;
-  const frontendUrl = process.env.FRONTEND_URL || 'https://vantpromo.vercel.app';
+  
+  // 🔥 URL CHUMBADA: Se der 404 depois disso, o servidor local não foi reiniciado.
+  const redirectUrl = 'https://vantpromo.vercel.app/settings';
 
   if (error) {
     console.error('❌ [ML OAuth] Erro retornado pelo ML:', error);
-    return res.redirect(`${frontendUrl}/settings?ml_error=${encodeURIComponent(error)}`);
+    return res.redirect(`${redirectUrl}?ml_error=${encodeURIComponent(error)}`);
   }
 
-  if (!code) {
-    return res.redirect(`${frontendUrl}/settings?ml_error=no_code`);
-  }
+  if (!code) return res.redirect(`${redirectUrl}?ml_error=no_code`);
 
   try {
     console.log('🔄 [ML OAuth] Trocando código por tokens...');
     const tokenData = await mlAffiliate.exchangeCode(code);
     console.log('✅ [ML OAuth] Tokens obtidos! User ID:', tokenData.user_id);
-
-    console.log('🍪 [ML OAuth] Capturando cookies de sessão via Playwright...');
+    
+    console.log('🍪 [ML OAuth] Capturando cookies via Playwright...');
     const { ssid, csrf } = await captureMLCookies(tokenData.access_token);
 
     if (!ssid) {
@@ -167,11 +166,10 @@ router.get('/callback', async (req, res) => {
       csrf:         csrf || '',
     });
 
-    return res.redirect(`${frontendUrl}/settings?ml_connected=true`);
-
+    return res.redirect(`${redirectUrl}?ml_connected=true`);
   } catch (err) {
-    console.error('❌ [ML OAuth] Erro no callback:', err.response?.data || err.message);
-    return res.redirect(`${frontendUrl}/settings?ml_error=token_exchange_failed`);
+    console.error('❌ [ML OAuth] Erro no callback:', err.message);
+    return res.redirect(`${redirectUrl}?ml_error=token_exchange_failed`);
   }
 });
 
