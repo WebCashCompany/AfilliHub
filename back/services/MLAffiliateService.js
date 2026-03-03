@@ -8,12 +8,15 @@ class MLAffiliateService {
     this.tokenExpiry = null;
     this.ssid = '';
     this.csrf = '';
+    
     this.ML_CLIENT_ID = process.env.ML_CLIENT_ID || '1547036702834286';
     this.ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET || 'VvfVOTiFVm55ULCSUm66ZYGCpaEu7SQA';
-    this.ML_REDIRECT_URI = process.env.ML_REDIRECT_URI || 'https://salvatore-crossbanded-aurorally.ngrok-free.dev/api/ml/callback';
+    
+    // 🔥 CHUMBADO DIRETO AQUI PRA IGNORAR O CACHE DO .ENV E MATAR O ERRO 404
+    this.ML_REDIRECT_URI = 'https://salvatore-crossbanded-aurorally.ngrok-free.dev/api/ml/callback';
+    
     this.ML_AFFILIATE_TAG = process.env.ML_AFFILIATE_TAG || 'baga20231223204119';
     
-    // ✅ NOVO: Carrega as credenciais do banco assim que o serviço inicia
     this._initFromDB();
   }
 
@@ -64,7 +67,6 @@ class MLAffiliateService {
         window.localStorage.setItem('access_token', token);
       }, accessToken);
 
-      // ✅ Acessa a página de afiliados para forçar a criação do SSID
       await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
         waitUntil: 'networkidle',
         timeout: 30000
@@ -98,7 +100,6 @@ class MLAffiliateService {
     const tokenData = response.data;
     const { ssid, csrf } = await this.captureSessionCookies(tokenData.access_token);
 
-    // ✅ Atualiza a memória da instância
     this.accessToken = tokenData.access_token;
     this.refreshToken = tokenData.refresh_token;
     this.tokenExpiry = Date.now() + (tokenData.expires_in * 1000);
@@ -109,7 +110,6 @@ class MLAffiliateService {
   }
 
   async generateAffiliateLink(productUrl) {
-    // ✅ Garante que temos as credenciais em memória
     if (!this.ssid || !this.accessToken) {
       console.warn('⚠️ [Affiliate] Sem SSID ou Token em memória. Tentando link direto.');
       return productUrl;
@@ -131,7 +131,6 @@ class MLAffiliateService {
         }
       );
       
-      // ✅ Retorna qualquer formato (meli.la, etc) conforme sua exigência
       return response.data.short_url || response.data.url || productUrl;
     } catch (error) {
       console.error('❌ [Affiliate] Erro na API do ML:', error.message);
@@ -143,11 +142,20 @@ class MLAffiliateService {
     return !!this.accessToken && !!this.ssid;
   }
 
-  // ✅ NOVO: Para atualizar cookies em memória externamente se necessário
   updateCookies(ssid, csrf) {
     if (ssid) this.ssid = ssid;
     if (csrf) this.csrf = csrf;
     console.log('🍪 [MLAffiliateService] Cookies atualizados em memória');
+  }
+
+  // 🔥 MATA A CONTA ZUMBI NA MEMÓRIA DO SERVIDOR
+  disconnect() {
+    this.accessToken = null;
+    this.refreshToken = null;
+    this.tokenExpiry = null;
+    this.ssid = '';
+    this.csrf = '';
+    console.log('🗑️ [MLAffiliateService] Memória do serviço limpa com sucesso.');
   }
 }
 
