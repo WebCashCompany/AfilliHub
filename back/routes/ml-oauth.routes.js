@@ -1,7 +1,7 @@
 /**
  * ═══════════════════════════════════════════════════════════
  * ML OAUTH ROUTES
- * @version 2.2.2 - Playwright captura ssid/csrf e mata conta zumbi
+ * @version 2.2.3 - Playwright NetworkIdle Fix & Injection
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -23,15 +23,14 @@ async function captureMLCookies(accessToken) {
   try {
     const { chromium } = require('playwright');
 
-    // 🔥 HEADLESS FALSE: O navegador vai abrir na sua tela para você ver o que o ML está fazendo
     browser = await chromium.launch({
-      headless: false, 
+      headless: true, // Mantemos true para rodar liso no background
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-blink-features=AutomationControlled', // Tática anti-bot
+        '--disable-blink-features=AutomationControlled',
       ]
     });
 
@@ -42,37 +41,38 @@ async function captureMLCookies(accessToken) {
 
     const page = await context.newPage();
 
-    await context.addInitScript((token) => {
-      window.__ml_access_token = token;
-    }, accessToken);
+    console.log('⏳ [Playwright] Acessando ML base para injeção...');
+    // networkidle garante que a página parou de carregar tranqueiras antes de injetarmos
+    await page.goto('https://www.mercadolivre.com.br/', { waitUntil: 'networkidle', timeout: 30000 });
 
-    console.log('⏳ [Playwright] Navegando para o Mercado Livre...');
-    await page.goto('https://www.mercadolivre.com.br/', { waitUntil: 'domcontentloaded', timeout: 20000 });
-
+    // 🔥 INJEÇÃO AGRESSIVA EM TODOS OS STORAGES POSSÍVEIS
     await page.evaluate((token) => {
       try {
         localStorage.setItem('access_token', token);
+        sessionStorage.setItem('access_token', token);
         document.cookie = `access_token=${token}; domain=.mercadolivre.com.br; path=/`;
       } catch (e) {}
     }, accessToken);
 
-    // Dá um tempo maior pro ML respirar e validar o token
-    await page.waitForTimeout(3000); 
+    console.log('⏳ [Playwright] Recarregando página para validação do token e geração do SSID...');
+    // 🔥 O SEGREDO TÁ AQUI: Recarregar a página e esperar a rede ficar ociosa
+    // É nesse momento que o ML percebe o token e gera o cookie SSID real
+    await page.reload({ waitUntil: 'networkidle', timeout: 30000 });
+    await page.waitForTimeout(3000); // Respiro extra para scripts assíncronos
 
     console.log('⏳ [Playwright] Tentando acessar a página de Afiliados...');
     try {
       await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
-        waitUntil: 'domcontentloaded',
-        timeout: 20000
+        waitUntil: 'networkidle',
+        timeout: 30000
       });
-      await page.waitForTimeout(4000); // Espera o carregamento completo
+      await page.waitForTimeout(3000); // Garante que a página do painel renderizou
     } catch (e) {
-      console.warn('⚠️  [captureMLCookies] affiliate-program não carregou (não fatal):', e.message);
+      console.warn('⚠️  [captureMLCookies] Timeout no affiliate-program (pode não ser fatal se o cookie já gerou):', e.message);
     }
 
     const cookies = await context.cookies(['https://www.mercadolivre.com.br']);
     
-    // Captura o cookie independente se for maiúsculo ou minúsculo
     const ssidCookie = cookies.find(c => c.name.toLowerCase() === 'ssid');
     const csrfCookie = cookies.find(c => ['_csrf_token', 'csrf_token', 'xsrf-token'].includes(c.name.toLowerCase()));
 
@@ -132,8 +132,6 @@ router.get('/auth', (req, res) => {
 // ─── GET /api/ml/callback ────────────────────────────────────────────────────
 router.get('/callback', async (req, res) => {
   const { code, error } = req.query;
-  
-  // 🔥 URL CHUMBADA: Se der 404 depois disso, o servidor local não foi reiniciado.
   const redirectUrl = 'https://vantpromo.vercel.app/settings';
 
   if (error) {
@@ -235,16 +233,14 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// ─── DELETE /api/ml/disconnect (🔥 CORRIGIDO PRA MATAR A CONTA ZUMBI) ────────
+// ─── DELETE /api/ml/disconnect ───────────────────────────────────────────────
 router.delete('/disconnect', async (req, res) => {
   try {
     const conn        = getProductConnection();
     const Integration = IntegrationModel(conn);
     
-    // 1. Apaga do banco DEFINITIVAMENTE
     await Integration.deleteMany({ provider: 'mercadolivre' });
 
-    // 2. Limpa a memória do Node
     if (typeof mlAffiliate.disconnect === 'function') {
       mlAffiliate.disconnect();
     } else {
