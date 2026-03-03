@@ -258,7 +258,7 @@ export function DistributionPage() {
     const currentPriceCents = getCurrentPrice(product);
     const oldPriceCents = getOldPrice(product);
     const discount = getDiscount(product);
-    const message = customMessage || `🔥 *OFERTA IMPERDÍVEL!* 🔥`;
+    const message = customMessage || `🔥 *PROMOFORIA ESTÁ NO AR!* 🔥`;
     const link = (product as any).link_afiliado || product.affiliateLink || 'Link indisponível';
     return `${message}\n\n` +
       `📦 *${(product as any).nome || product.name}*\n\n` +
@@ -808,7 +808,7 @@ export function DistributionPage() {
       <div className="space-y-2">
         <Label className="text-sm font-medium">Mensagem personalizada</Label>
         <Textarea
-          placeholder="🔥 *OFERTA IMPERDÍVEL!*"
+          placeholder="🔥 *PROMOFORIA ESTÁ NO AR!*"
           value={customMessage}
           onChange={e => setCustomMessage(e.target.value)}
           rows={3}
@@ -1268,7 +1268,7 @@ export function DistributionPage() {
                 <div className="space-y-2">
                   <Label>Mensagem personalizada (opcional)</Label>
                   <Textarea
-                    placeholder="🔥 *OFERTA IMPERDÍVEL!*"
+                    placeholder="🔥 *PROMOFORIA ESTÁ NO AR!*"
                     value={customMessage}
                     onChange={e => setCustomMessage(e.target.value)}
                     rows={2}
