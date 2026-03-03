@@ -59,15 +59,15 @@ class MLAffiliateService {
   }
 
   /**
-   * Captura cookies ssid e csrf via Playwright com estratégia Stealth e Injeção Nativa
+   * Captura cookies ssid e csrf via Playwright com estratégia de Furtividade Avançada
    * @param {string} accessToken - Token de acesso obtido via OAuth
    */
   async captureSessionCookies(accessToken) {
-    console.log('🕵️ [Playwright] Iniciando captura de cookies em background (Stealth Mode)...');
+    console.log('🕵️ [Playwright] Iniciando captura de cookies em background (Advanced Stealth Mode)...');
     let browser;
     try {
       browser = await chromium.launch({ 
-        headless: true, 
+        headless: true, // Mantemos true para o servidor, mas com flags de furtividade
         args: [
           '--no-sandbox', 
           '--disable-setuid-sandbox',
@@ -93,7 +93,12 @@ class MLAffiliateService {
       const page = await context.newPage();
       page.setDefaultTimeout(60000);
 
-      // 🔥 O SEGREDO: Injetar o token via script de inicialização antes de qualquer navegação
+      // 🔥 O SEGREDO 1: Remover a propriedade 'webdriver' para evitar detecção de bot
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      });
+
+      // 🔥 O SEGREDO 2: Injetar o token via script de inicialização
       await page.addInitScript((token) => {
         window.localStorage.setItem('access_token', token);
         window.sessionStorage.setItem('access_token', token);
@@ -116,8 +121,8 @@ class MLAffiliateService {
         timeout: 60000 
       });
       
-      // Aguarda um pouco para que os cookies de segurança sejam processados
-      await page.waitForTimeout(8000);
+      // Aguarda um pouco para que os scripts de segurança do ML validem a sessão e gravem o SSID
+      await page.waitForTimeout(10000);
 
       // Captura todos os cookies do domínio
       const cookies = await context.cookies(['https://www.mercadolivre.com.br']);
