@@ -23,18 +23,20 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { TrashPage } from "@/pages/TrashPage";
 import NotFound from "./pages/NotFound";
 
+import { Analytics } from "@vercel/analytics/react"; // ✅ Import do Analytics
+
 const queryClient = new QueryClient();
 
 function AppRoutes() {
   return (
     <AuthProvider>
-      {/* ✅ WhatsAppProvider DENTRO do AuthProvider para ter acesso ao useAuth */}
+      {/* WhatsAppProvider dentro do AuthProvider para acessar useAuth */}
       <WhatsAppProvider>
         <Routes>
-          {/* Públicas */}
+          {/* Rotas públicas */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Protegidas */}
+          {/* Rotas protegidas */}
           <Route element={<ProtectedRoute />}>
             <Route element={<DashboardLayout />}>
               <Route path="/" element={<DashboardHome />} />
@@ -67,6 +69,10 @@ const App = () => (
             <BrowserRouter>
               <AppRoutes />
             </BrowserRouter>
+
+            {/* ✅ Analytics da Vercel montado no nível mais alto */}
+            <Analytics />
+            
           </DashboardProvider>
         </UserPreferencesProvider>
       </PersistenceProvider>
