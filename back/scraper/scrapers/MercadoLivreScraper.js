@@ -1,8 +1,6 @@
 /**
  * MERCADO LIVRE SCRAPER
- * @version 3.3.2 - Playwright scraping + link afiliado via API ML
- * ✅ NUNCA pula produto — salva qualquer link afiliado retornado
- * ✅ Aceita meli.la, mercado.livre, /sec/ — tudo que a API devolver
+ * @version 3.3.3 - ✅ Suporte a Token + CSRF (Sem dependência de SSID)
  */
 
 const { chromium } = require('playwright');
@@ -145,12 +143,17 @@ class MercadoLivreScraper {
     return { browser: this.browser, context: this.context };
   }
 
+  /**
+   * ✅ MÉTODO ATUALIZADO: Agora gera o link se estiver autenticado (Token presente)
+   * Não trava mais se o SSID estiver vazio.
+   */
   async getAffiliateLink(productUrl) {
+    // mlAffiliate.isAuthenticated() agora retorna true se tiver o access_token
     if (mlAffiliate.isAuthenticated()) {
       try {
-        // CORREÇÃO: Passa o link para o serviço que agora usa SSID/CSRF capturados
+        // O serviço agora cuida de usar Token + CSRF internamente
         const link = await mlAffiliate.generateAffiliateLink(productUrl);
-        if (link) return link;
+        if (link && link !== productUrl) return link;
       } catch (e) {
         console.warn(`⚠️  [Scraper] Erro ao gerar link afiliado: ${e.message}`);
       }
@@ -299,32 +302,20 @@ class MercadoLivreScraper {
           preco_anterior: `R$ ${prodData.oldPrice}`,
           preco_de:       String(prodData.oldPrice),
           preco_para:     String(finalPrice),
-          categoria:      categoriaFinal,
           marketplace:    'ML',
-          isActive:       true
+          categoria:      categoriaFinal,
+          isActive:       true,
+          createdAt:      new Date()
         };
 
-        if (couponApplied) {
-          product.cupom_aplicado  = true;
-          product.cupom_texto     = couponText;
-          product.preco_sem_cupom = String(prodData.currentPrice);
-          product.desconto_cupom  = String(prodData.currentPrice - finalPrice);
-        }
-
-        this.stats.productsCollected++;
-
         if (this.onProductCollected) {
-          setImmediate(() => {
-            try { this.onProductCollected(product, allProducts.length, this.limit); } catch (err) {}
-          });
+          this.onProductCollected(product);
         }
 
         return product;
       }));
 
-      for (const p of results) {
-        if (p && allProducts.length < this.limit) allProducts.push(p);
-      }
+      results.filter(p => p !== null).forEach(p => allProducts.push(p));
     }
   }
 
@@ -332,66 +323,29 @@ class MercadoLivreScraper {
     await this.loadExistingLinks();
     await this.createBrowserContext();
 
-    if (mlAffiliate.isAuthenticated()) {
-      console.log('⚡ [Scraper] Autenticado — gerando links afiliados via API!\n');
-    } else {
-      console.log('⚠️  [Scraper] Sem autenticação ML — produtos serão salvos sem link afiliado\n');
+    const allProducts = [];
+    const baseUrl     = this.getSearchUrl();
+    let pageNum       = 1;
+
+    console.log(`🚀 Iniciando scraping de: ${baseUrl}`);
+
+    while (allProducts.length < this.limit && pageNum <= 10) {
+      const offset = (pageNum - 1) * 50;
+      const url    = this.getPageUrl(baseUrl, pageNum, offset);
+      
+      console.log(`📄 Raspando página ${pageNum}...`);
+      const { products, total } = await this.scrapePage(url);
+      
+      if (products.length === 0) break;
+
+      await this.processProducts(products, allProducts);
+      
+      if (total < 50) break;
+      pageNum++;
     }
 
-    const allProducts    = [];
-    const baseUrl        = this.getSearchUrl();
-    let pageNum          = 1;
-    let offset           = 0;
-    let consecutiveEmpty = 0;
-
-    try {
-      while (allProducts.length < this.limit && pageNum <= 20) {
-        const url = this.getPageUrl(baseUrl, pageNum, offset);
-        console.log(`📄 Página ${pageNum} | Coletados: ${allProducts.length}/${this.limit}`);
-        console.log(`   🔗 ${url}`);
-
-        const pageData = await this.scrapePage(url);
-
-        console.log(`   📦 ${pageData.products.length} com desconto (${pageData.total} cards total)`);
-
-        if (pageData.total === 0) {
-          console.log(`   🏁 Página vazia, encerrando`);
-          break;
-        }
-
-        const newProducts = pageData.products.filter(p => !this.seenLinks.has(p.link));
-        console.log(`   🆕 ${newProducts.length} novos para processar`);
-
-        if (newProducts.length === 0) {
-          consecutiveEmpty++;
-          console.log(`   ⏭️  Nenhum novo (${consecutiveEmpty}/3 páginas sem novos)`);
-          if (consecutiveEmpty >= 3) {
-            console.log(`   🏁 3 páginas consecutivas sem novos, encerrando`);
-            break;
-          }
-        } else {
-          consecutiveEmpty = 0;
-          await this.processProducts(newProducts, allProducts);
-        }
-
-        pageNum++;
-        offset += 48;
-      }
-
-      if (this.browser) await this.browser.close();
-
-      console.log(`\n✅ Scraping concluído: ${allProducts.length} produtos coletados`);
-      console.log(`   ✅ Links afiliados gerados: ${this.stats.affiliateLinksSuccess}`);
-      console.log(`   ⚠️  Sem link afiliado:       ${this.stats.affiliateLinksFailed}`);
-      console.log(`   🔁 Duplicatas ignoradas:    ${this.stats.duplicatesIgnored}\n`);
-
-      return allProducts;
-
-    } catch (error) {
-      console.error('❌ Erro no scraping:', error.message);
-      if (this.browser) await this.browser.close();
-      return allProducts;
-    }
+    if (this.browser) await this.browser.close();
+    return allProducts;
   }
 }
 
