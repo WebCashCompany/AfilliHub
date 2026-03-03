@@ -131,7 +131,8 @@ export function SettingsPage() {
 
   const connectML = () => {
     setMlAwaitingReturn(true);
-    window.open(`${ENV.API_BASE_URL}/api/ml/auth`, '_blank');
+    // ✅ CORREÇÃO AQUI: Em vez de abrir popup, redireciona na mesma aba para evitar perda de tracking
+    window.location.href = `${ENV.API_BASE_URL}/api/ml/auth`;
   };
 
   const disconnectML = async () => {
@@ -293,7 +294,7 @@ export function SettingsPage() {
               </p>
               {mlAwaitingReturn && (
                 <p className="text-sm text-blue-500 mt-3 animate-pulse">
-                  Complete o login na aba aberta e volte aqui para verificar a conexão.
+                  Aguardando autorização...
                 </p>
               )}
             </div>
