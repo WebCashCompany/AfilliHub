@@ -15,7 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
   Zap, Play, Settings2, Loader2, CheckCircle, Package, Filter,
-  Search, X, RotateCcw, ArrowRight, Clock, Tag, AlertCircle
+  Search, X, RotateCcw, ArrowRight, Clock, Tag, AlertCircle, StopCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import { formatNumber, getMarketplaceName, Marketplace } from '@/lib/mockData';
@@ -261,7 +261,7 @@ function MobileMarketplaceCard({
             <button
               onClick={onOpenFilters}
               className={`relative w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
-                hasActiveFilter
+                hasActiveFilter && !hasSearch
                   ? 'bg-primary/15 text-primary'
                   : 'bg-muted/60 text-muted-foreground hover:bg-muted'
               }`}
@@ -275,51 +275,28 @@ function MobileMarketplaceCard({
         </div>
 
         {/* Row 2: quantity */}
-        <div className={`transition-opacity duration-200 ${mpConfig.enabled ? 'opacity-100' : 'opacity-40'}`}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Quantidade</span>
-            <div className="flex items-center gap-1 bg-background/80 border border-border/60 rounded-lg px-2 py-0.5">
-              <input
-                type="number"
-                min={1}
-                max={1000}
-                value={mpConfig.quantity}
-                onChange={(e) => onQuantityChange(parseInt(e.target.value))}
-                disabled={!mpConfig.enabled}
-                className="w-10 text-center text-sm font-bold bg-transparent border-0 outline-none text-primary"
-              />
-              <span className="text-[10px] text-muted-foreground">itens</span>
+        {mpConfig.enabled && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Quantidade</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => onQuantityChange(Math.max(1, mpConfig.quantity - 10))}
+                  className="w-6 h-6 rounded-lg bg-muted flex items-center justify-center text-muted-foreground hover:bg-muted-foreground/20 active:scale-90 transition-all text-sm font-bold"
+                >−</button>
+                <span className="text-sm font-black w-10 text-center tabular-nums">{mpConfig.quantity}</span>
+                <button
+                  onClick={() => onQuantityChange(Math.min(300, mpConfig.quantity + 10))}
+                  className="w-6 h-6 rounded-lg bg-muted flex items-center justify-center text-muted-foreground hover:bg-muted-foreground/20 active:scale-90 transition-all text-sm font-bold"
+                >+</button>
+              </div>
             </div>
-          </div>
-          <Slider
-            min={1}
-            max={300}
-            step={1}
-            value={[mpConfig.quantity]}
-            onValueChange={([v]) => onQuantityChange(v)}
-            disabled={!mpConfig.enabled}
-            className="mt-1"
-          />
-        </div>
-
-        {/* Row 3: active filters summary */}
-        {mpConfig.filters && mpConfig.enabled && (
-          <div className="mt-3 pt-3 border-t border-border/40 flex items-center gap-3 flex-wrap">
-            {mpConfig.filters.searchTerm?.trim() ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-600 bg-blue-500/10 rounded-full px-2 py-0.5">
-                <Search className="w-2.5 h-2.5" />Busca global
-              </span>
-            ) : mpConfig.filters.categoria && mpConfig.filters.categoria !== 'todas' && mpConfig.filters.categoria !== '' ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 rounded-full px-2 py-0.5">
-                <Tag className="w-2.5 h-2.5" />{mpConfig.filters.categoria}
-              </span>
-            ) : null}
-            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-              <span className="font-semibold text-foreground">{mpConfig.filters.minDiscount ?? 0}%</span> desc. mín.
-            </span>
-            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-              até <span className="font-semibold text-foreground">R$ {((mpConfig.filters.maxPrice ?? 20000) / 1000).toFixed(0)}k</span>
-            </span>
+            <div className="h-1.5 w-full bg-muted/40 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-300"
+                style={{ width: `${(mpConfig.quantity / 300) * 100}%` }}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -328,181 +305,18 @@ function MobileMarketplaceCard({
 }
 
 // ─────────────────────────────────────────────
-// MOBILE: Status de execução em tempo real
-// ─────────────────────────────────────────────
-
-function MobileRunningStatus({
-  scrapingStatus,
-  smoothProgress,
-  circleDashoffset,
-  CIRCLE_CIRCUMFERENCE,
-  resetScrapingStatus,
-}: {
-  scrapingStatus: any;
-  smoothProgress: number;
-  circleDashoffset: number;
-  CIRCLE_CIRCUMFERENCE: number;
-  resetScrapingStatus: () => void;
-}) {
-  return (
-    <div className="mx-4 mb-4 rounded-3xl overflow-hidden border border-primary/20 bg-gradient-to-br from-primary/8 via-background to-primary/3 shadow-lg shadow-primary/10">
-      {/* Animated top bar */}
-      <div className="h-1 w-full bg-muted/30 overflow-hidden rounded-full">
-        <div
-          className="h-full bg-gradient-to-r from-primary via-primary/80 to-primary transition-all duration-500 rounded-full"
-          style={{ width: `${smoothProgress}%` }}
-        />
-      </div>
-
-      <div className="p-5">
-        {/* Header row */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-xl bg-primary/15 flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm font-bold leading-none">Coletando agora</p>
-              {scrapingStatus.currentMarketplace && (
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span className="text-[10px] text-muted-foreground">via</span>
-                  <MarketplaceBadge marketplace={scrapingStatus.currentMarketplace} />
-                </div>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={resetScrapingStatus}
-            className="w-7 h-7 rounded-xl bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors active:scale-90"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Circle + stats row */}
-        <div className="flex items-center gap-5">
-          {/* SVG circle */}
-          <div className="relative flex-shrink-0 w-24 h-24">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 96 96">
-              <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="6" fill="transparent" className="text-muted/20" />
-              <circle
-                cx="48" cy="48" r="40"
-                stroke="currentColor" strokeWidth="6" fill="transparent"
-                strokeDasharray="251.33"
-                strokeDashoffset={251.33 - (251.33 * smoothProgress) / 100}
-                className="text-primary transition-all duration-300"
-                strokeLinecap="round"
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <Loader2 className="w-5 h-5 animate-spin text-primary mb-0.5" />
-              <span className="text-lg font-black text-foreground leading-none">{Math.round(smoothProgress)}%</span>
-            </div>
-          </div>
-
-          {/* Stats */}
-          <div className="flex-1 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground font-medium">Coletados</span>
-              <span className="text-xl font-black text-primary tabular-nums">
-                {formatNumber(scrapingStatus.itemsCollected)}
-              </span>
-            </div>
-            <div className="w-full h-px bg-border/40" />
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground font-medium">Esperados</span>
-              <span className="text-xl font-black tabular-nums">
-                {formatNumber(scrapingStatus.totalItems)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Live pulse indicator */}
-        <div className="mt-4 flex items-center justify-center">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 rounded-full border border-blue-500/20">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-            </span>
-            <p className="text-[11px] font-semibold text-blue-600">
-              {scrapingStatus.liveProducts?.length > 0 ? 'Processando em tempo real' : 'Conectando...'}
-            </p>
-          </div>
-        </div>
-
-        {/* Live products feed */}
-        {scrapingStatus.liveProducts?.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-border/40">
-            <ScrapingLiveProducts products={scrapingStatus.liveProducts} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// MOBILE: Histórico recente
-// ─────────────────────────────────────────────
-
-function MobileRecentHistory({ recentHistory }: { recentHistory: any[] }) {
-  if (!recentHistory?.length) {
-    return (
-      <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card p-5 text-center">
-        <div className="w-10 h-10 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-2">
-          <Clock className="w-5 h-5 text-muted-foreground/50" />
-        </div>
-        <p className="text-xs font-medium text-muted-foreground">Nenhuma atividade recente</p>
-        <p className="text-[11px] text-muted-foreground/60 mt-0.5">Execute um scraping para ver o histórico</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-4 mb-4 rounded-2xl border border-border/50 bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border/40 flex items-center gap-2">
-        <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Atividade Recente</span>
-      </div>
-      <div className="divide-y divide-border/30">
-        {recentHistory.slice(0, 3).map((session) => (
-          <div key={session.id} className="flex items-center gap-3 px-4 py-3">
-            <div className="w-7 h-7 rounded-xl bg-green-500/10 flex items-center justify-center flex-shrink-0">
-              <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] font-bold">{formatNumber(session.itemsCollected)} produtos</span>
-                <MarketplaceBadge marketplace={session.marketplace} />
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[10px] text-muted-foreground">{getTimeAgo(session.completedAt)}</span>
-                {session.duration > 0 && (
-                  <>
-                    <span className="text-muted-foreground/40 text-[10px]">·</span>
-                    <span className="text-[10px] text-muted-foreground">{formatDuration(session.duration)}</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// PÁGINA PRINCIPAL
+// MAIN COMPONENT
 // ─────────────────────────────────────────────
 
 export function AutomationPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { runScraping, scrapingStatus, products, resetScrapingStatus } = useDashboard();
+  const { runScraping, scrapingStatus, products, resetScrapingStatus, finalizeScraping } = useDashboard();
   const { connections, loading: connectionsLoading } = useMarketplaceConnections();
   const { toast } = useToast();
+
+  // Estado de controle do processo de finalização
+  const [isFinalizing, setIsFinalizing] = useState(false);
 
   const [config, setConfig] = useState<{
     marketplaces: Record<Marketplace, MarketplaceConfig>;
@@ -676,6 +490,48 @@ export function AutomationPage() {
     await runScraping({ marketplaces: marketplacesConfig as any, minDiscount: 20, maxPrice: 20000 });
   };
 
+  // ─────────────────────────────────────────────
+  // HANDLER: Finalizar processo e salvar no banco
+  // ─────────────────────────────────────────────
+
+  const handleFinalizeScraping = async () => {
+    if (isFinalizing) return;
+
+    const collectedCount = scrapingStatus.itemsCollected;
+    const liveProducts = scrapingStatus.liveProducts ?? [];
+
+    setIsFinalizing(true);
+
+    try {
+      // Para o processo de scraping em andamento
+      resetScrapingStatus();
+
+      // Envia os produtos coletados para o banco de dados
+      // A função `finalizeScraping` deve ser exposta pelo DashboardContext
+      // e é responsável por persistir os dados no banco
+      if (typeof finalizeScraping === 'function') {
+        await finalizeScraping(liveProducts);
+      }
+
+      toast({
+        title: "✅ Processo finalizado!",
+        description: collectedCount > 0
+          ? `${formatNumber(collectedCount)} produto(s) enviado(s) ao banco de dados com sucesso.`
+          : 'Processo de scraping encerrado.',
+        className: "bg-green-600 text-white border-none shadow-lg",
+      });
+    } catch (error) {
+      console.error('[AutomationPage] Erro ao finalizar scraping:', error);
+      toast({
+        title: "❌ Erro ao finalizar",
+        description: "Não foi possível salvar os dados. Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
   const totalToCollect = Object.entries(config.marketplaces)
     .filter(([mp, cfg]) => cfg.enabled && connections[mp as Marketplace])
     .reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
@@ -697,7 +553,7 @@ export function AutomationPage() {
     <div className="min-h-screen bg-background overflow-x-hidden">
 
       {/* ══════════════════════════════════════════
-          DESKTOP LAYOUT (unchanged)
+          DESKTOP LAYOUT
           ══════════════════════════════════════════ */}
       <div className="hidden md:block p-6 space-y-6">
         <div className="flex items-center justify-between">
@@ -752,8 +608,8 @@ export function AutomationPage() {
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-sm">Quantidade</Label>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Quantidade:</span>
                             <span className="text-sm font-medium text-primary">{mpConfig.quantity} itens</span>
                           </div>
                           <div className="flex items-center gap-3">
@@ -811,11 +667,29 @@ export function AutomationPage() {
                   <span className="text-sm text-muted-foreground">Total a coletar:</span>
                   <span className="ml-2 font-bold text-lg">{formatNumber(totalToCollect)} itens</span>
                 </div>
-                <Button size="lg" onClick={handleStartScraping} disabled={scrapingStatus.isRunning || totalToCollect === 0} className="gap-2">
-                  {scrapingStatus.isRunning
-                    ? <><Loader2 className="w-4 h-4 animate-spin" />Coletando...</>
-                    : <><Play className="w-4 h-4" />Iniciar Scraping</>}
-                </Button>
+                {/* ── Botões de ação: Iniciar / Finalizar (Desktop) ── */}
+                <div className="flex items-center gap-2">
+                  {scrapingStatus.isRunning && (
+                    <Button
+                      size="lg"
+                      variant="destructive"
+                      onClick={handleFinalizeScraping}
+                      disabled={isFinalizing}
+                      className="gap-2"
+                    >
+                      {isFinalizing ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" />Salvando...</>
+                      ) : (
+                        <><StopCircle className="w-4 h-4" />Finalizar</>
+                      )}
+                    </Button>
+                  )}
+                  <Button size="lg" onClick={handleStartScraping} disabled={scrapingStatus.isRunning || totalToCollect === 0} className="gap-2">
+                    {scrapingStatus.isRunning
+                      ? <><Loader2 className="w-4 h-4 animate-spin" />Coletando...</>
+                      : <><Play className="w-4 h-4" />Iniciar Scraping</>}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -996,7 +870,7 @@ export function AutomationPage() {
           )}
         </div>
 
-        {/* ── CTA: Iniciar scraping ── */}
+        {/* ── CTA: Iniciar / Finalizar scraping (Mobile) ── */}
         <div className="px-4 mb-5">
           <div className="rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 p-4">
             <div className="flex items-center justify-between mb-3">
@@ -1013,6 +887,31 @@ export function AutomationPage() {
                 </div>
               )}
             </div>
+
+            {/* Botão Finalizar — visível apenas durante a coleta (Mobile) */}
+            {scrapingStatus.isRunning && (
+              <button
+                onClick={handleFinalizeScraping}
+                disabled={isFinalizing}
+                className={`w-full py-3.5 rounded-xl font-black text-[14px] tracking-wide transition-all active:scale-[0.97] flex items-center justify-center gap-2.5 mb-2.5 ${
+                  isFinalizing
+                    ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                    : 'bg-destructive text-destructive-foreground shadow-lg shadow-destructive/25 hover:shadow-destructive/40'
+                }`}
+              >
+                {isFinalizing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Salvando no banco...
+                  </>
+                ) : (
+                  <>
+                    <StopCircle className="w-4 h-4" />
+                    Finalizar e Salvar
+                  </>
+                )}
+              </button>
+            )}
 
             <button
               onClick={handleStartScraping}
@@ -1038,7 +937,7 @@ export function AutomationPage() {
           </div>
         </div>
 
-        {/* ── Status da Execução (sempre visível, igual ao desktop) ── */}
+        {/* ── Status da Execução (Mobile) ── */}
         <div className="px-4 mb-4">
           <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
