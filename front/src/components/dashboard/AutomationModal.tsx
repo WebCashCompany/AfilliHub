@@ -269,7 +269,7 @@ export function AutomationModal({
               )}
             </div>
 
-            {/* Resumo */}
+            {/* Resumo  */}
             <div className="p-4 bg-muted/40 rounded-lg border">
               <div className="flex flex-wrap gap-2">
                 <Badge>A cada {intervalMinutes} min</Badge>
