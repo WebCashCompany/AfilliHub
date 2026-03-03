@@ -12,8 +12,8 @@ class MLAffiliateService {
     this.ML_CLIENT_ID = process.env.ML_CLIENT_ID || '1547036702834286';
     this.ML_CLIENT_SECRET = process.env.ML_CLIENT_SECRET || 'VvfVOTiFVm55ULCSUm66ZYGCpaEu7SQA';
     
-    // 🔥 CHUMBADO DIRETO AQUI PRA IGNORAR O CACHE DO .ENV E MATAR O ERRO 404
-    this.ML_REDIRECT_URI = 'https://salvatore-crossbanded-aurorally.ngrok-free.dev/api/ml/callback';
+    // ✅ Usar variável de ambiente para flexibilidade (ngrok ou domínio real)
+    this.ML_REDIRECT_URI = process.env.ML_REDIRECT_URI || 'https://salvatore-crossbanded-aurorally.ngrok-free.dev/api/ml/callback';
     
     this.ML_AFFILIATE_TAG = process.env.ML_AFFILIATE_TAG || 'baga20231223204119';
     
@@ -50,33 +50,67 @@ class MLAffiliateService {
     return `https://auth.mercadolivre.com.br/authorization?${params.toString()}`;
   }
 
+  /**
+   * 🕵️ Captura cookies ssid e csrf via Playwright
+   * Integrado diretamente no serviço para evitar arquivos extras
+   */
   async captureSessionCookies(accessToken) {
     console.log('🕵️ [Playwright] Iniciando captura de cookies em background...');
     let browser;
     try {
       browser = await chromium.launch({ 
         headless: true, 
-        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+        args: [
+          '--no-sandbox', 
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-blink-features=AutomationControlled'
+        ] 
       });
+      
       const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        viewport:  { width: 1280, height: 720 }
       });
+      
       const page = await context.newPage();
 
-      await page.addInitScript((token) => {
-        window.localStorage.setItem('access_token', token);
+      console.log('⏳ [Playwright] Acessando ML base para injeção...');
+      // Usamos 'domcontentloaded' e timeout maior para evitar o erro que você teve
+      await page.goto('https://www.mercadolivre.com.br/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+      // 🔥 INJEÇÃO AGRESSIVA DO TOKEN
+      await page.evaluate((token) => {
+        try {
+          localStorage.setItem('access_token', token);
+          sessionStorage.setItem('access_token', token);
+          document.cookie = `access_token=${token}; domain=.mercadolivre.com.br; path=/`;
+        } catch (e) {}
       }, accessToken);
 
-      await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
-        waitUntil: 'networkidle',
-        timeout: 30000
-      });
+      console.log('⏳ [Playwright] Recarregando para gerar SSID...');
+      await page.reload({ waitUntil: 'networkidle', timeout: 60000 });
+      await page.waitForTimeout(5000); // Respiro para scripts do ML
 
-      const cookies = await context.cookies();
+      // Tenta ir para a página de afiliados para garantir o CSRF
+      try {
+        await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
+          waitUntil: 'networkidle',
+          timeout: 30000
+        });
+        await page.waitForTimeout(3000);
+      } catch (e) {
+        console.warn('⚠️ [Playwright] Timeout no affiliate-program, tentando capturar cookies assim mesmo.');
+      }
+
+      const cookies = await context.cookies(['https://www.mercadolivre.com.br']);
       const ssid = cookies.find(c => c.name.toLowerCase() === 'ssid')?.value;
-      const csrf = cookies.find(c => ['_csrf_token', 'csrf_token'].includes(c.name.toLowerCase()))?.value;
+      const csrf = cookies.find(c => ['_csrf_token', 'csrf_token', 'xsrf-token'].includes(c.name.toLowerCase()))?.value;
 
       await browser.close();
+      
+      console.log(`🍪 [Playwright] ssid: ${ssid ? '✅' : '❌'} | csrf: ${csrf ? '✅' : '❌'}`);
       return { ssid, csrf };
     } catch (error) {
       console.error('❌ [Playwright] Falha na captura:', error.message);
@@ -98,6 +132,8 @@ class MLAffiliateService {
     );
 
     const tokenData = response.data;
+    
+    // 🔥 Captura os cookies logo após pegar o token
     const { ssid, csrf } = await this.captureSessionCookies(tokenData.access_token);
 
     this.accessToken = tokenData.access_token;
@@ -148,7 +184,6 @@ class MLAffiliateService {
     console.log('🍪 [MLAffiliateService] Cookies atualizados em memória');
   }
 
-  // 🔥 MATA A CONTA ZUMBI NA MEMÓRIA DO SERVIDOR
   disconnect() {
     this.accessToken = null;
     this.refreshToken = null;
