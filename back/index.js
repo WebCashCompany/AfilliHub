@@ -14,22 +14,33 @@ const app    = express();
 const server = http.createServer(app);
 const PORT   = process.env.PORT || 3001;
 
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
-app.use(cors({
-  origin: '*',
-  credentials: false,
-  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
-}));
+// ✅ CORREÇÃO DE CORS BLINDADA PARA O NGROK/VERCEL
+const corsOptions = {
+  origin: [
+    'https://vantpromo.vercel.app', 
+    'http://localhost:5173', 
+    'http://localhost:3000',
+    '*' // Mantém o asterisco como fallback de segurança
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'ngrok-skip-browser-warning'],
+  credentials: true,
+  optionsSuccessStatus: 200 // Vital para navegadores e ngrok não travarem no preflight
+};
+
+// Aplica o CORS em todas as requisições e força a resposta rápida no preflight (OPTIONS)
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 
+// ✅ SOCKET.IO: Configuração com ngrok-skip-browser-warning
 const io = new Server(server, {
-  cors:           { origin: '*', methods: ['GET', 'POST'], credentials: false },
+  cors: { 
+    origin: '*', 
+    methods: ['GET', 'POST'], 
+    credentials: false,
+    allowedHeaders: ['ngrok-skip-browser-warning']
+  },
   transports:     ['websocket', 'polling'],
   pingTimeout:    60000,
   pingInterval:   25000
