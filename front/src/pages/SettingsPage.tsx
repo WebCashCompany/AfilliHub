@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { 
-  Settings, Plus, Trash2, Store, ExternalLink, CheckCircle, XCircle, Loader2, Key, Info
+  Settings, Plus, Trash2, Store, ExternalLink, CheckCircle, XCircle, Loader2, Key, Info, ShieldCheck, AlertCircle, HelpCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import axios from 'axios';
@@ -88,7 +88,6 @@ export function SettingsPage() {
       setMlAwaitingReturn(false);
       loadMLStatus();
       
-      // Se precisar de sessão, abre o modal automaticamente
       if (needSession === 'true') {
         setOpenMLSessionDialog(true);
       }
@@ -158,6 +157,10 @@ export function SettingsPage() {
       );
       setOpenMLSessionDialog(false);
       loadMLStatus();
+      
+      // Notifica o sistema sobre a atualização do ML
+      window.dispatchEvent(new CustomEvent('ml-connected'));
+      
       toast({
         title: '✅ Sessão Ativada!',
         description: 'Agora seus links serão gerados como meli.la',
@@ -179,7 +182,9 @@ export function SettingsPage() {
         setSavedMagaluId(data.affiliateId);
         setMagaluId(data.affiliateId);
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error('Erro ao carregar Magalu:', error);
+    }
   };
 
   const saveMagaluConfig = async () => {
@@ -196,6 +201,10 @@ export function SettingsPage() {
       );
       setSavedMagaluId(magaluId);
       setOpenMagaluDialog(false);
+      
+      // Notifica o sistema sobre a atualização do Magalu
+      window.dispatchEvent(new CustomEvent('magalu-config-updated'));
+      
       toast({
         title: '✅ Configuração salva!',
         description: `ID "${magaluId}" será usado nos scrapings.`,
@@ -208,207 +217,238 @@ export function SettingsPage() {
     }
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '—';
-    return new Date(dateStr).toLocaleString('pt-BR');
-  };
-
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Configurações</h1>
-        <p className="text-muted-foreground">Gerencie suas conexões e contas de marketplace</p>
+    <div className="p-6 space-y-8 max-w-5xl mx-auto">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-3xl font-bold tracking-tight">Configurações</h1>
+        <p className="text-muted-foreground">Gerencie suas conexões e contas de marketplace para automação.</p>
       </div>
 
-      {/* ── MERCADO LIVRE ────────────────────────────────────────────────── */}
-      <Card ref={mlCardRef}>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: MARKETPLACE_COLORS.mercadolivre }} />
-                Mercado Livre
-              </CardTitle>
-              <CardDescription>Autenticação via OAuth oficial do ML</CardDescription>
-            </div>
-
-            {mlStatus?.authenticated ? (
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setOpenMLSessionDialog(true)}>
-                  <Key className="w-4 h-4 mr-2" />
-                  Atualizar Sessão
-                </Button>
-                <Button variant="destructive" size="sm" onClick={disconnectML}>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Desconectar
-                </Button>
-              </div>
-            ) : (
-              <Button onClick={connectML} className="gap-2">
-                <ExternalLink className="w-4 h-4" />
-                Conectar Conta
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          {mlLoading ? (
-            <div className="flex items-center justify-center py-8 text-muted-foreground">
-              <Loader2 className="w-6 h-6 animate-spin mr-2" />
-              Verificando status...
-            </div>
-          ) : mlStatus?.authenticated ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-4 border rounded-lg bg-green-50/50 dark:bg-green-950/20">
-                <div className="flex items-center gap-3">
-                  <div className="bg-green-100 dark:bg-green-900/50 p-2 rounded-full">
-                    <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-                  </div>
-                  <div>
-                    <p className="font-semibold">Conta conectada</p>
-                    <p className="text-sm text-muted-foreground">User ID: {mlStatus.userId}</p>
-                  </div>
+      <div className="grid gap-6">
+        {/* ── MERCADO LIVRE ────────────────────────────────────────────────── */}
+        <Card ref={mlCardRef} className="overflow-hidden border-zinc-800 bg-zinc-950/50 backdrop-blur-sm">
+          <CardHeader className="border-b border-zinc-800/50 bg-zinc-900/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-2 rounded-xl bg-[#FFE600]/10">
+                  <Store className="w-6 h-6 text-[#FFE600]" />
                 </div>
-                <div className="flex flex-col items-end gap-1">
-                  <Badge className="bg-green-500 text-white">AUTENTICADO</Badge>
-                  {mlStatus.hasCookies ? (
-                    <Badge variant="outline" className="text-xs text-green-600 border-green-200">✅ Sessão Ativa (meli.la)</Badge>
-                  ) : (
-                    <Badge variant="destructive" className="text-xs">⚠️ Sessão Inativa (Link Comum)</Badge>
-                  )}
+                <div>
+                  <CardTitle className="text-xl">Mercado Livre</CardTitle>
+                  <CardDescription>Conexão oficial via OAuth para geração de links meli.la</CardDescription>
                 </div>
               </div>
 
-              {!mlStatus.hasCookies && (
-                <div className="p-4 border border-yellow-200 rounded-lg bg-yellow-50/50 text-sm text-yellow-800">
-                  <div className="flex items-center gap-2 mb-2 font-bold">
-                    <Info className="w-4 h-4" />
-                    Ação Necessária
-                  </div>
-                  <p>Para gerar links encurtados <strong>meli.la</strong>, você precisa ativar a sessão.</p>
-                  <Button variant="link" className="p-0 h-auto text-yellow-900 underline" onClick={() => setOpenMLSessionDialog(true)}>
-                    Clique aqui para ativar a sessão agora.
+              {mlStatus?.authenticated ? (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="border-zinc-700 hover:bg-zinc-800" onClick={() => setOpenMLSessionDialog(true)}>
+                    <Key className="w-4 h-4 mr-2" />
+                    Sessão
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-zinc-500 hover:text-red-400 hover:bg-red-400/10" onClick={disconnectML}>
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
+              ) : (
+                <Button onClick={connectML} className="bg-[#FFE600] text-black hover:bg-[#FFE600]/90 font-bold gap-2">
+                  <ExternalLink className="w-4 h-4" />
+                  Conectar Conta
+                </Button>
               )}
             </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <XCircle className="w-12 h-12 mx-auto mb-2 opacity-20" />
-              <p>Nenhuma conta conectada</p>
+          </CardHeader>
+
+          <CardContent className="pt-6">
+            {mlLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-zinc-500 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-[#FFE600]" />
+                <p className="text-sm font-medium">Sincronizando com Mercado Livre...</p>
+              </div>
+            ) : mlStatus?.authenticated ? (
+              <div className="space-y-6">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="flex items-center gap-4 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
+                    <div className="p-2 rounded-full bg-emerald-500/10">
+                      <ShieldCheck className="w-5 h-5 text-emerald-500" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Status da Conta</p>
+                      <p className="font-semibold text-emerald-500">Autenticado</p>
+                    </div>
+                  </div>
+
+                  <div className={`flex items-center gap-4 p-4 rounded-xl border ${mlStatus.hasCookies ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-amber-500/20 bg-amber-500/5'}`}>
+                    <div className={`p-2 rounded-full ${mlStatus.hasCookies ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
+                      {mlStatus.hasCookies ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />}
+                    </div>
+                    <div>
+                      <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Geração meli.la</p>
+                      <p className={`font-semibold ${mlStatus.hasCookies ? 'text-emerald-500' : 'text-amber-500'}`}>
+                        {mlStatus.hasCookies ? 'Ativa' : 'Inativa'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {!mlStatus.hasCookies && (
+                  <div className="relative group overflow-hidden p-5 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-transparent">
+                    <div className="flex items-start gap-4 relative z-10">
+                      <div className="p-3 rounded-xl bg-amber-500/20 text-amber-500">
+                        <Key className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-amber-200">Ação Necessária: Ativar Sessão</h4>
+                        <p className="text-sm text-amber-200/70 leading-relaxed">
+                          Para que o sistema consiga gerar links encurtados <strong>meli.la</strong>, é necessário fornecer o token de sessão (SSID) da sua conta.
+                        </p>
+                        <Button 
+                          variant="link" 
+                          className="p-0 h-auto text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
+                          onClick={() => setOpenMLSessionDialog(true)}
+                        >
+                          Configurar sessão agora <ExternalLink className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
+                <div className="w-20 h-20 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800">
+                  <Store className="w-10 h-10 text-zinc-700" />
+                </div>
+                <div className="max-w-xs space-y-1">
+                  <p className="font-bold text-zinc-300">Nenhuma conta conectada</p>
+                  <p className="text-sm text-zinc-500">Conecte sua conta do Mercado Livre para começar a gerar links de afiliado automaticamente.</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── MAGALU ──────────────────────────────────────────────────────── */}
+        <Card ref={magaluCardRef} className="overflow-hidden border-zinc-800 bg-zinc-950/50 backdrop-blur-sm">
+          <CardHeader className="border-b border-zinc-800/50 bg-zinc-900/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-2 rounded-xl bg-[#0086FF]/10">
+                  <Store className="w-6 h-6 text-[#0086FF]" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl">Parceiro Magalu</CardTitle>
+                  <CardDescription>ID de afiliado para links diretos</CardDescription>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" className="border-zinc-700 hover:bg-zinc-800" onClick={() => setOpenMagaluDialog(true)}>
+                <Settings className="w-4 h-4 mr-2" />
+                Configurar
+              </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent className="pt-6">
+            {savedMagaluId ? (
+              <div className="flex items-center gap-4 p-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
+                <div className="p-2 rounded-full bg-blue-500/10">
+                  <CheckCircle className="w-5 h-5 text-blue-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">ID do Parceiro</p>
+                  <p className="font-semibold text-blue-500">{savedMagaluId}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                Nenhum ID configurado
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* MODAL DE SESSÃO ML */}
       <Dialog open={openMLSessionDialog} onOpenChange={setOpenMLSessionDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] bg-zinc-950 border-zinc-800 text-zinc-200">
           <DialogHeader>
-            <DialogTitle>Ativar Sessão de Afiliado</DialogTitle>
-            <DialogDescription>
-              O Mercado Livre exige o cookie SSID para gerar links encurtados meli.la.
+            <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+              <Key className="w-6 h-6 text-amber-500" />
+              Ativar Sessão meli.la
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Siga os passos abaixo para capturar o SSID e ativar a geração de links encurtados.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 py-4">
-            <div className="bg-blue-50 p-3 rounded-md text-xs text-blue-800 space-y-1">
-              <p><strong>Como pegar:</strong></p>
-              <ol className="list-decimal ml-4 space-y-1">
+          <div className="space-y-6 py-4">
+            <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-xl space-y-3">
+              <div className="flex items-center gap-2 text-amber-500 font-bold text-sm">
+                <HelpCircle className="w-4 h-4" />
+                Como obter os dados?
+              </div>
+              <ol className="text-xs text-zinc-400 space-y-2 list-decimal ml-4">
                 <li>Acesse o Mercado Livre no seu navegador.</li>
-                <li>Aperte F12 -> Aba "Application" (ou Aplicativo).</li>
-                <li>No menu lateral, clique em "Cookies" -> mercadolivre.com.br.</li>
+                <li>Aperte <kbd className="px-1 py-0.5 bg-zinc-800 rounded border border-zinc-700">F12</kbd> &rarr; Aba <strong>Application</strong> (ou Aplicativo).</li>
+                <li>No menu lateral, clique em <strong>Cookies</strong> &rarr; mercadolivre.com.br.</li>
                 <li>Copie os valores de <strong>ssid</strong> e <strong>_csrf_token</strong>.</li>
               </ol>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="ssid">Valor do SSID (Obrigatório)</Label>
-              <Input 
-                id="ssid" 
-                placeholder="Ex: 1.23456789.123456789..." 
-                value={mlSSID} 
-                onChange={(e) => setMlSSID(e.target.value)}
-              />
-            </div>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="ssid" className="text-zinc-300 font-medium">Valor do SSID (Obrigatório)</Label>
+                <Input 
+                  id="ssid" 
+                  className="bg-zinc-900 border-zinc-800 focus:ring-amber-500/50"
+                  placeholder="Ex: 1.23456789.123456789..." 
+                  value={mlSSID} 
+                  onChange={(e) => setMlSSID(e.target.value)}
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="csrf">Valor do _csrf_token (Opcional)</Label>
-              <Input 
-                id="csrf" 
-                placeholder="Ex: a1b2c3d4..." 
-                value={mlCSRF} 
-                onChange={(e) => setMlCSRF(e.target.value)}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="csrf" className="text-zinc-300 font-medium">Valor do _csrf_token (Opcional)</Label>
+                <Input 
+                  id="csrf" 
+                  className="bg-zinc-900 border-zinc-800 focus:ring-amber-500/50"
+                  placeholder="Ex: a1b2c3d4..." 
+                  value={mlCSRF} 
+                  onChange={(e) => setMlCSRF(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenMLSessionDialog(false)}>Cancelar</Button>
-            <Button onClick={saveMLSession} disabled={mlSessionLoading}>
-              {mlSessionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+          <DialogFooter className="bg-zinc-900/20 p-4 -mx-6 -mb-6 border-t border-zinc-800/50">
+            <Button variant="ghost" className="text-zinc-400 hover:text-zinc-200" onClick={() => setOpenMLSessionDialog(false)}>Cancelar</Button>
+            <Button onClick={saveMLSession} disabled={mlSessionLoading} className="bg-amber-500 text-black hover:bg-amber-400 font-bold">
+              {mlSessionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
               Ativar Geração meli.la
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── MAGALU ──────────────────────────────────────────────────────── */}
-      <Card ref={magaluCardRef}>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: MARKETPLACE_COLORS.magalu }} />
-                Parceiro Magalu
-              </CardTitle>
-              <CardDescription>ID de afiliado para links diretos</CardDescription>
+      {/* MODAL MAGALU */}
+      <Dialog open={openMagaluDialog} onOpenChange={setOpenMagaluDialog}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-zinc-200">
+          <DialogHeader>
+            <DialogTitle>Configurar Magalu</DialogTitle>
+            <DialogDescription className="text-zinc-400">Insira seu ID de afiliado do Parceiro Magalu.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="magaluId">ID do Parceiro</Label>
+              <Input id="magaluId" className="bg-zinc-900 border-zinc-800" value={magaluId} onChange={(e) => setMagaluId(e.target.value)} placeholder="Ex: seunome" />
             </div>
-            <Dialog open={openMagaluDialog} onOpenChange={setOpenMagaluDialog}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Settings className="w-4 h-4 mr-2" />
-                  Configurar
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Configurar Magalu</DialogTitle>
-                  <DialogDescription>Insira seu ID de afiliado do Parceiro Magalu.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="magaluId">ID do Parceiro</Label>
-                    <Input id="magaluId" value={magaluId} onChange={(e) => setMagaluId(e.target.value)} placeholder="Ex: seunome" />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button onClick={saveMagaluConfig} disabled={magaluLoading}>
-                    {magaluLoading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                    Salvar ID
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </div>
-        </CardHeader>
-        <CardContent>
-          {savedMagaluId ? (
-            <div className="flex items-center gap-3 p-4 border rounded-lg bg-blue-50/50">
-              <CheckCircle className="w-5 h-5 text-blue-600" />
-              <div>
-                <p className="font-semibold">ID Ativo: {savedMagaluId}</p>
-                <p className="text-xs text-muted-foreground">Links serão gerados automaticamente.</p>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-4 text-muted-foreground border border-dashed rounded-lg">
-              Nenhum ID configurado
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          <DialogFooter>
+            <Button onClick={saveMagaluConfig} disabled={magaluLoading} className="bg-blue-600 hover:bg-blue-500">
+              {magaluLoading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Salvar ID
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
