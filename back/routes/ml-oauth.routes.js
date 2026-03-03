@@ -1,7 +1,7 @@
 /**
  * ═══════════════════════════════════════════════════════════
  * ML OAUTH ROUTES
- * @version 2.2.4 - Integrated Playwright Capture
+ * @version 2.2.5 - Final Integrated Version
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -72,10 +72,6 @@ router.get('/callback', async (req, res) => {
     
     console.log('✅ [ML OAuth] Tokens e Cookies obtidos! User ID:', tokenData.user_id);
     
-    if (!tokenData.ssid) {
-      console.warn('⚠️  [ML OAuth] ssid não capturado — links afiliados podem não funcionar corretamente');
-    }
-
     await saveMLCredentials({
       accessToken:  tokenData.access_token,
       refreshToken: tokenData.refresh_token,
@@ -168,27 +164,6 @@ router.delete('/disconnect', async (req, res) => {
   } catch (error) {
     console.error('❌ [ML OAuth] Erro ao desconectar:', error.message);
     res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ─── POST /api/ml/test-link ──────────────────────────────────────────────────
-router.post('/test-link', async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL é obrigatória' });
-
-  try {
-    const affiliateLink = await mlAffiliate.generateAffiliateLink(url);
-
-    res.json({
-      original:  url,
-      affiliate: affiliateLink,
-      success:   !!affiliateLink,
-      message:   affiliateLink
-        ? `✅ Link afiliado gerado: ${affiliateLink}`
-        : '❌ API não retornou link afiliado — verifique se o ssid está presente'
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 

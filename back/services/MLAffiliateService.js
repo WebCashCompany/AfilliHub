@@ -52,7 +52,7 @@ class MLAffiliateService {
 
   /**
    * 🕵️ Captura cookies ssid e csrf via Playwright
-   * Integrado diretamente no serviço para evitar arquivos extras
+   * ✅ FIX: Aumentado timeout para 60s e mudado para 'domcontentloaded' para evitar erros
    */
   async captureSessionCookies(accessToken) {
     console.log('🕵️ [Playwright] Iniciando captura de cookies em background...');
@@ -77,7 +77,7 @@ class MLAffiliateService {
       const page = await context.newPage();
 
       console.log('⏳ [Playwright] Acessando ML base para injeção...');
-      // Usamos 'domcontentloaded' e timeout maior para evitar o erro que você teve
+      // ✅ FIX: domcontentloaded é muito mais rápido e estável que networkidle
       await page.goto('https://www.mercadolivre.com.br/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
       // 🔥 INJEÇÃO AGRESSIVA DO TOKEN
@@ -90,13 +90,14 @@ class MLAffiliateService {
       }, accessToken);
 
       console.log('⏳ [Playwright] Recarregando para gerar SSID...');
+      // No reload podemos usar networkidle com timeout maior, pois o token já está lá
       await page.reload({ waitUntil: 'networkidle', timeout: 60000 });
-      await page.waitForTimeout(5000); // Respiro para scripts do ML
+      await page.waitForTimeout(5000); 
 
       // Tenta ir para a página de afiliados para garantir o CSRF
       try {
         await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
-          waitUntil: 'networkidle',
+          waitUntil: 'domcontentloaded',
           timeout: 30000
         });
         await page.waitForTimeout(3000);
