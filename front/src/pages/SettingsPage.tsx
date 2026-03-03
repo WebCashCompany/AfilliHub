@@ -145,7 +145,7 @@ export function SettingsPage() {
 
   const saveMLSession = async () => {
     if (!mlSSID.trim()) {
-      toast({ title: 'Erro', description: 'O SSID é obrigatório para gerar links meli.la', variant: 'destructive' });
+      toast({ title: 'Erro', description: 'O SSID é obrigatório para gerar links afiliados', variant: 'destructive' });
       return;
     }
     setMlSessionLoading(true);
@@ -163,7 +163,7 @@ export function SettingsPage() {
       
       toast({
         title: '✅ Sessão Ativada!',
-        description: 'Agora seus links serão gerados como meli.la',
+        description: 'Agora seus links serão gerados como afiliado!',
         className: 'bg-green-600 text-white border-none',
       });
     } catch (error) {
@@ -235,7 +235,7 @@ export function SettingsPage() {
                 </div>
                 <div>
                   <CardTitle className="text-xl">Mercado Livre</CardTitle>
-                  <CardDescription>Conexão oficial via OAuth para geração de links meli.la</CardDescription>
+                  <CardDescription>Conexão oficial via OAuth para geração de links afiliados</CardDescription>
                 </div>
               </div>
 
@@ -282,7 +282,7 @@ export function SettingsPage() {
                       {mlStatus.hasCookies ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />}
                     </div>
                     <div>
-                      <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Geração meli.la</p>
+                      <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Geração Afiliada</p>
                       <p className={`font-semibold ${mlStatus.hasCookies ? 'text-emerald-500' : 'text-amber-500'}`}>
                         {mlStatus.hasCookies ? 'Ativa' : 'Inativa'}
                       </p>
@@ -299,7 +299,7 @@ export function SettingsPage() {
                       <div className="space-y-2">
                         <h4 className="font-bold text-amber-200">Ação Necessária: Ativar Sessão</h4>
                         <p className="text-sm text-amber-200/70 leading-relaxed">
-                          Para que o sistema consiga gerar links encurtados <strong>meli.la</strong>, é necessário fornecer o token de sessão (SSID) da sua conta.
+                          Para que o sistema consiga gerar links <strong>afiliados</strong>, é necessário fornecer o token de sessão (SSID) da sua conta.
                         </p>
                         <Button 
                           variant="link" 
@@ -372,7 +372,7 @@ export function SettingsPage() {
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold flex items-center gap-2">
               <Key className="w-6 h-6 text-amber-500" />
-              Ativar Sessão meli.la
+              Ativar Sessão
             </DialogTitle>
             <DialogDescription className="text-zinc-400">
               Siga os passos abaixo para capturar o SSID e ativar a geração de links encurtados.
@@ -422,7 +422,7 @@ export function SettingsPage() {
             <Button variant="ghost" className="text-zinc-400 hover:text-zinc-200" onClick={() => setOpenMLSessionDialog(false)}>Cancelar</Button>
             <Button onClick={saveMLSession} disabled={mlSessionLoading} className="bg-amber-500 text-black hover:bg-amber-400 font-bold">
               {mlSessionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-              Ativar Geração meli.la
+              Ativar Geração Afiliada
             </Button>
           </DialogFooter>
         </DialogContent>
