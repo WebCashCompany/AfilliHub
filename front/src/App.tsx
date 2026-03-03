@@ -23,14 +23,14 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { TrashPage } from "@/pages/TrashPage";
 import NotFound from "./pages/NotFound";
 
-import { Analytics } from "@vercel/analytics/react"; // ✅ Import do Analytics
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 const queryClient = new QueryClient();
 
 function AppRoutes() {
   return (
     <AuthProvider>
-      {/* WhatsAppProvider dentro do AuthProvider para acessar useAuth */}
       <WhatsAppProvider>
         <Routes>
           {/* Rotas públicas */}
@@ -70,8 +70,9 @@ const App = () => (
               <AppRoutes />
             </BrowserRouter>
 
-            {/* ✅ Analytics da Vercel montado no nível mais alto */}
+            {/* Monitoramento da Vercel */}
             <Analytics />
+            <SpeedInsights />
             
           </DashboardProvider>
         </UserPreferencesProvider>
