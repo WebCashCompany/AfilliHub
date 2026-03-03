@@ -59,11 +59,11 @@ class MLAffiliateService {
   }
 
   /**
-   * Captura cookies ssid e csrf via Playwright com estratégia de resiliência
+   * Captura cookies ssid e csrf via Playwright com estratégia Stealth e Injeção Nativa
    * @param {string} accessToken - Token de acesso obtido via OAuth
    */
   async captureSessionCookies(accessToken) {
-    console.log('🕵️ [Playwright] Iniciando captura de cookies em background...');
+    console.log('🕵️ [Playwright] Iniciando captura de cookies em background (Stealth Mode)...');
     let browser;
     try {
       browser = await chromium.launch({ 
@@ -73,65 +73,71 @@ class MLAffiliateService {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--disable-blink-features=AutomationControlled'
+          '--disable-blink-features=AutomationControlled',
+          '--disable-infobars',
+          '--window-position=0,0',
+          '--ignore-certificate-errors',
+          '--ignore-certificate-errors-spki-list',
+          '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         ] 
       });
       
       const context = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        viewport:  { width: 1280, height: 720 }
+        viewport:  { width: 1280, height: 720 },
+        extraHTTPHeaders: {
+          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
+        }
       });
       
       const page = await context.newPage();
-
-      // Configura um timeout global para a página
       page.setDefaultTimeout(60000);
 
-      console.log('⏳ [Playwright] Acessando ML base para injeção...');
-      // Estratégia 'commit': prossegue assim que a resposta do servidor é recebida, ignorando o carregamento de assets
-      await page.goto('https://www.mercadolivre.com.br/', { waitUntil: 'commit', timeout: 60000 });
-
-      // Injeção de tokens em múltiplos storages para garantir o reconhecimento da sessão
-      await page.evaluate((token) => {
-        try {
-          localStorage.setItem('access_token', token);
-          sessionStorage.setItem('access_token', token);
-          document.cookie = `access_token=${token}; domain=.mercadolivre.com.br; path=/; Secure; SameSite=Lax`;
-        } catch (e) {
-          console.error('Erro na injeção de tokens:', e.message);
-        }
+      // 🔥 O SEGREDO: Injetar o token via script de inicialização antes de qualquer navegação
+      await page.addInitScript((token) => {
+        window.localStorage.setItem('access_token', token);
+        window.sessionStorage.setItem('access_token', token);
       }, accessToken);
 
-      console.log('⏳ [Playwright] Recarregando para validação da sessão...');
-      // Recarrega e espera o DOM estar pronto, sem travar em scripts de terceiros
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-      
-      // Pequena pausa para execução de scripts assíncronos do ML
-      await page.waitForTimeout(5000);
+      console.log('⏳ [Playwright] Acessando ML para injeção de cookies nativos...');
+      // Navega para a home para estabelecer o domínio
+      await page.goto('https://www.mercadolivre.com.br/', { waitUntil: 'domcontentloaded' });
 
-      console.log('⏳ [Playwright] Navegando para o painel de afiliados para capturar CSRF...');
-      try {
-        // Navega para a página de afiliados onde o CSRF é gerado obrigatoriamente
-        await page.goto('https://www.mercadolivre.com.br/affiliate-program/', {
-          waitUntil: 'domcontentloaded',
-          timeout: 30000
-        });
-        await page.waitForTimeout(3000);
-      } catch (e) {
-        console.warn('⚠️ [Playwright] Timeout parcial no affiliate-program, prosseguindo para captura de cookies.');
-      }
+      // Injeta o cookie de access_token via JavaScript para garantir o domínio correto
+      await page.evaluate((token) => {
+        const domain = ".mercadolivre.com.br";
+        document.cookie = `access_token=${token}; domain=${domain}; path=/; Secure; SameSite=Lax`;
+      }, accessToken);
+
+      console.log('⏳ [Playwright] Forçando geração de SSID via página de Afiliados...');
+      // Navega para a página de afiliados que obriga o ML a validar a sessão e gerar o SSID
+      await page.goto('https://www.mercadolivre.com.br/affiliate-program/', { 
+        waitUntil: 'networkidle',
+        timeout: 60000 
+      });
+      
+      // Aguarda um pouco para que os cookies de segurança sejam processados
+      await page.waitForTimeout(8000);
 
       // Captura todos os cookies do domínio
       const cookies = await context.cookies(['https://www.mercadolivre.com.br']);
+      
+      // Busca o SSID (pode estar em maiúsculo ou minúsculo)
       const ssid = cookies.find(c => c.name.toLowerCase() === 'ssid')?.value;
-      const csrf = cookies.find(c => ['_csrf_token', 'csrf_token', 'xsrf-token'].includes(c.name.toLowerCase()))?.value;
+      
+      // Busca o CSRF (o ML usa vários nomes, tentamos os mais comuns)
+      const csrf = cookies.find(c => 
+        ['_csrf_token', 'csrf_token', 'xsrf-token', '_csrf'].includes(c.name.toLowerCase())
+      )?.value;
 
       await browser.close();
       
-      if (ssid && csrf) {
-        console.log('✅ [Playwright] Cookies capturados com sucesso.');
+      if (ssid) {
+        console.log('✅ [Playwright] SSID capturado com sucesso.');
       } else {
-        console.warn(`⚠️ [Playwright] Captura incompleta - SSID: ${ssid ? '✅' : '❌'} | CSRF: ${csrf ? '✅' : '❌'}`);
+        console.warn('❌ [Playwright] SSID não encontrado nos cookies.');
+        // Log dos cookies encontrados para depuração (apenas nomes)
+        console.log('Cookies encontrados:', cookies.map(c => c.name).join(', '));
       }
 
       return { ssid: ssid || null, csrf: csrf || null };
