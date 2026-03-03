@@ -1,6 +1,6 @@
 /**
  * MERCADO LIVRE SCRAPER
- * @version 3.3.3 - ✅ Suporte a Token + CSRF (Sem dependência de SSID)
+ * @version 3.3.4 - ✅ Geração de link meli.la via SSID/CSRF manual
  */
 
 const { chromium } = require('playwright');
@@ -144,16 +144,17 @@ class MercadoLivreScraper {
   }
 
   /**
-   * ✅ MÉTODO ATUALIZADO: Agora gera o link se estiver autenticado (Token presente)
-   * Não trava mais se o SSID estiver vazio.
+   * ✅ MÉTODO ATUALIZADO: Agora gera o link meli.la usando SSID/CSRF manuais
    */
   async getAffiliateLink(productUrl) {
-    // mlAffiliate.isAuthenticated() agora retorna true se tiver o access_token
+    // mlAffiliate.isAuthenticated() agora retorna true se tiver Token E SSID
     if (mlAffiliate.isAuthenticated()) {
       try {
-        // O serviço agora cuida de usar Token + CSRF internamente
         const link = await mlAffiliate.generateAffiliateLink(productUrl);
-        if (link && link !== productUrl) return link;
+        // Se o link retornado for diferente do original e não contiver tracking_id, é um meli.la
+        if (link && link !== productUrl && !link.includes('tracking_id=')) {
+          return link;
+        }
       } catch (e) {
         console.warn(`⚠️  [Scraper] Erro ao gerar link afiliado: ${e.message}`);
       }
@@ -283,10 +284,10 @@ class MercadoLivreScraper {
 
         if (affiliateLink) {
           this.stats.affiliateLinksSuccess++;
-          console.log(`✅ [Scraper] Link afiliado: ${affiliateLink}`);
+          console.log(`✅ [Scraper] Link meli.la: ${affiliateLink}`);
         } else {
           this.stats.affiliateLinksFailed++;
-          console.warn(`⚠️  [Scraper] API não retornou link afiliado para: ${prodData.name.substring(0, 50)}`);
+          console.warn(`⚠️  [Scraper] Link comum retornado para: ${prodData.name.substring(0, 50)}`);
         }
 
         let categoriaFinal = this.searchTerm ? 'Informática' : this.categoriaInfo.nome;

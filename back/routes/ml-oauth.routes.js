@@ -1,10 +1,3 @@
-/**
- * ═══════════════════════════════════════════════════════════
- * ML OAUTH ROUTES
- * @version 2.2.5 - Final Integrated Version
- * ═══════════════════════════════════════════════════════════
- */
-
 const express     = require('express');
 const router      = express.Router();
 const mlAffiliate = require('../services/MLAffiliateService');
@@ -66,58 +59,55 @@ router.get('/callback', async (req, res) => {
   if (!code) return res.redirect(`${redirectUrl}?ml_error=no_code`);
 
   try {
-    console.log('🔄 [ML OAuth] Trocando código por tokens e capturando cookies...');
-    // 🔥 exchangeCode agora faz a troca do token E a captura do Playwright internamente
+    console.log('🔄 [ML OAuth] Trocando código por tokens...');
     const tokenData = await mlAffiliate.exchangeCode(code);
     
-    console.log('✅ [ML OAuth] Tokens e Cookies obtidos! User ID:', tokenData.user_id);
+    console.log('✅ [ML OAuth] Tokens obtidos! User ID:', tokenData.user_id);
     
     await saveMLCredentials({
       accessToken:  tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       tokenExpiry:  Date.now() + (tokenData.expires_in * 1000),
       userId:       tokenData.user_id,
-      ssid:         tokenData.ssid || '',
-      csrf:         tokenData.csrf || '',
+      ssid:         '', // Será preenchido manualmente depois
+      csrf:         '', // Será preenchido manualmente depois
     });
 
-    return res.redirect(`${redirectUrl}?ml_connected=true`);
+    // Redireciona para as configurações com um parâmetro para abrir o modal de SSID
+    return res.redirect(`${redirectUrl}?ml_connected=true&need_session=true`);
   } catch (err) {
     console.error('❌ [ML OAuth] Erro no callback:', err.message);
     return res.redirect(`${redirectUrl}?ml_error=token_exchange_failed`);
   }
 });
 
-// ─── POST /api/ml/exchange-code ──────────────────────────────────────────────
-router.post('/exchange-code', async (req, res) => {
-  const { code } = req.body;
-  if (!code) return res.status(400).json({ error: 'Code obrigatório' });
+// ─── POST /api/ml/session ────────────────────────────────────────────────────
+// ✅ NOVA ROTA: Recebe o SSID e CSRF manualmente do frontend
+router.post('/session', async (req, res) => {
+  const { ssid, csrf } = req.body;
+  if (!ssid) return res.status(400).json({ error: 'SSID é obrigatório' });
 
   try {
-    console.log('🔄 [ML OAuth] Trocando código por tokens e capturando cookies...');
-    const tokenData = await mlAffiliate.exchangeCode(code);
+    console.log('🔄 [ML OAuth] Atualizando SSID e CSRF manualmente...');
     
-    await saveMLCredentials({
-      accessToken:  tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
-      tokenExpiry:  Date.now() + (tokenData.expires_in * 1000),
-      userId:       tokenData.user_id,
-      ssid:         tokenData.ssid || '',
-      csrf:         tokenData.csrf || '',
-    });
+    const conn        = getProductConnection();
+    const Integration = IntegrationModel(conn);
+    
+    const config = await Integration.findOneAndUpdate(
+      { provider: 'mercadolivre' },
+      { $set: { ssid, csrf, updatedAt: new Date() } },
+      { new: true }
+    );
 
-    res.json({
-      success:    true,
-      userId:     tokenData.user_id,
-      hasCookies: !!tokenData.ssid
-    });
+    if (!config) return res.status(404).json({ error: 'Integração não encontrada. Conecte o OAuth primeiro.' });
 
+    // Atualiza o serviço em memória
+    mlAffiliate.updateSession(ssid, csrf);
+
+    res.json({ success: true, message: 'Sessão atualizada com sucesso!' });
   } catch (err) {
-    console.error('❌ [ML OAuth] Erro ao trocar código:', err.response?.data || err.message);
-    res.status(500).json({
-      success: false,
-      error:   err.response?.data?.message || err.message
-    });
+    console.error('❌ [ML OAuth] Erro ao atualizar sessão:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -152,13 +142,7 @@ router.delete('/disconnect', async (req, res) => {
     const Integration = IntegrationModel(conn);
     
     await Integration.deleteMany({ provider: 'mercadolivre' });
-
-    if (typeof mlAffiliate.disconnect === 'function') {
-      mlAffiliate.disconnect();
-    } else {
-      mlAffiliate.accessToken = null;
-      mlAffiliate.ssid = '';
-    }
+    mlAffiliate.disconnect();
 
     res.json({ success: true, message: 'Conta ML desconectada com sucesso' });
   } catch (error) {
