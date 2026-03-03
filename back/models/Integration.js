@@ -8,18 +8,15 @@ const IntegrationSchema = new mongoose.Schema({
     enum: ['mercadolivre', 'magalu', 'shopee', 'amazon'],
   },
 
-  // Mercado Livre OAuth
+  // Mercado Livre OAuth & Session Cookies (CAPTURA VIA PLAYWRIGHT)
   accessToken:  { type: String, default: null },
   refreshToken: { type: String, default: null },
   tokenExpiry:  { type: Number, default: null },
   userId:       { type: String, default: null },
-  ssid:         { type: String, default: null },
-  csrf:         { type: String, default: null },
+  ssid:         { type: String, default: null }, //
+  csrf:         { type: String, default: null }, //
 
-  // Magalu / outros
-  affiliateId: { type: String, default: null },
-
-  // Status
+  // Status da Conexão
   isActive:    { type: Boolean, default: true },
   connectedAt: { type: Date, default: null },
 

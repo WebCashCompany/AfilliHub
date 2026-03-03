@@ -1,7 +1,9 @@
-// backend/routes/scraping.routes.js - VERSÃO COM SSE REAL-TIME & CORREÇÃO RENDER
+// backend/routes/scraping.routes.js - VERSÃO COM SSE REAL-TIME & CORREÇÃO RENDER & INJEÇÃO DE COOKIES
 const express = require('express');
 const router = express.Router();
 const ScrapingService = require('../scraper/services/ScrapingService');
+const mlAffiliate = require('../services/MLAffiliateService');
+const { getProductConnection } = require('../database/mongodb');
 const { v4: uuidv4 } = require('uuid');
 
 const activeScrapingSessions = new Map();
@@ -32,7 +34,7 @@ router.post('/start', async (req, res) => {
     const { marketplaces, minDiscount, maxPrice } = req.body;
 
     console.log('\n╔════════════════════════════════════════════════════╗');
-    console.log('║         🚀 RECEBENDO REQUISIÇÃO DE SCRAPING         ║');
+    console.log('║        🚀 RECEBENDO REQUISIÇÃO DE SCRAPING         ║');
     console.log('╚════════════════════════════════════════════════════╝');
     console.log('📦 Body recebido:', JSON.stringify(req.body, null, 2));
 
@@ -73,6 +75,27 @@ router.post('/start', async (req, res) => {
     });
 
     (async () => {
+      // ✅ INJEÇÃO CRÍTICA ANTES DO SCRAPING COMEÇAR
+      // Se o ML estiver habilitado, garante que a memória do serviço esteja atualizada com o banco
+      const mlConfigParams = enabledMarketplaces.find(([name]) => name === 'mercadolivre' || name === 'ML');
+      if (mlConfigParams) {
+        try {
+          const conn = getProductConnection();
+          const IntegrationModel = require('../models/Integration')(conn);
+          const config = await IntegrationModel.findOne({ provider: 'mercadolivre', isActive: true });
+          
+          if (config && config.ssid) {
+            mlAffiliate.updateCookies(config.ssid, config.csrf);
+            mlAffiliate.accessToken = config.accessToken;
+            console.log('🍪 [Scraping Route] Credenciais Mercado Livre carregadas em memória!');
+          } else {
+            console.warn('⚠️ [Scraping Route] ML ativo na request, mas sem cookies no banco.');
+          }
+        } catch (dbErr) {
+          console.error('❌ [Scraping Route] Erro ao carregar sessão do ML do banco:', dbErr.message);
+        }
+      }
+
       const scrapingService = new ScrapingService();
       let totalCollected = 0;
       let processedItems = 0;

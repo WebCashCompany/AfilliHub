@@ -2,10 +2,8 @@
  * ═══════════════════════════════════════════════════════════════════════
  * MERCADO LIVRE WORKER - ENTERPRISE EDITION
  * ═══════════════════════════════════════════════════════════════════════
- * 
- * @version 2.4.0 - ✅ NOVA FEATURE: Busca por termo (ex: creatina)
- * 
- * MODOS DE USO:
+ * * @version 2.4.1 - ✅ INTEGRADO: Carregamento de Cookies (SSID/CSRF)
+ * * MODOS DE USO:
  * 1. Interativo: node workers/mlWorker.js
  * 2. Via argumentos: node workers/mlWorker.js --categorias=informatica --preco=50
  * 3. Busca por termo: node workers/mlWorker.js --busca=creatina --preco=100
@@ -13,8 +11,9 @@
 
 require('dotenv').config();
 
-const { connectDB } = require('../database/mongodb');
+const { connectDB, getProductConnection } = require('../database/mongodb');
 const ScrapingService = require('../scraper/services/ScrapingService');
+const mlAffiliate = require('../services/MLAffiliateService');
 const readline = require('readline');
 
 const CONFIG = {
@@ -84,7 +83,6 @@ async function selecionarInterativo() {
   const modeChoice = await question('Escolha o modo (1 ou 2): ');
   
   if (modeChoice === '2') {
-    // MODO BUSCA POR TERMO
     const searchTerm = await question('\n🔎 Digite o termo de busca (ex: creatina): ');
     
     if (!searchTerm || searchTerm.trim().length < 2) {
@@ -95,7 +93,6 @@ async function selecionarInterativo() {
     return await selecionarBusca(searchTerm.trim());
   }
   
-  // MODO CATEGORIAS (padrão)
   return await selecionarCategorias();
 }
 
@@ -132,7 +129,6 @@ async function selecionarCategorias() {
 
 async function selecionarBusca(searchTerm) {
   console.log(`\n🔎 Termo de busca: "${searchTerm}"\n`);
-  
   const maxPrice = await selecionarPreco();
   
   return { 
@@ -381,6 +377,19 @@ function displayFinalReport(resultados, totalSaved, totalCollected, mode, select
     console.log('📡 Conectando ao banco...\n');
     await connectDB();
     
+    // ✅ NOVO: Garante que as credenciais do ML (SSID/CSRF) sejam carregadas do MongoDB para o serviço
+    const prodConnection = getProductConnection();
+    const IntegrationModel = require('../models/Integration')(prodConnection);
+    const mlConfig = await IntegrationModel.findOne({ provider: 'mercadolivre', isActive: true });
+    
+    if (mlConfig && mlConfig.ssid) {
+        mlAffiliate.updateCookies(mlConfig.ssid, mlConfig.csrf);
+        mlAffiliate.accessToken = mlConfig.accessToken;
+        console.log('🍪 [Worker] Credenciais Mercado Livre carregadas do banco!');
+    } else {
+        console.warn('⚠️  [Worker] Conta Mercado Livre não conectada ou sem cookies. Links afiliados podem falhar.');
+    }
+
     let config;
     const argsConfig = parseArguments(process.argv);
     
@@ -401,14 +410,12 @@ function displayFinalReport(resultados, totalSaved, totalCollected, mode, select
     const resultados = {};
     
     if (mode === 'search') {
-      // MODO BUSCA POR TERMO
       const resultado = await processSearch(scrapingService, searchTerm, limitPerCat, maxPrice);
       resultados.search = resultado;
       totalSaved = resultado.salvos;
       totalCollected = resultado.coletados;
       
     } else {
-      // MODO CATEGORIAS
       for (const [index, categoria] of selectedCats.entries()) {
         if (index > 0) scrapingService.clearScraperCache('ML');
         

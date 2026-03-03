@@ -2,8 +2,7 @@
  * ═══════════════════════════════════════════════════════════════════════
  * SCRAPING SERVICE - COM SSE REAL-TIME & AFFILIATE ID DINÂMICO
  * ═══════════════════════════════════════════════════════════════════════
- * 
- * @version 2.7.1 - ✅ FIX: aceita meli.la como link afiliado válido no ML
+ * * @version 2.7.2 - ✅ FIX: aceita meli.la como link afiliado válido no ML e suporta SSID
  */
 
 const { getProductConnection } = require('../../database/mongodb');
@@ -366,7 +365,7 @@ class ScrapingService {
     stats.totalSaved = stats.inserted + stats.betterOffers + stats.updated;
 
     console.log(`\n╔═══════════════════════════════════════╗`);
-    console.log(`║         📊 RESULTADO FINAL 📊         ║`);
+    console.log(`║        📊 RESULTADO FINAL 📊          ║`);
     console.log(`╚═══════════════════════════════════════╝`);
     console.log(`✨ Novos produtos: ${stats.inserted}`);
     console.log(`🔥 Ofertas melhoradas: ${stats.betterOffers}`);

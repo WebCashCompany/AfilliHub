@@ -1,8 +1,8 @@
 /**
  * MERCADO LIVRE SCRAPER
  * @version 3.3.2 - Playwright scraping + link afiliado via API ML
- *                  ✅ NUNCA pula produto — salva qualquer link afiliado retornado
- *                  ✅ Aceita meli.la, mercado.livre, /sec/ — tudo que a API devolver
+ * ✅ NUNCA pula produto — salva qualquer link afiliado retornado
+ * ✅ Aceita meli.la, mercado.livre, /sec/ — tudo que a API devolver
  */
 
 const { chromium } = require('playwright');
@@ -145,13 +145,12 @@ class MercadoLivreScraper {
     return { browser: this.browser, context: this.context };
   }
 
-  // ✅ Tenta gerar link afiliado via API do ML
-  // Retorna o link afiliado (qualquer formato) ou null se a API não retornar nada
   async getAffiliateLink(productUrl) {
     if (mlAffiliate.isAuthenticated()) {
       try {
+        // CORREÇÃO: Passa o link para o serviço que agora usa SSID/CSRF capturados
         const link = await mlAffiliate.generateAffiliateLink(productUrl);
-        if (link) return link; // ✅ aceita qualquer link retornado pela API
+        if (link) return link;
       } catch (e) {
         console.warn(`⚠️  [Scraper] Erro ao gerar link afiliado: ${e.message}`);
       }
@@ -277,14 +276,12 @@ class MercadoLivreScraper {
           return null;
         }
 
-        // ✅ Tenta gerar link afiliado via API do ML
         const affiliateLink = await this.getAffiliateLink(prodData.link);
 
         if (affiliateLink) {
           this.stats.affiliateLinksSuccess++;
           console.log(`✅ [Scraper] Link afiliado: ${affiliateLink}`);
         } else {
-          // ✅ API não retornou link — loga mas NÃO pula o produto
           this.stats.affiliateLinksFailed++;
           console.warn(`⚠️  [Scraper] API não retornou link afiliado para: ${prodData.name.substring(0, 50)}`);
         }
@@ -296,7 +293,7 @@ class MercadoLivreScraper {
           nome:           prodData.name,
           imagem:         prodData.image,
           link_original:  prodData.link,
-          link_afiliado:  affiliateLink || prodData.link, // usa o que tiver
+          link_afiliado:  affiliateLink || prodData.link,
           desconto:       `${realDiscount}%`,
           preco:          `R$ ${finalPrice}`,
           preco_anterior: `R$ ${prodData.oldPrice}`,
@@ -385,7 +382,7 @@ class MercadoLivreScraper {
 
       console.log(`\n✅ Scraping concluído: ${allProducts.length} produtos coletados`);
       console.log(`   ✅ Links afiliados gerados: ${this.stats.affiliateLinksSuccess}`);
-      console.log(`   ⚠️  Sem link afiliado:      ${this.stats.affiliateLinksFailed}`);
+      console.log(`   ⚠️  Sem link afiliado:       ${this.stats.affiliateLinksFailed}`);
       console.log(`   🔁 Duplicatas ignoradas:    ${this.stats.duplicatesIgnored}\n`);
 
       return allProducts;
