@@ -2,7 +2,11 @@
  * ═══════════════════════════════════════════════════════════════════════
  * SCRAPING SERVICE - COM SSE REAL-TIME & AFFILIATE ID DINÂMICO
  * ═══════════════════════════════════════════════════════════════════════
- * * @version 2.7.2 - ✅ FIX: aceita meli.la como link afiliado válido no ML e suporta SSID
+ * @version 2.8.0
+ * @fixes
+ *   - ✅ searchTerm passado para MagaluScraper via scraperOptions
+ *   - ✅ onProductCollected passado para MagaluScraper via scraperOptions
+ *   - ✅ Validação de link_afiliado do Magalu corrigida (não sobrescreve link válido)
  */
 
 const { getProductConnection } = require('../../database/mongodb');
@@ -39,11 +43,9 @@ class ScrapingService {
         scraper: new MercadoLivreScraper(),
         enabled: true
       };
-      
       this.marketplaces.set('mercadolivre', mlConfig);
       this.marketplaces.set('ML', mlConfig);
       this.marketplaces.set('ml', mlConfig);
-      
     } catch (error) {
       console.error('⚠️  Mercado Livre não disponível:', error.message);
     }
@@ -53,13 +55,11 @@ class ScrapingService {
         const magaluConfig = {
           name: 'Magazine Luiza',
           code: 'MAGALU',
-          scraper: null,
+          scraper: null, // instanciado dinamicamente em collectFromMarketplace
           enabled: true
         };
-        
         this.marketplaces.set('magalu', magaluConfig);
         this.marketplaces.set('MAGALU', magaluConfig);
-        
       } catch (error) {
         console.error('⚠️  Magazine Luiza não disponível:', error.message);
       }
@@ -73,10 +73,8 @@ class ScrapingService {
           scraper: new ShopeeScraper(),
           enabled: true
         };
-        
         this.marketplaces.set('shopee', shopeeConfig);
         this.marketplaces.set('Shopee', shopeeConfig);
-        
       } catch (error) {
         console.error('⚠️  Shopee não disponível:', error.message);
       }
@@ -84,10 +82,9 @@ class ScrapingService {
   }
 
   clearScraperCache(marketplaceName) {
-    const marketplace = this.marketplaces.get(marketplaceName) || 
-                        this.marketplaces.get(marketplaceName.toLowerCase()) ||
-                        this.marketplaces.get(marketplaceName.toUpperCase());
-    
+    const marketplace = this.marketplaces.get(marketplaceName) ||
+      this.marketplaces.get(marketplaceName.toLowerCase()) ||
+      this.marketplaces.get(marketplaceName.toUpperCase());
     if (marketplace && marketplace.scraper && typeof marketplace.scraper.clearCache === 'function') {
       marketplace.scraper.clearCache();
     }
@@ -100,17 +97,13 @@ class ScrapingService {
     try {
       const conn = getProductConnection();
       const Integration = IntegrationModel(conn);
-      
       const config = await Integration.findOne({ provider: 'magalu' });
-      
       if (config && config.affiliateId) {
         console.log(`🏪 Magalu Affiliate ID (DB): ${config.affiliateId}`);
         return config.affiliateId;
       }
-      
       console.log('⚠️  Nenhum Affiliate ID do Magalu no banco, usando padrão');
       return null;
-      
     } catch (error) {
       console.error('❌ Erro ao buscar Affiliate ID do Magalu:', error.message);
       return null;
@@ -118,9 +111,9 @@ class ScrapingService {
   }
 
   async collectFromMarketplace(marketplaceName, options = {}) {
-    const { 
-      minDiscount = 30, 
-      limit = 50, 
+    const {
+      minDiscount = 30,
+      limit = 50,
       categoria = null,
       categoryKey = null,
       maxPrice = null,
@@ -128,49 +121,49 @@ class ScrapingService {
       onProductCollected = null
     } = options;
 
-    const marketplace = this.marketplaces.get(marketplaceName) || 
-                        this.marketplaces.get(marketplaceName.toLowerCase()) ||
-                        this.marketplaces.get(marketplaceName.toUpperCase());
+    const marketplace = this.marketplaces.get(marketplaceName) ||
+      this.marketplaces.get(marketplaceName.toLowerCase()) ||
+      this.marketplaces.get(marketplaceName.toUpperCase());
 
     if (!marketplace) {
       throw new Error(`Marketplace "${marketplaceName}" não encontrado. Disponíveis: ${Array.from(this.marketplaces.keys()).join(', ')}`);
     }
-
     if (!marketplace.enabled) {
       throw new Error(`Marketplace "${marketplace.name}" está desabilitado`);
     }
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
-    
+
     const filters = [];
     if (searchTerm) filters.push(`🔎 Busca: "${searchTerm}"`);
     if (categoria) filters.push(`Categoria ML: ${categoria}`);
     if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
     if (maxPrice) filters.push(`Preço Máx: R$ ${maxPrice}`);
-    if (filters.length > 0) {
-      console.log(`🎯 FILTROS: ${filters.join(' | ')}`);
-    }
+    if (filters.length > 0) console.log(`🎯 FILTROS: ${filters.join(' | ')}`);
 
     let scraper;
-    
+
     if (marketplace.code === 'MAGALU') {
       const affiliateId = await this.getMagaluAffiliateId();
-      
-      const scraperOptions = { 
+
+      // ✅ FIX: searchTerm e onProductCollected passados para o construtor
+      const scraperOptions = {
         categoryKey,
-        affiliateId
+        affiliateId,
+        searchTerm,          // ← era ignorado antes
+        onProductCollected   // ← era ignorado antes
       };
-      
+
       scraper = new MagaluScraper(minDiscount, scraperOptions);
       scraper.limit = limit;
       scraper.maxPrice = maxPrice;
-      
+
     } else {
       scraper = marketplace.scraper;
       scraper.minDiscount = minDiscount;
       scraper.limit = limit;
       scraper.maxPrice = maxPrice;
-      
+
       if (onProductCollected) {
         scraper.onProductCollected = onProductCollected;
       }
@@ -193,32 +186,22 @@ class ScrapingService {
         }
       }
     }
-    
+
     console.log('🟡 Iniciando Web Scraper (Playwright)...\n');
-    
+
     const products = await scraper.scrapeCategory();
-    
+
     console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
 
     if (products.length > 0) {
       console.log(`🔗 Validando ${products.length} links de afiliado...\n`);
-      
+
       let validLinks = 0;
       let invalidLinks = 0;
-      
+
       for (const product of products) {
-        const isValidUrl = this.isValidUrl(product.link_afiliado);
-        
-        if (!isValidUrl) {
-          console.log(`   ⚠️  URL inválida: ${product.nome.substring(0, 30)}...`);
-          product.link_afiliado = product.link_original;
-          invalidLinks++;
-        } else {
-          validLinks++;
-        }
-        
         if (marketplace.code === 'ML') {
-          // ✅ FIX: aceita tanto /sec/ (antigo) quanto meli.la (novo formato)
+          // ✅ aceita tanto /sec/ (antigo) quanto meli.la (novo formato)
           const link = product.link_afiliado;
           const isAfiliado = link && (
             link.includes('mercadolivre.com/sec/') ||
@@ -226,32 +209,69 @@ class ScrapingService {
           );
           if (!isAfiliado) {
             product.link_afiliado = product.link_original;
+            invalidLinks++;
+          } else {
+            validLinks++;
           }
-        } 
-        else if (marketplace.code === 'MAGALU') {
-          if (!product.link_afiliado) {
-            product.link_afiliado = product.link_original;
+        } else if (marketplace.code === 'MAGALU') {
+          // ✅ FIX: link_afiliado já vem populado do scraper — só valida
+          //         NÃO sobrescreve com link_original se já for válido
+          const isValid = this.isValidUrl(product.link_afiliado);
+          if (isValid) {
+            validLinks++;
+          } else {
+            // Fallback: tenta reconstruir
+            const rebuilt = this.buildMagaluAffiliateLink(
+              product.link_original,
+              scraper.affiliateId
+            );
+            product.link_afiliado = rebuilt || product.link_original;
+            if (this.isValidUrl(product.link_afiliado)) {
+              validLinks++;
+            } else {
+              invalidLinks++;
+              console.log(`   ⚠️  URL inválida: ${product.nome.substring(0, 30)}...`);
+            }
           }
         } else if (marketplace.code === 'shopee') {
           const separator = product.link_original.includes('?') ? '&' : '?';
           const affiliateId = process.env.SHOPEE_AFFILIATE_ID || '18182230010';
           product.link_afiliado = `${product.link_original}${separator}af_siteid=${affiliateId}&pid=affiliates&af_click_lookback=7d`;
+          validLinks++;
         } else {
           product.link_afiliado = product.link_original;
+          validLinks++;
         }
       }
-      
+
       console.log(`   ✅ Válidos: ${validLinks} | ⚠️  Inválidos: ${invalidLinks}\n`);
     }
 
     return products;
   }
 
-  isValidUrl(url) {
-    if (!url || typeof url !== 'string' || url.length < 10) {
-      return false;
+  /**
+   * ✅ Helper: reconstrói link afiliado do Magalu fora do contexto do scraper
+   */
+  buildMagaluAffiliateLink(rawUrl, affiliateId) {
+    if (!rawUrl || !affiliateId) return rawUrl;
+    try {
+      if (rawUrl.includes('magazinevoce.com.br') && rawUrl.includes(affiliateId)) {
+        return rawUrl.split('?')[0].split('#')[0];
+      }
+      const url = new URL(rawUrl);
+      url.hostname = 'www.magazinevoce.com.br';
+      if (!url.pathname.startsWith(`/${affiliateId}/`)) {
+        url.pathname = `/${affiliateId}${url.pathname}`;
+      }
+      return url.toString().split('?')[0].split('#')[0];
+    } catch (e) {
+      return rawUrl;
     }
-    
+  }
+
+  isValidUrl(url) {
+    if (!url || typeof url !== 'string' || url.length < 10) return false;
     try {
       const urlObj = new URL(url);
       return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
@@ -262,10 +282,10 @@ class ScrapingService {
 
   async saveProducts(products, marketplaceCode = 'ML') {
     console.log(`\n💾 Salvando no MongoDB (Marketplace: ${marketplaceCode})...`);
-    
+
     const conn = getProductConnection();
     const Product = getProductModel(marketplaceCode, conn);
-    
+
     const stats = {
       inserted: 0,
       updated: 0,
@@ -284,69 +304,37 @@ class ScrapingService {
         }
 
         const normalizedName = this.normalizeProductName(product.nome);
-        
+
         if (product._shouldUpdate) {
           const query = { link_afiliado: product._oldLink || product.link_afiliado };
           const existing = await Product.findOne(query);
 
           if (existing) {
             const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
-            
             await Product.updateOne(
-              { _id: existing._id }, 
-              { 
-                $set: { 
-                  ...cleanProduct, 
-                  nome_normalizado: normalizedName,
-                  ultima_verificacao: new Date(),
-                  updatedAt: new Date(), 
-                  isActive: true 
-                } 
-              }
+              { _id: existing._id },
+              { $set: { ...cleanProduct, nome_normalizado: normalizedName, ultima_verificacao: new Date(), updatedAt: new Date(), isActive: true } }
             );
-            
             stats.betterOffers++;
             console.log(`   🔥 MELHOR OFERTA: ${product.nome.substring(0, 35)}... (${product.desconto})`);
           } else {
             const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
-            
-            await Product.create({ 
-              ...cleanProduct, 
-              nome_normalizado: normalizedName,
-              ultima_verificacao: new Date(),
-              createdAt: new Date() 
-            });
-            
+            await Product.create({ ...cleanProduct, nome_normalizado: normalizedName, ultima_verificacao: new Date(), createdAt: new Date() });
             stats.inserted++;
             console.log(`   ✨ NOVO: ${product.nome.substring(0, 40)}...`);
           }
-        } 
-        else {
+        } else {
           const query = { link_afiliado: product.link_afiliado };
           const existing = await Product.findOne(query);
 
           if (existing) {
             await Product.updateOne(
-              { _id: existing._id }, 
-              { 
-                $set: { 
-                  ...product, 
-                  nome_normalizado: normalizedName,
-                  ultima_verificacao: new Date(),
-                  updatedAt: new Date(), 
-                  isActive: true 
-                } 
-              }
+              { _id: existing._id },
+              { $set: { ...product, nome_normalizado: normalizedName, ultima_verificacao: new Date(), updatedAt: new Date(), isActive: true } }
             );
             stats.updated++;
           } else {
-            await Product.create({ 
-              ...product, 
-              nome_normalizado: normalizedName,
-              ultima_verificacao: new Date(),
-              createdAt: new Date() 
-            });
-            
+            await Product.create({ ...product, nome_normalizado: normalizedName, ultima_verificacao: new Date(), createdAt: new Date() });
             stats.inserted++;
             console.log(`   ✨ NOVO: ${product.nome.substring(0, 40)}...`);
           }
@@ -374,7 +362,6 @@ class ScrapingService {
     console.log(`❌ Erros: ${stats.errors}`);
     console.log(`📦 Total processados: ${products.length}`);
     console.log(`💾 Total salvos/atualizados: ${stats.totalSaved}`);
-    
     if (stats.duplicates > 0 || stats.errors > 0) {
       console.log(`\n⚠️  ${stats.duplicates + stats.errors} produtos ignorados`);
     }
@@ -398,7 +385,6 @@ class ScrapingService {
 
   listMarketplaces() {
     console.log('\n📋 MARKETPLACES DISPONÍVEIS:\n');
-    
     const unique = new Set();
     for (const [key, mp] of this.marketplaces.entries()) {
       if (!unique.has(mp.code)) {
@@ -412,29 +398,18 @@ class ScrapingService {
   async collectFromAll(options = {}) {
     const results = {};
     const unique = new Set();
-    
     for (const [key, mp] of this.marketplaces.entries()) {
       if (!mp.enabled || unique.has(mp.code)) continue;
       unique.add(mp.code);
-      
       try {
         console.log(`\n${'═'.repeat(70)}`);
         const products = await this.collectFromMarketplace(key, options);
-        results[mp.code] = {
-          success: true,
-          products,
-          count: products.length
-        };
+        results[mp.code] = { success: true, products, count: products.length };
       } catch (error) {
-        results[mp.code] = {
-          success: false,
-          error: error.message,
-          count: 0
-        };
+        results[mp.code] = { success: false, error: error.message, count: 0 };
         console.error(`\n❌ Erro em ${mp.name}: ${error.message}\n`);
       }
     }
-    
     return results;
   }
 }
