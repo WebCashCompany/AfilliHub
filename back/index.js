@@ -14,45 +14,85 @@ const app    = express();
 const server = http.createServer(app);
 const PORT   = process.env.PORT || 3001;
 
-// ✅ CORREÇÃO DE CORS BLINDADA
+// ─────────────────────────────────────────────────────────────────────
+// CORS — cobre os 3 cenários:
+//   1. Dev local:   frontend localhost:* → backend localhost:3001
+//   2. Produção:    frontend Vercel      → backend ngrok
+//   3. Híbrido:     frontend Vercel      → backend ngrok (URL dinâmica)
+//
+// credentials:true é INCOMPATÍVEL com origin:'*' — por isso usamos
+// uma função que valida e espelha a origem exata de cada request.
+// ─────────────────────────────────────────────────────────────────────
+function isOriginAllowed(origin) {
+  if (!origin) return true; // curl, Postman, apps mobile — sem origin
+
+  // Qualquer localhost / 127.0.0.1 em qualquer porta (dev)
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+
+  // Vercel — domínio fixo e previews de PR
+  if (/^https:\/\/vantpromo(-.+)?\.vercel\.app$/.test(origin)) return true;
+
+  // Ngrok — URLs dinâmicas (formato atual e legado)
+  if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok(-free)?\.app$/.test(origin)) return true;
+  if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok\.io$/.test(origin))          return true;
+
+  return false;
+}
+
 const corsOptions = {
-  origin: [
-    'https://vantpromo.vercel.app', 
-    'http://localhost:5173', 
-    'http://localhost:3000',
-    '*' 
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`🚫 CORS bloqueado: ${origin}`);
+      callback(new Error(`CORS bloqueado: ${origin}`));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Origin',
+    'X-Requested-With',
+    'Content-Type',
+    'Accept',
+    'Authorization',
+    'ngrok-skip-browser-warning',
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'ngrok-skip-browser-warning'],
   credentials: true,
-  optionsSuccessStatus: 200 
+  optionsSuccessStatus: 200,
 };
 
-// 1. Aplica o CORS
+// 1. CORS em todas as rotas
 app.use(cors(corsOptions));
 
-// 🔥 FIX DEFINITIVO EXPRESS 5 / NODE 24: Mata a requisição OPTIONS na unha,
-// sem usar app.options('*') que quebra o path-to-regexp.
+// 2. Responde OPTIONS imediatamente (preflight)
+//    Fix necessário para Express 5 / Node 24
 app.use((req, res, next) => {
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
   next();
 });
 
 app.use(express.json());
 
-// ✅ SOCKET.IO
+// ─────────────────────────────────────────────────────────────────────
+// SOCKET.IO — mesma função de validação de origem
+// ─────────────────────────────────────────────────────────────────────
 const io = new Server(server, {
-  cors: { 
-    origin: '*', 
-    methods: ['GET', 'POST'], 
-    credentials: false,
-    allowedHeaders: ['ngrok-skip-browser-warning']
+  cors: {
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`🚫 Socket CORS bloqueado: ${origin}`);
+        callback(new Error(`Socket CORS bloqueado: ${origin}`));
+      }
+    },
+    methods: ['GET', 'POST'],
+    credentials: true,
+    allowedHeaders: ['ngrok-skip-browser-warning'],
   },
-  transports:     ['websocket', 'polling'],
-  pingTimeout:    60000,
-  pingInterval:   25000
+  transports:   ['websocket', 'polling'],
+  pingTimeout:  60000,
+  pingInterval: 25000,
 });
 
 let whatsappService  = null;
@@ -88,8 +128,8 @@ async function startServer() {
       const sendSessionsToSocket = async (targetSocket) => {
         try {
           const sessions = await whatsappService.getAllSessions();
-          targetSocket.emit('sessions:list',            { sessions });
-          targetSocket.emit('whatsapp:sessions-list',   { sessions });
+          targetSocket.emit('sessions:list',          { sessions });
+          targetSocket.emit('whatsapp:sessions-list', { sessions });
         } catch (error) {
           console.error('❌ [SOCKET] Erro ao enviar sessões:', error.message);
           targetSocket.emit('sessions:list',          { sessions: [] });
