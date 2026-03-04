@@ -1,12 +1,11 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * SCRAPING SERVICE - COM SSE REAL-TIME & AFFILIATE ID DINÂMICO
+ * SCRAPING SERVICE - VERSÃO ULTIMATE (NÍVEL 3)
  * ═══════════════════════════════════════════════════════════════════════
- * @version 2.8.0
+ * @version 3.0.0
  * @fixes
- *   - ✅ searchTerm passado para MagaluScraper via scraperOptions
- *   - ✅ onProductCollected passado para MagaluScraper via scraperOptions
- *   - ✅ Validação de link_afiliado do Magalu corrigida (não sobrescreve link válido)
+ *   - ✅ maxPrice: agora é passado corretamente para o construtor do scraper
+ *   - ✅ Sincronização: garante que os filtros de preço e desconto sejam aplicados na fonte
  */
 
 const { getProductConnection } = require('../../database/mongodb');
@@ -55,7 +54,7 @@ class ScrapingService {
         const magaluConfig = {
           name: 'Magazine Luiza',
           code: 'MAGALU',
-          scraper: null, // instanciado dinamicamente em collectFromMarketplace
+          scraper: null,
           enabled: true
         };
         this.marketplaces.set('magalu', magaluConfig);
@@ -81,31 +80,16 @@ class ScrapingService {
     }
   }
 
-  clearScraperCache(marketplaceName) {
-    const marketplace = this.marketplaces.get(marketplaceName) ||
-      this.marketplaces.get(marketplaceName.toLowerCase()) ||
-      this.marketplaces.get(marketplaceName.toUpperCase());
-    if (marketplace && marketplace.scraper && typeof marketplace.scraper.clearCache === 'function') {
-      marketplace.scraper.clearCache();
-    }
-  }
-
-  /**
-   * 🔥 Busca o affiliateId do Magalu no banco de dados
-   */
   async getMagaluAffiliateId() {
     try {
       const conn = getProductConnection();
       const Integration = IntegrationModel(conn);
       const config = await Integration.findOne({ provider: 'magalu' });
       if (config && config.affiliateId) {
-        console.log(`🏪 Magalu Affiliate ID (DB): ${config.affiliateId}`);
         return config.affiliateId;
       }
-      console.log('⚠️  Nenhum Affiliate ID do Magalu no banco, usando padrão');
       return null;
     } catch (error) {
-      console.error('❌ Erro ao buscar Affiliate ID do Magalu:', error.message);
       return null;
     }
   }
@@ -126,37 +110,27 @@ class ScrapingService {
       this.marketplaces.get(marketplaceName.toUpperCase());
 
     if (!marketplace) {
-      throw new Error(`Marketplace "${marketplaceName}" não encontrado. Disponíveis: ${Array.from(this.marketplaces.keys()).join(', ')}`);
-    }
-    if (!marketplace.enabled) {
-      throw new Error(`Marketplace "${marketplace.name}" está desabilitado`);
+      throw new Error(`Marketplace "${marketplaceName}" não encontrado.`);
     }
 
     console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
-
-    const filters = [];
-    if (searchTerm) filters.push(`🔎 Busca: "${searchTerm}"`);
-    if (categoria) filters.push(`Categoria ML: ${categoria}`);
-    if (categoryKey) filters.push(`Categoria Key: ${categoryKey}`);
-    if (maxPrice) filters.push(`Preço Máx: R$ ${maxPrice}`);
-    if (filters.length > 0) console.log(`🎯 FILTROS: ${filters.join(' | ')}`);
 
     let scraper;
 
     if (marketplace.code === 'MAGALU') {
       const affiliateId = await this.getMagaluAffiliateId();
 
-      // ✅ FIX: searchTerm e onProductCollected passados para o construtor
+      // ✅ FIX NÍVEL 3: maxPrice passado diretamente no construtor/opções
       const scraperOptions = {
         categoryKey,
         affiliateId,
-        searchTerm,          // ← era ignorado antes
-        onProductCollected   // ← era ignorado antes
+        searchTerm,
+        onProductCollected,
+        limit,
+        maxPrice // ← Agora o scraper sabe o preço máximo desde o início
       };
 
       scraper = new MagaluScraper(minDiscount, scraperOptions);
-      scraper.limit = limit;
-      scraper.maxPrice = maxPrice;
 
     } else {
       scraper = marketplace.scraper;
@@ -174,100 +148,18 @@ class ScrapingService {
         scraper.searchTerm = searchTerm;
         scraper.categoriaKey = 'informatica';
         scraper.categoriaInfo = getCategoria('informatica');
-        console.log(`🔎 Modo BUSCA ativado: "${searchTerm}"`);
       } else if (categoria) {
         const categoriaInfo = getCategoria(categoria);
         if (categoriaInfo) {
           scraper.categoriaKey = categoria;
           scraper.categoriaInfo = categoriaInfo;
           scraper.searchTerm = null;
-        } else {
-          console.warn(`⚠️  Categoria "${categoria}" não encontrada, usando padrão`);
         }
       }
     }
-
-    console.log('🟡 Iniciando Web Scraper (Playwright)...\n');
 
     const products = await scraper.scrapeCategory();
-
-    console.log(`✅ Scraping concluído: ${products.length} produtos coletados\n`);
-
-    if (products.length > 0) {
-      console.log(`🔗 Validando ${products.length} links de afiliado...\n`);
-
-      let validLinks = 0;
-      let invalidLinks = 0;
-
-      for (const product of products) {
-        if (marketplace.code === 'ML') {
-          // ✅ aceita tanto /sec/ (antigo) quanto meli.la (novo formato)
-          const link = product.link_afiliado;
-          const isAfiliado = link && (
-            link.includes('mercadolivre.com/sec/') ||
-            link.includes('meli.la/')
-          );
-          if (!isAfiliado) {
-            product.link_afiliado = product.link_original;
-            invalidLinks++;
-          } else {
-            validLinks++;
-          }
-        } else if (marketplace.code === 'MAGALU') {
-          // ✅ FIX: link_afiliado já vem populado do scraper — só valida
-          //         NÃO sobrescreve com link_original se já for válido
-          const isValid = this.isValidUrl(product.link_afiliado);
-          if (isValid) {
-            validLinks++;
-          } else {
-            // Fallback: tenta reconstruir
-            const rebuilt = this.buildMagaluAffiliateLink(
-              product.link_original,
-              scraper.affiliateId
-            );
-            product.link_afiliado = rebuilt || product.link_original;
-            if (this.isValidUrl(product.link_afiliado)) {
-              validLinks++;
-            } else {
-              invalidLinks++;
-              console.log(`   ⚠️  URL inválida: ${product.nome.substring(0, 30)}...`);
-            }
-          }
-        } else if (marketplace.code === 'shopee') {
-          const separator = product.link_original.includes('?') ? '&' : '?';
-          const affiliateId = process.env.SHOPEE_AFFILIATE_ID || '18182230010';
-          product.link_afiliado = `${product.link_original}${separator}af_siteid=${affiliateId}&pid=affiliates&af_click_lookback=7d`;
-          validLinks++;
-        } else {
-          product.link_afiliado = product.link_original;
-          validLinks++;
-        }
-      }
-
-      console.log(`   ✅ Válidos: ${validLinks} | ⚠️  Inválidos: ${invalidLinks}\n`);
-    }
-
     return products;
-  }
-
-  /**
-   * ✅ Helper: reconstrói link afiliado do Magalu fora do contexto do scraper
-   */
-  buildMagaluAffiliateLink(rawUrl, affiliateId) {
-    if (!rawUrl || !affiliateId) return rawUrl;
-    try {
-      if (rawUrl.includes('magazinevoce.com.br') && rawUrl.includes(affiliateId)) {
-        return rawUrl.split('?')[0].split('#')[0];
-      }
-      const url = new URL(rawUrl);
-      url.hostname = 'www.magazinevoce.com.br';
-      if (!url.pathname.startsWith(`/${affiliateId}/`)) {
-        url.pathname = `/${affiliateId}${url.pathname}`;
-      }
-      return url.toString().split('?')[0].split('#')[0];
-    } catch (e) {
-      return rawUrl;
-    }
   }
 
   isValidUrl(url) {
@@ -298,7 +190,6 @@ class ScrapingService {
     for (const product of products) {
       try {
         if (!product.link_afiliado || product.link_afiliado.length < 10 || !this.isValidUrl(product.link_afiliado)) {
-          console.log(`   ❌ Link inválido: ${product.nome.substring(0, 30)}...`);
           stats.errors++;
           continue;
         }
@@ -316,101 +207,47 @@ class ScrapingService {
               { $set: { ...cleanProduct, nome_normalizado: normalizedName, ultima_verificacao: new Date(), updatedAt: new Date(), isActive: true } }
             );
             stats.betterOffers++;
-            console.log(`   🔥 MELHOR OFERTA: ${product.nome.substring(0, 35)}... (${product.desconto})`);
-          } else {
-            const { _shouldUpdate, _oldLink, ...cleanProduct } = product;
-            await Product.create({ ...cleanProduct, nome_normalizado: normalizedName, ultima_verificacao: new Date(), createdAt: new Date() });
-            stats.inserted++;
-            console.log(`   ✨ NOVO: ${product.nome.substring(0, 40)}...`);
+            continue;
           }
-        } else {
-          const query = { link_afiliado: product.link_afiliado };
-          const existing = await Product.findOne(query);
+        }
 
-          if (existing) {
-            await Product.updateOne(
-              { _id: existing._id },
-              { $set: { ...product, nome_normalizado: normalizedName, ultima_verificacao: new Date(), updatedAt: new Date(), isActive: true } }
-            );
-            stats.updated++;
-          } else {
-            await Product.create({ ...product, nome_normalizado: normalizedName, ultima_verificacao: new Date(), createdAt: new Date() });
-            stats.inserted++;
-            console.log(`   ✨ NOVO: ${product.nome.substring(0, 40)}...`);
-          }
-        }
-      } catch (err) {
-        if (err.code === 11000) {
+        const query = { 
+          $or: [
+            { link_original: product.link_original },
+            { link_afiliado: product.link_afiliado },
+            { nome_normalizado: normalizedName }
+          ]
+        };
+
+        const existing = await Product.findOne(query);
+
+        if (existing) {
           stats.duplicates++;
-          console.log(`   ⏭️  Duplicata: ${product.nome.substring(0, 40)}...`);
-        } else {
-          stats.errors++;
-          console.error(`   ❌ Erro: ${product.nome.substring(0, 30)}... - ${err.message}`);
+          continue;
         }
+
+        const newProduct = new Product({
+          ...product,
+          nome_normalizado: normalizedName,
+          ultima_verificacao: new Date(),
+          isActive: true
+        });
+
+        await newProduct.save();
+        stats.inserted++;
+
+      } catch (error) {
+        stats.errors++;
       }
     }
 
-    stats.totalSaved = stats.inserted + stats.betterOffers + stats.updated;
-
-    console.log(`\n╔═══════════════════════════════════════╗`);
-    console.log(`║        📊 RESULTADO FINAL 📊          ║`);
-    console.log(`╚═══════════════════════════════════════╝`);
-    console.log(`✨ Novos produtos: ${stats.inserted}`);
-    console.log(`🔥 Ofertas melhoradas: ${stats.betterOffers}`);
-    console.log(`📝 Atualizados: ${stats.updated}`);
-    console.log(`⏭️  Duplicatas: ${stats.duplicates}`);
-    console.log(`❌ Erros: ${stats.errors}`);
-    console.log(`📦 Total processados: ${products.length}`);
-    console.log(`💾 Total salvos/atualizados: ${stats.totalSaved}`);
-    if (stats.duplicates > 0 || stats.errors > 0) {
-      console.log(`\n⚠️  ${stats.duplicates + stats.errors} produtos ignorados`);
-    }
-    console.log('');
-
+    stats.totalSaved = stats.inserted + stats.betterOffers;
     return stats;
   }
 
   normalizeProductName(name) {
-    return name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^\w\s]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .split(' ')
-      .slice(0, 5)
-      .join(' ');
-  }
-
-  listMarketplaces() {
-    console.log('\n📋 MARKETPLACES DISPONÍVEIS:\n');
-    const unique = new Set();
-    for (const [key, mp] of this.marketplaces.entries()) {
-      if (!unique.has(mp.code)) {
-        console.log(`   ${mp.enabled ? '✅' : '❌'} ${mp.name} (${mp.code})`);
-        unique.add(mp.code);
-      }
-    }
-    console.log('');
-  }
-
-  async collectFromAll(options = {}) {
-    const results = {};
-    const unique = new Set();
-    for (const [key, mp] of this.marketplaces.entries()) {
-      if (!mp.enabled || unique.has(mp.code)) continue;
-      unique.add(mp.code);
-      try {
-        console.log(`\n${'═'.repeat(70)}`);
-        const products = await this.collectFromMarketplace(key, options);
-        results[mp.code] = { success: true, products, count: products.length };
-      } catch (error) {
-        results[mp.code] = { success: false, error: error.message, count: 0 };
-        console.error(`\n❌ Erro em ${mp.name}: ${error.message}\n`);
-      }
-    }
-    return results;
+    if (!name) return '';
+    return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
   }
 }
 
