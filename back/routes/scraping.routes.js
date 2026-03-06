@@ -1,20 +1,10 @@
 // backend/routes/scraping.routes.js
-const express = require('express');
-const router = express.Router();
+const express        = require('express');
+const router         = express.Router();
 const ScrapingService = require('../scraper/services/ScrapingService');
-const mlAffiliate = require('../services/MLAffiliateService');
-const { getProductConnection } = require('../database/mongodb');
-const { createClient } = require('@supabase/supabase-js');
+const mlAffiliate    = require('../services/MLAffiliateService');
+const supabase       = require('../database/supabase');
 const { v4: uuidv4 } = require('uuid');
-
-// ═══════════════════════════════════════════════════════════
-// SUPABASE ADMIN CLIENT — apenas para verificar tokens
-// ═══════════════════════════════════════════════════════════
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 // ═══════════════════════════════════════════════════════════
 // MIDDLEWARE: Autenticação obrigatória
@@ -23,7 +13,6 @@ const supabase = createClient(
 async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ success: false, error: 'Token de autenticação ausente.' });
     }
@@ -50,7 +39,7 @@ router.use(requireAuth);
 // ═══════════════════════════════════════════════════════════
 
 const activeScrapingSessions = new Map();
-const sseClients = new Map();
+const sseClients             = new Map();
 
 function sendSSE(sessionId, data) {
   const clients = sseClients.get(sessionId) || [];
@@ -70,33 +59,32 @@ function sendSSE(sessionId, data) {
 
 router.post('/start', async (req, res) => {
   try {
-    const { userId } = req; // ← vem do middleware requireAuth
+    const { userId } = req;
     const { marketplaces, minDiscount, maxPrice } = req.body;
 
     console.log('\n╔════════════════════════════════════════════════════╗');
     console.log('║        🚀 RECEBENDO REQUISIÇÃO DE SCRAPING         ║');
     console.log('╚════════════════════════════════════════════════════╝');
     console.log(`👤 userId: ${userId}`);
-    console.log('📦 Body recebido:', JSON.stringify(req.body, null, 2));
 
     if (!marketplaces || typeof marketplaces !== 'object') {
       return res.status(400).json({ success: false, error: 'Configuração de marketplaces inválida' });
     }
 
-    const sessionId = uuidv4();
+    const sessionId           = uuidv4();
     const enabledMarketplaces = Object.entries(marketplaces).filter(([_, cfg]) => cfg.enabled);
-    const totalItems = enabledMarketplaces.reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
+    const totalItems          = enabledMarketplaces.reduce((sum, [_, cfg]) => sum + cfg.quantity, 0);
 
     activeScrapingSessions.set(sessionId, {
-      userId, // ← armazena junto com a sessão
-      status: 'running',
-      progress: 0,
+      userId,
+      status:             'running',
+      progress:           0,
       currentMarketplace: null,
-      itemsCollected: 0,
+      itemsCollected:     0,
       totalItems,
-      startedAt: new Date(),
-      lastProducts: [],
-      liveProducts: []
+      startedAt:          new Date(),
+      lastProducts:       [],
+      liveProducts:       []
     });
 
     console.log('✅ Sessão criada:', sessionId);
@@ -108,26 +96,23 @@ router.post('/start', async (req, res) => {
 
     // ─── EXECUÇÃO ASSÍNCRONA ──────────────────────────────
     (async () => {
-      // Carrega credenciais do ML se necessário
-      const mlConfigParams = enabledMarketplaces.find(([name]) => name === 'mercadolivre' || name === 'ML');
+      // ── Carrega credenciais ML do Supabase (por userId) ──────────────
+      const mlConfigParams = enabledMarketplaces.find(([name]) =>
+        name === 'mercadolivre' || name === 'ML'
+      );
+
       if (mlConfigParams) {
         try {
-          const conn = getProductConnection();
-          const IntegrationModel = require('../models/Integration')(conn);
-          const config = await IntegrationModel.findOne({ provider: 'mercadolivre', isActive: true });
-          if (config && config.ssid) {
-            mlAffiliate.updateCookies(config.ssid, config.csrf);
-            mlAffiliate.accessToken = config.accessToken;
-            console.log('🍪 Credenciais ML carregadas!');
-          }
+          await mlAffiliate.initFromSupabase(userId);
+          console.log('🍪 Credenciais ML carregadas do Supabase!');
         } catch (dbErr) {
           console.error('❌ Erro ao carregar sessão ML:', dbErr.message);
         }
       }
 
       const scrapingService = new ScrapingService();
-      let totalCollected = 0;
-      let processedItems = 0;
+      let totalCollected  = 0;
+      let processedItems  = 0;
       const allLastProducts = [];
 
       for (const [marketplaceName, mpConfig] of enabledMarketplaces) {
@@ -143,24 +128,24 @@ router.post('/start', async (req, res) => {
         console.log(`${'═'.repeat(60)}`);
 
         sendSSE(sessionId, {
-          progress: Math.round((processedItems / totalItems) * 100),
+          progress:           Math.round((processedItems / totalItems) * 100),
           currentMarketplace: marketplaceName,
-          itemsCollected: totalCollected,
+          itemsCollected:     totalCollected,
           totalItems,
-          status: 'running',
-          lastProducts: allLastProducts.slice(-3),
-          liveProducts: session.liveProducts || []
+          status:             'running',
+          lastProducts:       allLastProducts.slice(-3),
+          liveProducts:       session.liveProducts || []
         });
 
         try {
           const options = {
-            minDiscount:  mpConfig.minDiscount  ?? minDiscount ?? 30,
+            minDiscount:  mpConfig.minDiscount ?? minDiscount ?? 30,
             limit:        mpConfig.quantity,
-            maxPrice:     mpConfig.maxPrice      ?? maxPrice ?? null,
-            searchTerm:   mpConfig.searchTerm    || null,
-            categoria:    mpConfig.categoria     || null,
-            categoryKey:  mpConfig.categoryKey   || null,
-            userId,       // ⚠️ passa userId para o scraper filtrar loadExistingLinks corretamente
+            maxPrice:     mpConfig.maxPrice    ?? maxPrice    ?? null,
+            searchTerm:   mpConfig.searchTerm  || null,
+            categoria:    mpConfig.categoria   || null,
+            categoryKey:  mpConfig.categoryKey || null,
+            userId,
 
             onProductCollected: (product, current, total) => {
               const session = activeScrapingSessions.get(sessionId);
@@ -168,24 +153,24 @@ router.post('/start', async (req, res) => {
 
               if (product._isStatusMessage) {
                 sendSSE(sessionId, {
-                  progress: session.progress,
+                  progress:           session.progress,
                   currentMarketplace: marketplaceName,
-                  itemsCollected: session.itemsCollected,
+                  itemsCollected:     session.itemsCollected,
                   totalItems,
-                  status: 'collecting',
-                  message: product.message,
-                  messageType: product.type || 'info'
+                  status:             'collecting',
+                  message:            product.message,
+                  messageType:        product.type || 'info'
                 });
                 return;
               }
 
               const preview = {
-                name: product.nome || 'Produto',
-                image: product.imagem || '',
-                price: parsePriceToCents(product.preco_para || 0),
-                oldPrice: parsePriceToCents(product.preco_de || 0),
+                name:     product.nome   || 'Produto',
+                image:    product.imagem || '',
+                price:    parsePriceToCents(product.preco_para || 0),
+                oldPrice: parsePriceToCents(product.preco_de   || 0),
                 discount: parseInt(product.desconto) || 0,
-                status: 'processing'
+                status:   'processing'
               };
 
               session.liveProducts = session.liveProducts || [];
@@ -196,17 +181,17 @@ router.post('/start', async (req, res) => {
                 Math.round(((processedItems + current) / totalItems) * 100), 100
               );
 
-              session.progress = globalProgress;
+              session.progress      = globalProgress;
               session.itemsCollected = totalCollected + current;
 
               sendSSE(sessionId, {
-                progress: globalProgress,
+                progress:           globalProgress,
                 currentMarketplace: marketplaceName,
-                itemsCollected: totalCollected + current,
+                itemsCollected:     totalCollected + current,
                 totalItems,
-                status: 'collecting',
-                liveProducts: session.liveProducts,
-                currentProduct: preview
+                status:             'collecting',
+                liveProducts:       session.liveProducts,
+                currentProduct:     preview
               });
             }
           };
@@ -216,58 +201,57 @@ router.post('/start', async (req, res) => {
             else if (mpConfig.categoria) options.categoryKey = mpConfig.categoria;
           }
 
-          const products = await scrapingService.collectFromMarketplace(marketplaceName, options);
+          const products   = await scrapingService.collectFromMarketplace(marketplaceName, options);
           const hasProducts = products && Array.isArray(products) && products.length > 0;
 
           if (hasProducts) {
             session.liveProducts = session.liveProducts.map(p => ({ ...p, status: 'saved' }));
 
             const formattedProducts = products.slice(0, 5).map(p => ({
-              name: p.nome || 'Produto',
-              image: p.imagem || '',
-              price: parsePriceToCents(p.preco_para || 0),
-              oldPrice: parsePriceToCents(p.preco_de || 0),
+              name:     p.nome   || 'Produto',
+              image:    p.imagem || '',
+              price:    parsePriceToCents(p.preco_para || 0),
+              oldPrice: parsePriceToCents(p.preco_de   || 0),
               discount: parseInt(p.desconto) || 0,
-              status: 'saved'
+              status:   'saved'
             }));
 
             allLastProducts.push(...formattedProducts);
             session.lastProducts = allLastProducts.slice(-5);
 
             const marketplaceCode = getMarketplaceCode(marketplaceName);
+            const result          = await scrapingService.saveProducts(products, marketplaceCode, userId);
 
-            // ⚠️ CRÍTICO: passa userId para saveProducts
-            const result = await scrapingService.saveProducts(products, marketplaceCode, userId);
+            const saved         = result.inserted + result.betterOffers;
+            totalCollected     += saved;
+            processedItems     += mpConfig.quantity;
 
-            const saved = result.inserted + result.betterOffers;
-            totalCollected += saved;
-            processedItems += mpConfig.quantity;
-
-            const newProgress = Math.min(Math.round((processedItems / totalItems) * 100), 100);
-            session.progress = newProgress;
+            const newProgress   = Math.min(Math.round((processedItems / totalItems) * 100), 100);
+            session.progress      = newProgress;
             session.itemsCollected = totalCollected;
 
             sendSSE(sessionId, {
-              progress: newProgress,
+              progress:           newProgress,
               currentMarketplace: marketplaceName,
-              itemsCollected: totalCollected,
+              itemsCollected:     totalCollected,
               totalItems,
-              status: 'running',
-              lastProducts: session.lastProducts,
-              liveProducts: session.liveProducts,
+              status:             'running',
+              lastProducts:       session.lastProducts,
+              liveProducts:       session.liveProducts,
               lastMarketplaceResult: { marketplace: marketplaceName, collected: saved, total: products.length }
             });
           } else {
-            processedItems += mpConfig.quantity;
-            const newProgress = Math.min(Math.round((processedItems / totalItems) * 100), 100);
-            session.progress = newProgress;
+            processedItems    += mpConfig.quantity;
+            const newProgress  = Math.min(Math.round((processedItems / totalItems) * 100), 100);
+            session.progress   = newProgress;
+
             sendSSE(sessionId, {
-              progress: newProgress,
+              progress:           newProgress,
               currentMarketplace: marketplaceName,
-              itemsCollected: totalCollected,
+              itemsCollected:     totalCollected,
               totalItems,
-              status: 'running',
-              message: `⚠️ Nenhum produto coletado em ${marketplaceName.toUpperCase()}.`
+              status:             'running',
+              message:            `⚠️ Nenhum produto coletado em ${marketplaceName.toUpperCase()}.`
             });
           }
 
@@ -281,15 +265,16 @@ router.post('/start', async (req, res) => {
 
       const session = activeScrapingSessions.get(sessionId);
       if (session) {
-        session.status = 'completed';
+        session.status   = 'completed';
         session.progress = 100;
+
         sendSSE(sessionId, {
-          progress: 100,
+          progress:           100,
           currentMarketplace: null,
-          itemsCollected: totalCollected,
+          itemsCollected:     totalCollected,
           totalItems,
-          status: 'completed',
-          message: `✅ Scraping concluído! ${totalCollected} produtos salvos.`
+          status:             'completed',
+          message:            `✅ Scraping concluído! ${totalCollected} produtos salvos.`
         });
 
         setTimeout(() => {
@@ -310,45 +295,42 @@ router.post('/start', async (req, res) => {
 
 router.get('/progress/:sessionId', (req, res) => {
   const { sessionId } = req.params;
-  const { userId } = req;
+  const { userId }    = req;
 
-  // Garante que só o dono da sessão recebe o SSE
   const session = activeScrapingSessions.get(sessionId);
   if (session && session.userId !== userId) {
     return res.status(403).json({ success: false, error: 'Acesso negado.' });
   }
 
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Content-Type',                'text/event-stream');
+  res.setHeader('Cache-Control',               'no-cache, no-transform');
+  res.setHeader('Connection',                  'keep-alive');
+  res.setHeader('X-Accel-Buffering',           'no');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning');
+  res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization, ngrok-skip-browser-warning');
   res.flushHeaders();
 
   if (!sseClients.has(sessionId)) sseClients.set(sessionId, []);
   sseClients.get(sessionId).push(res);
 
   const keepAlive = setInterval(() => { res.write(': keepalive\n\n'); }, 25000);
-
   if (session) res.write(`data: ${JSON.stringify(session)}\n\n`);
 
   req.on('close', () => {
     clearInterval(keepAlive);
     const clients = sseClients.get(sessionId) || [];
-    const index = clients.indexOf(res);
+    const index   = clients.indexOf(res);
     if (index > -1) clients.splice(index, 1);
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-// GET /api/scraping/status — status da sessão do usuário
+// GET /api/scraping/status
 // ═══════════════════════════════════════════════════════════
 
 router.get('/status', (req, res) => {
   const { userId } = req;
 
-  // Retorna apenas a sessão ativa do usuário autenticado
   const userSession = Array.from(activeScrapingSessions.entries())
     .filter(([_, session]) => session.userId === userId)
     .pop();
