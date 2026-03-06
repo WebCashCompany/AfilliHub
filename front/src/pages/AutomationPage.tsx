@@ -372,18 +372,29 @@ export function AutomationPage() {
     localStorage.setItem('automation_config', JSON.stringify(config));
   }, [config]);
 
+  // ✅ CORREÇÃO PREMIUM NÍVEL 3: Notificação Inteligente baseada em mensagens do Scraper
   useEffect(() => {
-    if (!scrapingStatus.isRunning && scrapingStatus.progress === 100 && scrapingStatus.itemsCollected > 0) {
+    if (!scrapingStatus.isRunning && scrapingStatus.progress === 100) {
+      // Se o scraper enviou uma mensagem específica (ex: erro de filtro), usa ela
+      const finalMsg = scrapingStatus.message || (scrapingStatus.itemsCollected > 0 
+        ? `${formatNumber(scrapingStatus.itemsCollected)} novos produtos foram adicionados.`
+        : 'Nenhum produto encontrado com os filtros atuais.');
+
+      const isWarning = scrapingStatus.itemsCollected === 0 || scrapingStatus.messageType === 'warning' || scrapingStatus.messageType === 'error';
+
       toast({
-        title: "✅ Automação concluída!",
-        description: `${formatNumber(scrapingStatus.itemsCollected)} novos produtos foram adicionados.`,
-        className: "bg-green-600 text-white border-none shadow-lg",
+        title: isWarning ? "⚠️ Aviso de Coleta" : "✅ Automação concluída!",
+        description: finalMsg,
+        className: isWarning 
+          ? "bg-amber-600 text-white border-none shadow-lg" 
+          : "bg-green-600 text-white border-none shadow-lg",
       });
+
       if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("Automação Concluída", { body: `${scrapingStatus.itemsCollected} produtos coletados.`, icon: "/favicon.ico" });
+        new Notification("Automação Concluída", { body: finalMsg, icon: "/favicon.ico" });
       }
     }
-  }, [scrapingStatus.isRunning, scrapingStatus.progress, scrapingStatus.itemsCollected]);
+  }, [scrapingStatus.isRunning, scrapingStatus.progress, scrapingStatus.itemsCollected, scrapingStatus.message]);
 
   const handleMarketplaceToggle = (mp: Marketplace) =>
     setConfig(prev => ({
@@ -490,10 +501,6 @@ export function AutomationPage() {
     await runScraping({ marketplaces: marketplacesConfig as any, minDiscount: 20, maxPrice: 20000 });
   };
 
-  // ─────────────────────────────────────────────
-  // HANDLER: Finalizar processo e salvar no banco
-  // ─────────────────────────────────────────────
-
   const handleFinalizeScraping = async () => {
     if (isFinalizing) return;
 
@@ -503,12 +510,7 @@ export function AutomationPage() {
     setIsFinalizing(true);
 
     try {
-      // Para o processo de scraping em andamento
       resetScrapingStatus();
-
-      // Envia os produtos coletados para o banco de dados
-      // A função `finalizeScraping` deve ser exposta pelo DashboardContext
-      // e é responsável por persistir os dados no banco
       if (typeof finalizeScraping === 'function') {
         await finalizeScraping(liveProducts);
       }
@@ -544,10 +546,6 @@ export function AutomationPage() {
 
   const CIRCLE_CIRCUMFERENCE = 351.858;
   const circleDashoffset = CIRCLE_CIRCUMFERENCE - (CIRCLE_CIRCUMFERENCE * smoothProgress) / 100;
-
-  // ─────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
@@ -667,7 +665,6 @@ export function AutomationPage() {
                   <span className="text-sm text-muted-foreground">Total a coletar:</span>
                   <span className="ml-2 font-bold text-lg">{formatNumber(totalToCollect)} itens</span>
                 </div>
-                {/* ── Botões de ação: Iniciar / Finalizar (Desktop) ── */}
                 <div className="flex items-center gap-2">
                   {scrapingStatus.isRunning && (
                     <Button
@@ -802,113 +799,74 @@ export function AutomationPage() {
             </CardContent>
           </Card>
         </div>
+
+        {(scrapingStatus.isRunning || scrapingStatus.liveProducts?.length > 0) && (
+          <ScrapingLiveProducts products={scrapingStatus.liveProducts} isRunning={scrapingStatus.isRunning} />
+        )}
       </div>
 
       {/* ══════════════════════════════════════════
-          MOBILE LAYOUT — Premium redesign
+          MOBILE LAYOUT
           ══════════════════════════════════════════ */}
-      <div className="md:hidden w-full pb-8">
-
-        {/* ── Mobile Header ── */}
-        <div className="px-4 pt-6 pb-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-[26px] font-black tracking-tight leading-none">Automação</h1>
-              <p className="text-[12px] text-muted-foreground mt-1 font-medium">Coleta automatizada de produtos</p>
-            </div>
-            {/* Catalog count pill */}
-            <div className="flex items-center gap-1.5 bg-primary/10 border border-primary/20 rounded-xl px-3 py-1.5 flex-shrink-0">
-              <Package className="w-3.5 h-3.5 text-primary" />
-              <span className="text-[11px] font-bold text-primary tabular-nums">{formatNumber(products.length)}</span>
-            </div>
+      <div className="md:hidden flex flex-col min-h-screen pb-24">
+        <div className="px-4 pt-6 pb-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-black tracking-tight">Automação</h1>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Coleta Inteligente</p>
+          </div>
+          <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center">
+            <Zap className="w-5 h-5 text-primary fill-current" />
           </div>
         </div>
 
-
-        {/* ── Section: Marketplaces ── */}
-        <div className="px-4 mb-2 flex items-center gap-2">
-          <div className="w-1 h-4 rounded-full bg-primary" />
-          <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Marketplaces</span>
-        </div>
-
-        <div className="px-4 space-y-3 mb-5">
-          {connectedMarketplaces.length > 0 ? (
-            connectedMarketplaces.map(([mp, mpConfig]) => (
-              <MobileMarketplaceCard
-                key={mp}
-                mp={mp}
-                mpConfig={mpConfig}
-                onToggle={() => handleMarketplaceToggle(mp)}
-                onQuantityChange={(v) => handleQuantityChange(mp, v)}
-                onOpenFilters={() => openFiltersModal(mp)}
-                onOpenSearch={() => openFiltersModal(mp, true)}
-              />
-            ))
-          ) : (
-            !connectionsLoading && (
-              <div className="flex flex-col items-center justify-center py-10 text-center rounded-2xl border-2 border-dashed border-muted-foreground/20">
-                <Package className="w-10 h-10 text-muted-foreground/40 mb-3" />
-                <p className="font-bold text-sm">Nenhum marketplace configurado</p>
-                <p className="text-xs text-muted-foreground mt-1 mb-4">Configure um marketplace para iniciar</p>
-                <button
-                  onClick={() => navigate('/settings')}
-                  className="flex items-center gap-1.5 text-sm font-semibold text-primary border border-primary/20 bg-primary/5 px-4 py-2 rounded-xl active:scale-95 transition-transform"
-                >
-                  Ir para Configurações <ArrowRight className="w-4 h-4" />
-                </button>
+        <div className="px-4 mb-6">
+          <div className="bg-zinc-900 rounded-2xl p-4 flex items-center justify-between shadow-xl shadow-primary/10 border border-white/5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/30">
+                <Package className="w-5 h-5 text-primary-foreground" />
               </div>
-            )
-          )}
-
-          {disconnectedMarketplaces.length > 0 && (
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground/50 px-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 flex-shrink-0" />
-              <span>
-                {disconnectedMarketplaces.length} marketplace{disconnectedMarketplaces.length > 1 ? 's' : ''} em breve
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* ── CTA: Iniciar / Finalizar scraping (Mobile) ── */}
-        <div className="px-4 mb-5">
-          <div className="rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 p-4">
-            <div className="flex items-center justify-between mb-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Total a coletar</p>
-                <p className="text-xl font-black text-foreground tabular-nums leading-none mt-0.5">
-                  {formatNumber(totalToCollect)}
-                  <span className="text-xs font-semibold text-muted-foreground ml-1">itens</span>
-                </p>
+                <p className="text-[10px] font-bold text-primary/60 uppercase tracking-widest">Catálogo</p>
+                <p className="text-lg font-black text-white">{formatNumber(products.length)} <span className="text-xs font-medium text-zinc-500">itens</span></p>
               </div>
-              {!scrapingStatus.isRunning && (
-                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
-                  <Zap className="w-5 h-5 text-primary" />
-                </div>
-              )}
             </div>
+            <button onClick={() => navigate('/settings')} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-white/70 active:scale-90 transition-all">
+              <Settings2 className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
 
-            {/* Botão Finalizar — visível apenas durante a coleta (Mobile) */}
+        <div className="px-4 mb-4 flex items-center justify-between">
+          <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Marketplaces</h2>
+          <Badge variant="outline" className="text-[10px] font-bold border-primary/30 text-primary">{connectedMarketplaces.length} ativos</Badge>
+        </div>
+
+        <div className="px-4 space-y-3 mb-8">
+          {connectedMarketplaces.map(([mp, mpConfig]) => (
+            <MobileMarketplaceCard
+              key={mp}
+              mp={mp}
+              mpConfig={mpConfig}
+              onToggle={() => handleMarketplaceToggle(mp)}
+              onQuantityChange={(v) => handleQuantityChange(mp, v)}
+              onOpenFilters={() => openFiltersModal(mp)}
+              onOpenSearch={() => openFiltersModal(mp, true)}
+            />
+          ))}
+        </div>
+
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-xl border-t border-border/40 z-50">
+          <div className="max-w-md mx-auto flex gap-3">
             {scrapingStatus.isRunning && (
               <button
                 onClick={handleFinalizeScraping}
                 disabled={isFinalizing}
-                className={`w-full py-3.5 rounded-xl font-black text-[14px] tracking-wide transition-all active:scale-[0.97] flex items-center justify-center gap-2.5 mb-2.5 ${
-                  isFinalizing
-                    ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                    : 'bg-destructive text-destructive-foreground shadow-lg shadow-destructive/25 hover:shadow-destructive/40'
-                }`}
+                className="flex-1 h-14 rounded-xl bg-destructive/10 text-destructive border border-destructive/20 font-black text-[13px] flex items-center justify-center gap-2 active:scale-95 transition-all"
               >
                 {isFinalizing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Salvando no banco...
-                  </>
+                  <><Loader2 className="w-4 h-4 animate-spin" />Salvando...</>
                 ) : (
-                  <>
-                    <StopCircle className="w-4 h-4" />
-                    Finalizar e Salvar
-                  </>
+                  <><StopCircle className="w-4 h-4" />Finalizar e Salvar</>
                 )}
               </button>
             )}
@@ -923,21 +881,14 @@ export function AutomationPage() {
               }`}
             >
               {scrapingStatus.isRunning ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Coletando...
-                </>
+                <><Loader2 className="w-4 h-4 animate-spin" />Coletando...</>
               ) : (
-                <>
-                  <Play className="w-4 h-4 fill-current" />
-                  Iniciar Scraping
-                </>
+                <><Play className="w-4 h-4 fill-current" />Iniciar Scraping</>
               )}
             </button>
           </div>
         </div>
 
-        {/* ── Status da Execução (Mobile) ── */}
         <div className="px-4 mb-4">
           <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
@@ -1046,12 +997,8 @@ export function AutomationPage() {
             )}
           </div>
         </div>
-
       </div>
 
-      {/* ══════════════════════════════════════════
-          MODAL DE FILTROS (shared desktop + mobile)
-          ══════════════════════════════════════════ */}
       <Dialog open={configModalOpen} onOpenChange={setConfigModalOpen}>
         <DialogContent className="w-[calc(100vw-32px)] max-w-2xl mx-auto rounded-2xl flex flex-col max-h-[90dvh] p-0 overflow-hidden">
           <div className="flex-shrink-0 px-6 pt-6 pb-4 border-b">
@@ -1065,142 +1012,123 @@ export function AutomationPage() {
           </div>
 
           <ScrollArea className="flex-1 overflow-y-auto">
-          <div className="space-y-5 p-6">
-            {marketplaceHasAdvancedFilters(currentMarketplace) && (
-              <div className="rounded-xl border bg-muted/30 overflow-hidden">
-                <div className="px-4 py-3 border-b bg-muted/50 flex items-center justify-between">
-                  <p className="text-sm font-semibold">Modo de busca</p>
-                  {isSearchActive && (
-                    <Badge className="bg-blue-500/15 text-blue-600 border-0 text-xs gap-1 font-medium">
-                      <Search className="w-3 h-3" />Busca global ativa
-                    </Badge>
-                  )}
-                  {!isSearchActive && tempFilters.categoria && tempFilters.categoria !== 'todas' && tempFilters.categoria !== '' && (
-                    <Badge className="bg-primary/15 text-primary border-0 text-xs gap-1 font-medium">
-                      <Tag className="w-3 h-3" />Categoria ativa
-                    </Badge>
-                  )}
-                  {!isSearchActive && (!tempFilters.categoria || tempFilters.categoria === 'todas' || tempFilters.categoria === '') && (
-                    <Badge variant="secondary" className="text-xs font-normal text-muted-foreground">Geral</Badge>
-                  )}
-                </div>
-
-                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  <div className="space-y-2">
-                    <Label htmlFor="modal-search" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-                      <Search className="w-3.5 h-3.5 text-blue-500" />Palavra-chave
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="modal-search"
-                        ref={searchInputRef}
-                        placeholder="Ex: smartphone, tênis nike..."
-                        value={tempFilters.searchTerm || ''}
-                        onChange={(e) => handleSearchTermChange(e.target.value)}
-                        className="pr-8 text-sm h-10"
-                        autoComplete="off"
-                        autoFocus={focusSearchOnOpen}
-                      />
-                      {tempFilters.searchTerm && (
-                        <button
-                          onClick={() => setTempFilters(prev => ({ ...prev, searchTerm: '' }))}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                          type="button" tabIndex={-1}
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground leading-snug">
-                      Pesquisa em <strong>todo o marketplace</strong>, independente de categoria
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className={`text-xs font-semibold uppercase tracking-wide flex items-center gap-1.5 transition-opacity duration-200 ${isSearchActive ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
-                      <Tag className={`w-3.5 h-3.5 transition-colors ${isSearchActive ? 'text-muted-foreground/40' : 'text-primary'}`} />Categoria
-                    </Label>
-                    <div className={`relative transition-opacity duration-200 ${isSearchActive ? 'opacity-40 pointer-events-none' : ''}`}>
-                      <select
-                        value={tempFilters.categoria || ''}
-                        onChange={(e) => handleCategoryChange(e.target.value)}
-                        disabled={isSearchActive}
-                        className={`w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm transition-colors ${isSearchActive ? 'cursor-not-allowed bg-muted' : 'cursor-pointer hover:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary'}`}
-                      >
-                        {getCategoriesForMarketplace(currentMarketplace).map(cat => (
-                          <option key={cat.value} value={cat.value}>{cat.icon} {cat.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {isSearchActive ? (
-                      <p className="text-[11px] text-blue-500 flex items-center gap-1 leading-snug">
-                        <AlertCircle className="w-3 h-3 flex-shrink-0" />Desativado enquanto há palavra-chave
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-muted-foreground leading-snug">Filtra dentro de uma seção específica do site</p>
+            <div className="space-y-5 p-6">
+              {marketplaceHasAdvancedFilters(currentMarketplace) && (
+                <div className="rounded-xl border bg-muted/30 overflow-hidden">
+                  <div className="px-4 py-3 border-b bg-muted/50 flex items-center justify-between">
+                    <p className="text-sm font-semibold">Modo de busca</p>
+                    {isSearchActive && (
+                      <Badge className="bg-blue-500/15 text-blue-600 border-0 text-xs gap-1 font-medium">
+                        <Search className="w-3 h-3" />Busca global ativa
+                      </Badge>
+                    )}
+                    {!isSearchActive && tempFilters.categoria && tempFilters.categoria !== 'todas' && tempFilters.categoria !== '' && (
+                      <Badge className="bg-primary/15 text-primary border-0 text-xs gap-1 font-medium">
+                        <Tag className="w-3 h-3" />Categoria ativa
+                      </Badge>
                     )}
                   </div>
-                </div>
-              </div>
-            )}
 
-            <div className="rounded-xl border bg-muted/30 overflow-hidden">
-              <div className="px-4 py-3 border-b bg-muted/50">
-                <p className="text-sm font-semibold">Filtros de qualidade</p>
-              </div>
-              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Desconto mínimo</Label>
-                    <div className="flex items-center gap-1 bg-background border rounded-md px-2 py-0.5">
-                      <Input
-                        type="number"
-                        value={tempFilters.minDiscount ?? 20}
-                        onChange={(e) => setTempFilters(prev => ({ ...prev, minDiscount: Math.min(90, Math.max(0, parseInt(e.target.value) || 0)) }))}
-                        className="w-10 h-6 border-0 p-0 text-center text-xs focus-visible:ring-0 shadow-none"
-                        min={0} max={90}
-                      />
-                      <span className="text-xs text-muted-foreground font-medium">%</span>
+                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div className="space-y-2">
+                      <Label htmlFor="modal-search" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                        <Search className="w-3.5 h-3.5 text-blue-500" />Palavra-chave
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="modal-search"
+                          ref={searchInputRef}
+                          placeholder="Ex: smartphone, tênis nike..."
+                          value={tempFilters.searchTerm || ''}
+                          onChange={(e) => handleSearchTermChange(e.target.value)}
+                          className="pr-8 text-sm h-10"
+                          autoComplete="off"
+                          autoFocus={focusSearchOnOpen}
+                        />
+                        {tempFilters.searchTerm && (
+                          <button
+                            onClick={() => setTempFilters(prev => ({ ...prev, searchTerm: '' }))}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                            type="button" tabIndex={-1}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className={`text-xs font-semibold uppercase tracking-wide flex items-center gap-1.5 transition-opacity duration-200 ${isSearchActive ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+                        <Tag className={`w-3.5 h-3.5 transition-colors ${isSearchActive ? 'text-muted-foreground/40' : 'text-primary'}`} />Categoria
+                      </Label>
+                      <div className={`relative transition-opacity duration-200 ${isSearchActive ? 'opacity-40 pointer-events-none' : ''}`}>
+                        <select
+                          value={tempFilters.categoria || ''}
+                          onChange={(e) => handleCategoryChange(e.target.value)}
+                          disabled={isSearchActive}
+                          className={`w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm transition-colors ${isSearchActive ? 'cursor-not-allowed bg-muted' : 'cursor-pointer hover:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary'}`}
+                        >
+                          {getCategoriesForMarketplace(currentMarketplace).map(cat => (
+                            <option key={cat.value} value={cat.value}>{cat.icon} {cat.label}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
-                  <Slider
-                    min={0} max={90} step={1}
-                    value={[tempFilters.minDiscount ?? 20]}
-                    onValueChange={([v]) => setTempFilters(prev => ({ ...prev, minDiscount: v }))}
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground/60">
-                    <span>Sem mínimo</span><span>90% off</span>
-                  </div>
                 </div>
+              )}
 
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preço máximo</Label>
-                    <div className="flex items-center gap-1 bg-background border rounded-md px-2 py-0.5">
-                      <span className="text-xs text-muted-foreground">R$</span>
-                      <Input
-                        type="number"
-                        value={tempFilters.maxPrice ?? 20000}
-                        onChange={(e) => setTempFilters(prev => ({ ...prev, maxPrice: Math.max(50, parseInt(e.target.value) || 50) }))}
-                        className="w-16 h-6 border-0 p-0 text-center text-xs focus-visible:ring-0 shadow-none"
-                        min={50}
-                      />
+              <div className="rounded-xl border bg-muted/30 overflow-hidden">
+                <div className="px-4 py-3 border-b bg-muted/50">
+                  <p className="text-sm font-semibold">Filtros de qualidade</p>
+                </div>
+                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Desconto mínimo</Label>
+                      <div className="flex items-center gap-1 bg-background border rounded-md px-2 py-0.5">
+                        <Input
+                          type="number"
+                          value={tempFilters.minDiscount ?? 20}
+                          onChange={(e) => setTempFilters(prev => ({ ...prev, minDiscount: Math.min(90, Math.max(0, parseInt(e.target.value) || 0)) }))}
+                          className="w-10 h-6 border-0 p-0 text-center text-xs focus-visible:ring-0 shadow-none"
+                          min={0} max={90}
+                        />
+                        <span className="text-xs text-muted-foreground font-medium">%</span>
+                      </div>
                     </div>
+                    <Slider
+                      min={0} max={90} step={1}
+                      value={[tempFilters.minDiscount ?? 20]}
+                      onValueChange={([v]) => setTempFilters(prev => ({ ...prev, minDiscount: v }))}
+                    />
                   </div>
-                  <Slider
-                    min={50} max={20000} step={50}
-                    value={[tempFilters.maxPrice ?? 20000]}
-                    onValueChange={([v]) => setTempFilters(prev => ({ ...prev, maxPrice: v }))}
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground/60">
-                    <span>R$ 50</span><span>R$ 20.000</span>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preço máximo</Label>
+                      <div className="flex items-center gap-1 bg-background border rounded-md px-2 py-0.5">
+                        <span className="text-xs text-muted-foreground">R$</span>
+                        <Input
+                          type="number"
+                          value={tempFilters.maxPrice ?? 20000}
+                          onChange={(e) => setTempFilters(prev => ({ ...prev, maxPrice: Math.max(50, parseInt(e.target.value) || 50) }))}
+                          className="w-16 h-6 border-0 p-0 text-center text-xs focus-visible:ring-0 shadow-none"
+                          min={50}
+                        />
+                      </div>
+                    </div>
+                    <Slider
+                      min={50} max={20000} step={50}
+                      value={[tempFilters.maxPrice ?? 20000]}
+                      onValueChange={([v]) => setTempFilters(prev => ({ ...prev, maxPrice: v }))}
+                    />
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-
           </ScrollArea>
+
           <div className="flex-shrink-0 flex gap-3 p-4 border-t bg-background">
             <Button variant="outline" onClick={clearFilters} className="gap-2">
               <X className="w-4 h-4" /> Limpar tudo

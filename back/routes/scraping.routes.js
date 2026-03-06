@@ -1,4 +1,4 @@
-// backend/routes/scraping.routes.js - VERSÃO COM SSE REAL-TIME & CORREÇÃO RENDER & INJEÇÃO DE COOKIES
+// backend/routes/scraping.routes.js - VERSÃO PREMIUM (NÍVEL 2)
 const express = require('express');
 const router = express.Router();
 const ScrapingService = require('../scraper/services/ScrapingService');
@@ -18,7 +18,7 @@ function sendSSE(sessionId, data) {
   }
   
   const message = `data: ${JSON.stringify(data)}\n\n`;
-  console.log(`📡 SSE: ${data.progress}% | ${data.itemsCollected}/${data.totalItems} itens`);
+  console.log(`📡 SSE: ${data.progress}% | ${data.itemsCollected}/${data.totalItems} itens | Status: ${data.status}`);
   
   clients.forEach((client) => {
     try {
@@ -76,7 +76,6 @@ router.post('/start', async (req, res) => {
 
     (async () => {
       // ✅ INJEÇÃO CRÍTICA ANTES DO SCRAPING COMEÇAR
-      // Se o ML estiver habilitado, garante que a memória do serviço esteja atualizada com o banco
       const mlConfigParams = enabledMarketplaces.find(([name]) => name === 'mercadolivre' || name === 'ML');
       if (mlConfigParams) {
         try {
@@ -88,8 +87,6 @@ router.post('/start', async (req, res) => {
             mlAffiliate.updateCookies(config.ssid, config.csrf);
             mlAffiliate.accessToken = config.accessToken;
             console.log('🍪 [Scraping Route] Credenciais Mercado Livre carregadas em memória!');
-          } else {
-            console.warn('⚠️ [Scraping Route] ML ativo na request, mas sem cookies no banco.');
           }
         } catch (dbErr) {
           console.error('❌ [Scraping Route] Erro ao carregar sessão do ML do banco:', dbErr.message);
@@ -135,6 +132,20 @@ router.post('/start', async (req, res) => {
             onProductCollected: (product, current, total) => {
               const session = activeScrapingSessions.get(sessionId);
               if (!session) return;
+
+              // ✅ CORREÇÃO PREMIUM: Se for uma mensagem de status, envia para o frontend
+              if (product._isStatusMessage) {
+                sendSSE(sessionId, {
+                  progress: session.progress,
+                  currentMarketplace: marketplaceName,
+                  itemsCollected: session.itemsCollected,
+                  totalItems,
+                  status: 'collecting',
+                  message: product.message,
+                  messageType: product.type || 'info'
+                });
+                return;
+              }
 
               const preview = {
                 name: product.nome || 'Produto',
@@ -241,7 +252,8 @@ router.post('/start', async (req, res) => {
               currentMarketplace: marketplaceName,
               itemsCollected: totalCollected,
               totalItems,
-              status: 'running'
+              status: 'running',
+              message: `⚠️ Nenhum produto coletado em ${marketplaceName.toUpperCase()}.`
             });
           }
 
@@ -263,7 +275,7 @@ router.post('/start', async (req, res) => {
           itemsCollected: totalCollected,
           totalItems,
           status: 'completed',
-          message: `✅ Scraping concluído! ${totalCollected} produtos.`
+          message: `✅ Scraping concluído! ${totalCollected} produtos salvos.`
         });
 
         setTimeout(() => {
