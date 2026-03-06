@@ -35,6 +35,8 @@ import { Product } from '@/lib/mockData';
 import { whatsappService, type WhatsAppGroup } from '@/api/services/whatsapp.service';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
 import { ENV } from '@/config/environment';
+import { supabase } from '@/lib/supabase';
+import { socketService } from '@/api/services/socket.service';
 
 const API_BASE = ENV.API_BASE_URL;
 
@@ -58,17 +60,28 @@ const quickFilterLabels: Record<QuickFilter, string> = {
 
 type MobileTab = 'ofertas' | 'canais' | 'preview';
 
-// ─── Helper: chama a API de automação ────────────────────────────────────────
+// ─── Helper: chama a API de automação com JWT ─────────────────────────────────
 async function callAutomationAPI(path: string, body?: object) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || '';
+
   const res = await fetch(`${API_BASE}/api/automation${path}`, {
-    method: body !== undefined ? 'POST' : 'GET',
+    method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    body: JSON.stringify(body ?? {}),
   });
-  return res.json();
+
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    console.error(`[callAutomationAPI] Resposta não-JSON (${res.status}):`, text.slice(0, 200));
+    throw new Error(`Erro ${res.status} em ${path}`);
+  }
 }
 
 export function DistributionPage() {
@@ -126,13 +139,9 @@ export function DistributionPage() {
   useEffect(() => { localStorage.setItem('distribution_custom_message', customMessage); }, [customMessage]);
   useEffect(() => { localStorage.setItem('distribution_whatsapp_groups', JSON.stringify(whatsappGroups)); }, [whatsappGroups]);
 
-  // ── Socket.IO: escuta eventos do backend ─────────────────────────────────
+  // ── Socket.IO: escuta eventos do backend via socketService ───────────────
   useEffect(() => {
-    const socket = whatsappService.getSocket?.();
-    if (!socket) return;
-
-    // Solicita estado atual ao reconectar
-    socket.emit('automation:request-state', { userId: 'default' });
+    socketService.emit('automation:request-state', {});
 
     const onState = (data: any) => {
       if (!data) return;
@@ -171,20 +180,20 @@ export function DistributionPage() {
       setNextFireAt(null);
     };
 
-    socket.on('automation:state',        onState);
-    socket.on('automation:product-sent', onProductSent);
-    socket.on('automation:error',        onError);
-    socket.on('automation:cancelled',    onCancelled);
-    socket.on('automation:paused',       () => setAutomationPaused(true));
-    socket.on('automation:resumed',      () => setAutomationPaused(false));
+    socketService.on('automation:state',        onState);
+    socketService.on('automation:product-sent', onProductSent);
+    socketService.on('automation:error',        onError);
+    socketService.on('automation:cancelled',    onCancelled);
+    socketService.on('automation:paused',       () => setAutomationPaused(true));
+    socketService.on('automation:resumed',      () => setAutomationPaused(false));
 
     return () => {
-      socket.off('automation:state',        onState);
-      socket.off('automation:product-sent', onProductSent);
-      socket.off('automation:error',        onError);
-      socket.off('automation:cancelled',    onCancelled);
-      socket.off('automation:paused');
-      socket.off('automation:resumed');
+      socketService.off('automation:state',        onState);
+      socketService.off('automation:product-sent', onProductSent);
+      socketService.off('automation:error',        onError);
+      socketService.off('automation:cancelled',    onCancelled);
+      socketService.off('automation:paused',       () => setAutomationPaused(true));
+      socketService.off('automation:resumed',      () => setAutomationPaused(false));
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -257,7 +266,7 @@ export function DistributionPage() {
       });
     }
 
-    return result; // sem .slice(0, 50) — mostra todos
+    return result;
   }, [activeProducts, search, marketplaceFilter, categoryFilter, sortField, sortDirection, quickFilter, dateRange]);
 
   const selectedProducts = products.filter(p => selectedIds.includes(p.id));
@@ -355,17 +364,15 @@ export function DistributionPage() {
       return;
     }
 
-    // Pré-formata as mensagens aqui para não precisar de lógica no backend
     const productsPayload = eligible.map(p => ({
       nome: (p as any).nome || p.name,
       imagem: (p as any).imagem || p.image || null,
       link_afiliado: (p as any).link_afiliado || p.affiliateLink || '',
-      _mensagem: generateMessagePreview(p), // mensagem pré-formatada
+      _mensagem: generateMessagePreview(p),
     }));
 
     try {
       const result = await callAutomationAPI('/start', {
-        userId: 'default',
         sessionId: currentSessionId,
         grupoIds: whatsappGroups.map(g => g.id),
         products: productsPayload,
@@ -388,19 +395,19 @@ export function DistributionPage() {
   };
 
   const handlePauseAutomation = async () => {
-    await callAutomationAPI('/pause', { userId: 'default' });
+    await callAutomationAPI('/pause');
     setAutomationPaused(true);
     toast({ title: 'Automação pausada', description: 'O bot foi pausado.' });
   };
 
   const handleResumeAutomation = async () => {
-    await callAutomationAPI('/resume', { userId: 'default' });
+    await callAutomationAPI('/resume');
     setAutomationPaused(false);
     toast({ title: 'Automação retomada', description: 'O bot voltou a enviar ofertas.' });
   };
 
   const handleCancelAutomation = async () => {
-    await callAutomationAPI('/stop', { userId: 'default' });
+    await callAutomationAPI('/stop');
     setAutomationActive(false);
     setAutomationPaused(false);
     setAutomationConfig(null);
@@ -413,14 +420,14 @@ export function DistributionPage() {
   const handleSendNow = async () => {
     setIsAutoSending(true);
     try {
-      await callAutomationAPI('/send-now', { userId: 'default' });
+      await callAutomationAPI('/send-now');
     } catch (error: any) {
       setIsAutoSending(false);
       toast({ title: 'Erro', description: error.message, variant: 'destructive' });
     }
   };
 
-  // ── Timer: calcula segundos restantes a partir do nextFireAt do backend ────
+  // ── Timer ─────────────────────────────────────────────────────────────────
   const getSecondsLeft = () => {
     if (!nextFireAt || !automationConfig) return automationConfig?.intervalMinutes ? automationConfig.intervalMinutes * 60 : 60;
     const diff = Math.round((nextFireAt - Date.now()) / 1000);
@@ -707,7 +714,6 @@ export function DistributionPage() {
           </div>
         </div>
 
-        {/* Timer — apenas visual, sincronizado com nextFireAt do backend */}
         {automationActive && automationConfig && (
           <AutomationTimer
             intervalMinutes={automationConfig.intervalMinutes}
@@ -715,7 +721,7 @@ export function DistributionPage() {
             onPause={handlePauseAutomation}
             onResume={handleResumeAutomation}
             onCancel={handleCancelAutomation}
-            onTimerComplete={() => {/* backend dispara, Socket.IO notifica */}}
+            onTimerComplete={() => {}}
             onSendNow={handleSendNow}
             totalSent={totalSent}
             isSending={isAutoSending}
@@ -899,7 +905,7 @@ export function DistributionPage() {
               onPause={handlePauseAutomation}
               onResume={handleResumeAutomation}
               onCancel={handleCancelAutomation}
-              onTimerComplete={() => {/* backend dispara */}}
+              onTimerComplete={() => {}}
               onSendNow={handleSendNow}
               totalSent={totalSent}
               isSending={isAutoSending}

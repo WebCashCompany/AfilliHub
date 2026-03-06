@@ -327,10 +327,10 @@ export function AutomationPage() {
     }
     return {
       marketplaces: {
-        mercadolivre: { enabled: true, quantity: 50, filters: { minDiscount: 20, maxPrice: 20000 } },
-        amazon:       { enabled: true, quantity: 50, filters: { minDiscount: 20, maxPrice: 20000 } },
-        magalu:       { enabled: false, quantity: 30, filters: { minDiscount: 20, maxPrice: 20000 } },
-        shopee:       { enabled: true, quantity: 40, filters: { minDiscount: 20, maxPrice: 20000 } },
+        mercadolivre: { enabled: true, quantity: 10, filters: { minDiscount: 20, maxPrice: 20000 } },
+        amazon:       { enabled: true, quantity: 10, filters: { minDiscount: 20, maxPrice: 20000 } },
+        magalu:       { enabled: false, quantity: 10, filters: { minDiscount: 20, maxPrice: 20000 } },
+        shopee:       { enabled: true, quantity: 10, filters: { minDiscount: 20, maxPrice: 20000 } },
       },
     };
   });

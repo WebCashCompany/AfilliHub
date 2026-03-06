@@ -1,32 +1,27 @@
 // back/routes/automation.routes.js
 const express = require('express');
 const router = express.Router();
+const { requireAuth } = require('../middleware/requireAuth');
 
-/**
- * Rotas de Automação — Backend-Driven
- * ─────────────────────────────────────────────────────────────────────────────
- * O envio é gerenciado pelo AutomationService no servidor.
- * O frontend apenas inicia/para/pausa e escuta eventos via Socket.IO.
- */
 module.exports = (automationService) => {
 
   // ── POST /api/automation/start ────────────────────────────────────────────
-  // Inicia um job de automação no servidor
-  router.post('/start', async (req, res) => {
+  router.post('/start', requireAuth, async (req, res) => {
     try {
+      const userId = req.userId; // ← vem do token, nunca do body
+
       const {
-        userId = 'default',
         sessionId,
-        grupoIds,         // array de IDs de grupos WhatsApp
-        products,         // array de produtos com _mensagem pré-formatada
+        grupoIds,
+        products,
         intervalMinutes,
         currentIndex = 0,
         totalSent = 0,
       } = req.body;
 
-      if (!sessionId)           return res.status(400).json({ success: false, error: 'sessionId é obrigatório' });
-      if (!grupoIds?.length)    return res.status(400).json({ success: false, error: 'grupoIds é obrigatório' });
-      if (!products?.length)    return res.status(400).json({ success: false, error: 'products é obrigatório' });
+      if (!sessionId)        return res.status(400).json({ success: false, error: 'sessionId é obrigatório' });
+      if (!grupoIds?.length) return res.status(400).json({ success: false, error: 'grupoIds é obrigatório' });
+      if (!products?.length) return res.status(400).json({ success: false, error: 'products é obrigatório' });
       if (!intervalMinutes || intervalMinutes < 1) {
         return res.status(400).json({ success: false, error: 'intervalMinutes deve ser >= 1' });
       }
@@ -49,10 +44,9 @@ module.exports = (automationService) => {
   });
 
   // ── POST /api/automation/stop ─────────────────────────────────────────────
-  router.post('/stop', (req, res) => {
+  router.post('/stop', requireAuth, (req, res) => {
     try {
-      const { userId = 'default' } = req.body;
-      automationService.stop(userId);
+      automationService.stop(req.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -60,10 +54,9 @@ module.exports = (automationService) => {
   });
 
   // ── POST /api/automation/pause ────────────────────────────────────────────
-  router.post('/pause', (req, res) => {
+  router.post('/pause', requireAuth, (req, res) => {
     try {
-      const { userId = 'default' } = req.body;
-      automationService.pause(userId);
+      automationService.pause(req.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -71,10 +64,9 @@ module.exports = (automationService) => {
   });
 
   // ── POST /api/automation/resume ───────────────────────────────────────────
-  router.post('/resume', (req, res) => {
+  router.post('/resume', requireAuth, (req, res) => {
     try {
-      const { userId = 'default' } = req.body;
-      automationService.resume(userId);
+      automationService.resume(req.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -82,10 +74,9 @@ module.exports = (automationService) => {
   });
 
   // ── POST /api/automation/send-now ─────────────────────────────────────────
-  router.post('/send-now', async (req, res) => {
+  router.post('/send-now', requireAuth, async (req, res) => {
     try {
-      const { userId = 'default' } = req.body;
-      const result = await automationService.sendNow(userId);
+      const result = await automationService.sendNow(req.userId);
       res.json({ success: true, result });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -93,10 +84,9 @@ module.exports = (automationService) => {
   });
 
   // ── GET /api/automation/status ────────────────────────────────────────────
-  router.get('/status', (req, res) => {
+  router.get('/status', requireAuth, (req, res) => {
     try {
-      const userId = req.query.userId || 'default';
-      const state = automationService.getStatus(userId);
+      const state = automationService.getStatus(req.userId);
       res.json({ success: true, active: !!state, state });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
