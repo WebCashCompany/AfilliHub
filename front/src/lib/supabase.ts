@@ -6,7 +6,8 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-export type UserRole = 'administrador' | 'empresa' | 'colaborador';
+// Roles atualizados: basico < premium < max
+export type UserRole = 'basico' | 'premium' | 'max';
 
 export interface UserProfile {
   id: string;
