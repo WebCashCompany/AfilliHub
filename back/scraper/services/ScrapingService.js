@@ -70,7 +70,8 @@ class ScrapingService {
     const {
       minDiscount = 30, limit = 50, categoria = null,
       categoryKey = null, maxPrice = null, searchTerm = null,
-      onProductCollected = null
+      onProductCollected = null,
+      userId = null, // ⚠️ obrigatório para isolamento de dados
     } = options;
 
     const marketplace = this.marketplaces.get(marketplaceName)
@@ -79,18 +80,19 @@ class ScrapingService {
 
     if (!marketplace) throw new Error(`Marketplace "${marketplaceName}" não encontrado.`);
 
-    console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()}`);
+    console.log(`\n🚀 INICIANDO COLETA: ${marketplace.name.toUpperCase()} | userId: ${userId || 'N/A'}`);
 
     let scraper;
 
     if (marketplace.code === 'MAGALU') {
       const affiliateId = await this.getMagaluAffiliateId();
-      scraper = new MagaluScraper(minDiscount, { categoryKey, affiliateId, searchTerm, onProductCollected, limit, maxPrice });
+      scraper = new MagaluScraper(minDiscount, { categoryKey, affiliateId, searchTerm, onProductCollected, limit, maxPrice, userId });
     } else {
       scraper = marketplace.scraper;
       scraper.minDiscount = minDiscount;
       scraper.limit = limit;
       scraper.maxPrice = maxPrice;
+      scraper.userId = userId; // ⚠️ injeta userId no scraper para loadExistingLinks filtrar corretamente
       if (onProductCollected) scraper.onProductCollected = onProductCollected;
     }
 

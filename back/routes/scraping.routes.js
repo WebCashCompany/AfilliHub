@@ -160,6 +160,7 @@ router.post('/start', async (req, res) => {
             searchTerm:   mpConfig.searchTerm    || null,
             categoria:    mpConfig.categoria     || null,
             categoryKey:  mpConfig.categoryKey   || null,
+            userId,       // ⚠️ passa userId para o scraper filtrar loadExistingLinks corretamente
 
             onProductCollected: (product, current, total) => {
               const session = activeScrapingSessions.get(sessionId);
