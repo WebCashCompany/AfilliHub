@@ -1,16 +1,26 @@
 // front/src/api/services/socket.service.ts
 import { io, Socket } from 'socket.io-client';
 import { ENV } from '@/config/environment';
+import { supabase } from '@/lib/supabase';
 
 class SocketService {
   private socket: Socket | null = null;
   private callbacks: Map<string, Function[]> = new Map();
   private reconnectInterval: NodeJS.Timeout | null = null;
 
-  connect() {
+  async connect() {
     if (this.socket?.connected) {
       console.log('✅ Socket já está conectado');
       return;
+    }
+
+    // ── Busca o token JWT do Supabase antes de conectar ──────────────
+    let token = '';
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      token = session?.access_token || '';
+    } catch (e) {
+      console.warn('⚠️ [Socket] Não foi possível obter token JWT:', e);
     }
 
     const BACKEND_URL = ENV.API_BASE_URL.replace(/\/api$/, '');
@@ -22,7 +32,11 @@ class SocketService {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       timeout: 10000,
-      withCredentials: true
+      withCredentials: true,
+      // ── Token JWT enviado no handshake ──────────────────────────────
+      // O servidor lê socket.handshake.auth.token e coloca o socket
+      // na room `user:{userId}` para isolar eventos por usuário.
+      auth: { token }
     });
 
     this.socket.on('connect', () => {
@@ -33,7 +47,6 @@ class SocketService {
         this.reconnectInterval = null;
       }
 
-      // ✅ FIX: emitir AMBOS para garantir compatibilidade com o backend
       this.emit('sessions:get', {});
       this.emit('whatsapp:request-sessions', {});
     });
@@ -74,22 +87,19 @@ class SocketService {
       this.triggerCallbacks('whatsapp:disconnected', data);
     });
 
-    // ✅ FIX: broadcast do backend → dispara o handler correto no Context
     this.socket.on('whatsapp:sessions-update', (data: { sessions: any[] }) => {
       console.log('📋 [BROADCAST] Sessões atualizadas:', data.sessions?.length || 0, 'sessões');
       this.triggerCallbacks('whatsapp:sessions-update', data);
     });
 
-    // ✅ FIX: resposta ao sessions:get → redireciona pro mesmo handler
     this.socket.on('sessions:list', (data: { sessions: any[] }) => {
       console.log('📋 Lista de sessões recebida:', data.sessions?.length || 0);
-      this.triggerCallbacks('whatsapp:sessions-update', data); // ✅ mesmo handler do Context
+      this.triggerCallbacks('whatsapp:sessions-update', data);
     });
 
-    // ✅ FIX: alias antigo → redireciona pro mesmo handler
     this.socket.on('whatsapp:sessions-list', (data: { sessions: any[] }) => {
       console.log('📋 Lista de sessões recebida (alias):', data.sessions?.length || 0);
-      this.triggerCallbacks('whatsapp:sessions-update', data); // ✅ mesmo handler do Context
+      this.triggerCallbacks('whatsapp:sessions-update', data);
     });
 
     this.socket.on('whatsapp:offer-sent', (data: { sessionId: string; groupId: string; offerName: string }) => {
@@ -97,9 +107,36 @@ class SocketService {
       this.triggerCallbacks('whatsapp:offer-sent', data);
     });
 
+    this.socket.on('preferences:updated', (data: any) => {
+      this.triggerCallbacks('preferences:updated', data);
+    });
+
     this.socket.on('preferences:response', (data: any) => {
       this.triggerCallbacks('preferences:response', data);
     });
+
+    this.socket.on('automation:state', (data: any) => {
+      this.triggerCallbacks('automation:state', data);
+    });
+  }
+
+  // ── Atualiza o token após login/refresh de sessão ─────────────────
+  // Chame isso no AuthContext após SIGNED_IN ou TOKEN_REFRESHED
+  async updateToken() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || '';
+
+      if (this.socket && token) {
+        this.socket.auth = { token };
+        // Reconecta para entrar na room correta com o novo userId
+        this.socket.disconnect();
+        this.socket.connect();
+        console.log('🔑 [Socket] Token atualizado e reconectando...');
+      }
+    } catch (e) {
+      console.error('❌ [Socket] Erro ao atualizar token:', e);
+    }
   }
 
   disconnect() {
@@ -127,9 +164,7 @@ class SocketService {
     const callbacks = this.callbacks.get(event);
     if (callbacks) {
       const index = callbacks.indexOf(callback);
-      if (index > -1) {
-        callbacks.splice(index, 1);
-      }
+      if (index > -1) callbacks.splice(index, 1);
     }
   }
 

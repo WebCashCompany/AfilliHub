@@ -1,18 +1,21 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { ENV } from '@/config/environment';
+import { supabase } from '@/lib/supabase';
 
 const API_URL = `${ENV.API_BASE_URL}/api`;
 
-// ─────────────────────────────────────────────────────────
-// HEADERS PADRÃO — ngrok obrigatório em todas as requisições
-// ─────────────────────────────────────────────────────────
-const NGROK_HEADERS = {
-  'ngrok-skip-browser-warning': 'true',
-  'Content-Type': 'application/json',
-};
-
 export type Marketplace = 'mercadolivre' | 'amazon' | 'magalu' | 'shopee';
+
+// ─── Helper: headers com JWT + ngrok ────────────────────────────────────────
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'ngrok-skip-browser-warning': 'true',
+    'Content-Type': 'application/json',
+    ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+  };
+}
 
 export function useMarketplaceConnections() {
   const [connections, setConnections] = useState<Record<Marketplace, boolean>>({
@@ -26,9 +29,11 @@ export function useMarketplaceConnections() {
 
   const checkConnections = async () => {
     try {
+      const headers = await getAuthHeaders();
+
       const [mlResponse, magaluResponse] = await Promise.allSettled([
-        axios.get(`${API_URL}/ml/status`, { headers: NGROK_HEADERS }),
-        axios.get(`${API_URL}/integrations/magalu`, { headers: NGROK_HEADERS }),
+        axios.get(`${API_URL}/ml/status`, { headers }),
+        axios.get(`${API_URL}/integrations/magalu`, { headers }),
       ]);
 
       const hasActiveMl =

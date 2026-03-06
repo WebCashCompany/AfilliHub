@@ -28,54 +28,59 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 
 const queryClient = new QueryClient();
 
+// ─── AppRoutes ────────────────────────────────────────────────────────────────
+// AuthProvider fica aqui dentro para que useAuth() funcione em todos os filhos.
+// UserPreferencesProvider DEVE vir depois do AuthProvider (precisa do useAuth).
+// WhatsAppProvider DEVE vir depois do UserPreferencesProvider.
 function AppRoutes() {
   return (
     <AuthProvider>
-      <WhatsAppProvider>
-        <Routes>
-          {/* Rotas públicas */}
-          <Route path="/login" element={<LoginPage />} />
+      <UserPreferencesProvider>
+        <WhatsAppProvider>
+          <Routes>
+            {/* Rotas públicas */}
+            <Route path="/login" element={<LoginPage />} />
 
-          {/* Rotas protegidas */}
-          <Route element={<ProtectedRoute />}>
-            <Route element={<DashboardLayout />}>
-              <Route path="/" element={<DashboardHome />} />
-              <Route path="/analytics" element={<AnalyticsPage />} />
-              <Route path="/automation" element={<AutomationPage />} />
-              <Route path="/products" element={<ProductsPage />} />
-              <Route path="/distribution" element={<DistributionPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/goals" element={<GoalsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/trash" element={<TrashPage />} />
+            {/* Rotas protegidas */}
+            <Route element={<ProtectedRoute />}>
+              <Route element={<DashboardLayout />}>
+                <Route path="/"             element={<DashboardHome />} />
+                <Route path="/analytics"    element={<AnalyticsPage />} />
+                <Route path="/automation"   element={<AutomationPage />} />
+                <Route path="/products"     element={<ProductsPage />} />
+                <Route path="/distribution" element={<DistributionPage />} />
+                <Route path="/reports"      element={<ReportsPage />} />
+                <Route path="/goals"        element={<GoalsPage />} />
+                <Route path="/settings"     element={<SettingsPage />} />
+                <Route path="/trash"        element={<TrashPage />} />
+              </Route>
             </Route>
-          </Route>
 
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </WhatsAppProvider>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </WhatsAppProvider>
+      </UserPreferencesProvider>
     </AuthProvider>
   );
 }
 
+// ─── App ──────────────────────────────────────────────────────────────────────
+// Providers que NÃO dependem de auth ficam aqui fora (QueryClient, Tooltip, etc.)
+// DashboardProvider também não depende de auth diretamente, fica aqui.
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <PersistenceProvider>
-        <UserPreferencesProvider>
-          <DashboardProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <AppRoutes />
-            </BrowserRouter>
+        <DashboardProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
 
-            {/* Monitoramento da Vercel */}
-            <Analytics />
-            <SpeedInsights />
-            
-          </DashboardProvider>
-        </UserPreferencesProvider>
+          <Analytics />
+          <SpeedInsights />
+        </DashboardProvider>
       </PersistenceProvider>
     </TooltipProvider>
   </QueryClientProvider>

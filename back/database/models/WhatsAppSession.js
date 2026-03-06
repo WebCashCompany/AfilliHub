@@ -2,10 +2,17 @@
 const mongoose = require('mongoose');
 
 const whatsappSessionSchema = new mongoose.Schema({
+  // ─── ISOLAMENTO POR USUÁRIO ───────────────────────────────
+  // userId = auth.uid() do Supabase. Obrigatório.
+  userId: {
+    type: String,
+    required: true,
+    index: true
+  },
+
   sessionId: {
     type: String,
     required: true,
-    unique: true,
     trim: true
   },
   phoneNumber: {
@@ -42,45 +49,43 @@ const whatsappSessionSchema = new mongoose.Schema({
   collection: 'whatsapp_sessions'
 });
 
-// Índices
-whatsappSessionSchema.index({ sessionId: 1 });
-whatsappSessionSchema.index({ conectado: 1 });
-whatsappSessionSchema.index({ status: 1 });
+// ─── ÍNDICES ──────────────────────────────────────────────
+// Unicidade: um sessionId é único por usuário
+whatsappSessionSchema.index({ userId: 1, sessionId: 1 }, { unique: true });
+whatsappSessionSchema.index({ userId: 1, conectado: 1 });
+whatsappSessionSchema.index({ userId: 1, status: 1 });
 
-// Métodos
-whatsappSessionSchema.methods.toPublic = function() {
+// ─── MÉTODOS DE INSTÂNCIA ─────────────────────────────────
+whatsappSessionSchema.methods.toPublic = function () {
   return {
-    sessionId: this.sessionId,
-    phoneNumber: this.phoneNumber,
-    conectado: this.conectado,
-    status: this.status,
-    connectedAt: this.connectedAt,
+    sessionId:      this.sessionId,
+    phoneNumber:    this.phoneNumber,
+    conectado:      this.conectado,
+    status:         this.status,
+    connectedAt:    this.connectedAt,
     disconnectedAt: this.disconnectedAt,
-    lastActivity: this.lastActivity
+    lastActivity:   this.lastActivity
   };
 };
 
-// Statics
-whatsappSessionSchema.statics.findBySessionId = function(sessionId) {
-  return this.findOne({ sessionId });
+// ─── MÉTODOS ESTÁTICOS (todos filtram por userId) ─────────
+whatsappSessionSchema.statics.findBySessionId = function (userId, sessionId) {
+  return this.findOne({ userId, sessionId });
 };
 
-whatsappSessionSchema.statics.getActiveSessions = function() {
-  return this.find({ conectado: true, status: 'online' });
+whatsappSessionSchema.statics.getActiveSessions = function (userId) {
+  return this.find({ userId, conectado: true, status: 'online' });
 };
 
-whatsappSessionSchema.statics.getAllSessions = function() {
-  return this.find().sort({ lastActivity: -1 });
+whatsappSessionSchema.statics.getAllSessions = function (userId) {
+  return this.find({ userId }).sort({ lastActivity: -1 });
 };
 
-// Criar modelo dinâmico baseado na conexão
+// ─── FACTORY ──────────────────────────────────────────────
 function getWhatsAppSessionModel(connection) {
-  // Se o modelo já existe na conexão, retorná-lo
   if (connection.models.WhatsAppSession) {
     return connection.models.WhatsAppSession;
   }
-  
-  // Caso contrário, criar o modelo
   return connection.model('WhatsAppSession', whatsappSessionSchema);
 }
 

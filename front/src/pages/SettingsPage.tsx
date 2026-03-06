@@ -1,24 +1,31 @@
+// src/pages/SettingsPage.tsx
 import { useState, useEffect, useRef } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { 
-  Settings, Plus, Trash2, Store, ExternalLink, CheckCircle, XCircle, Loader2, Key, Info, ShieldCheck, AlertCircle, HelpCircle
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  Settings, Trash2, Store, ExternalLink, CheckCircle, Loader2, Key, ShieldCheck, AlertCircle, HelpCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import axios from 'axios';
 
 import { ENV } from '@/config/environment';
+import { supabase } from '@/lib/supabase';
+
 const API_URL = `${ENV.API_BASE_URL}/api`;
 
-const NGROK_HEADERS = {
-  'ngrok-skip-browser-warning': 'true',
-  'Content-Type': 'application/json',
-};
+// ── Helper: retorna headers com JWT + ngrok ──────────────────────────────────
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'ngrok-skip-browser-warning': 'true',
+    'Content-Type': 'application/json',
+    ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+  };
+}
 
 type Marketplace = 'mercadolivre' | 'amazon' | 'magalu' | 'shopee';
 
@@ -30,44 +37,26 @@ interface MLStatus {
   tokenExpiry: number | null;
 }
 
-const MARKETPLACE_COLORS = {
-  mercadolivre: '#FFE600',
-  amazon: '#FF9900',
-  magalu: '#0086FF',
-  shopee: '#EE4D2D',
-};
-
 export function SettingsPage() {
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
 
-  const [mlStatus, setMlStatus] = useState<MLStatus | null>(null);
-  const [mlLoading, setMlLoading] = useState(false);
+  const [mlStatus, setMlStatus]                 = useState<MLStatus | null>(null);
+  const [mlLoading, setMlLoading]               = useState(false);
   const [mlAwaitingReturn, setMlAwaitingReturn] = useState(false);
 
-  // Estados para o Modal de Sessão ML
   const [openMLSessionDialog, setOpenMLSessionDialog] = useState(false);
-  const [mlSSID, setMlSSID] = useState('');
-  const [mlCSRF, setMlCSRF] = useState('');
+  const [mlSSID, setMlSSID]                     = useState('');
+  const [mlCSRF, setMlCSRF]                     = useState('');
   const [mlSessionLoading, setMlSessionLoading] = useState(false);
 
-  const [magaluId, setMagaluId] = useState('');
-  const [savedMagaluId, setSavedMagaluId] = useState('');
+  const [magaluId, setMagaluId]               = useState('');
+  const [savedMagaluId, setSavedMagaluId]     = useState('');
   const [openMagaluDialog, setOpenMagaluDialog] = useState(false);
-  const [magaluLoading, setMagaluLoading] = useState(false);
+  const [magaluLoading, setMagaluLoading]     = useState(false);
 
   const mlCardRef     = useRef<HTMLDivElement>(null);
-  const amazonCardRef = useRef<HTMLDivElement>(null);
   const magaluCardRef = useRef<HTMLDivElement>(null);
-  const shopeeCardRef = useRef<HTMLDivElement>(null);
-
-  const cardRefs: Record<Marketplace, React.RefObject<HTMLDivElement>> = {
-    mercadolivre: mlCardRef,
-    amazon: amazonCardRef,
-    magalu: magaluCardRef,
-    shopee: shopeeCardRef,
-  };
 
   useEffect(() => {
     loadMLStatus();
@@ -80,18 +69,10 @@ export function SettingsPage() {
     const needSession = searchParams.get('need_session');
 
     if (mlConnected === 'true') {
-      toast({
-        title: '✅ Mercado Livre conectado!',
-        description: 'Sua conta foi autenticada com sucesso.',
-        className: 'bg-green-600 text-white border-none',
-      });
+      toast({ title: '✅ Mercado Livre conectado!', description: 'Sua conta foi autenticada com sucesso.', className: 'bg-green-600 text-white border-none' });
       setMlAwaitingReturn(false);
       loadMLStatus();
-      
-      if (needSession === 'true') {
-        setOpenMLSessionDialog(true);
-      }
-      
+      if (needSession === 'true') setOpenMLSessionDialog(true);
       setSearchParams({});
     }
 
@@ -100,45 +81,65 @@ export function SettingsPage() {
         no_code:               'Código de autorização não recebido.',
         token_exchange_failed: 'Falha ao trocar o código por token. Tente novamente.',
         access_denied:         'Acesso negado pelo Mercado Livre.',
+        no_state:              'Sessão expirada. Tente conectar novamente.',
       };
-      toast({
-        title: '❌ Falha ao conectar ML',
-        description: messages[mlError] || `Erro: ${mlError}`,
-        variant: 'destructive',
-      });
+      toast({ title: '❌ Falha ao conectar ML', description: messages[mlError] || `Erro: ${mlError}`, variant: 'destructive' });
       setMlAwaitingReturn(false);
       setSearchParams({});
     }
   }, [searchParams]);
 
+  // ── ML ────────────────────────────────────────────────────────────────────
+
   const loadMLStatus = async () => {
     setMlLoading(true);
     try {
-      const { data } = await axios.get(`${API_URL}/ml/status`, {
-        headers: NGROK_HEADERS,
-      });
+      const headers = await getAuthHeaders();
+      const { data } = await axios.get(`${API_URL}/ml/status`, { headers });
       setMlStatus(data);
       if (data.authenticated) setMlAwaitingReturn(false);
-    } catch (error) {
+    } catch {
       setMlStatus(null);
     } finally {
       setMlLoading(false);
     }
   };
 
-  const connectML = () => {
+  // ── connectML: chama /api/ml/auth com JWT no header via fetch ────────────
+  // window.location.href não manda headers, então fazemos uma chamada
+  // autenticada que retorna a URL de redirect e aí navegamos pra ela
+  const connectML = async () => {
     setMlAwaitingReturn(true);
-    window.location.href = `${ENV.API_BASE_URL}/api/ml/auth`;
+    try {
+      const headers = await getAuthHeaders();
+      // Chama /auth que agora exige JWT e retorna redirect — seguimos o redirect manualmente
+      const response = await fetch(`${ENV.API_BASE_URL}/api/ml/auth`, {
+        method: 'GET',
+        headers,
+        redirect: 'manual', // não seguir redirect automaticamente
+      });
+
+      // O backend redireciona para o ML — pegamos a URL do Location header
+      const redirectUrl = response.headers.get('location') || response.url;
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+      } else {
+        throw new Error('URL de redirect não recebida');
+      }
+    } catch (err) {
+      console.error('Erro ao iniciar OAuth ML:', err);
+      toast({ title: 'Erro', description: 'Falha ao iniciar conexão com Mercado Livre.', variant: 'destructive' });
+      setMlAwaitingReturn(false);
+    }
   };
 
   const disconnectML = async () => {
     try {
-      await axios.delete(`${API_URL}/ml/disconnect`, {
-        headers: NGROK_HEADERS,
-      });
+      const headers = await getAuthHeaders();
+      await axios.delete(`${API_URL}/ml/disconnect`, { headers });
       setMlStatus(null);
       toast({ title: 'Conta desconectada', description: 'Mercado Livre foi desvinculado.' });
-    } catch (error) {
+    } catch {
       toast({ title: 'Erro', description: 'Falha ao desconectar.', variant: 'destructive' });
     }
   };
@@ -150,34 +151,25 @@ export function SettingsPage() {
     }
     setMlSessionLoading(true);
     try {
-      await axios.post(
-        `${API_URL}/ml/session`,
-        { ssid: mlSSID, csrf: mlCSRF },
-        { headers: NGROK_HEADERS }
-      );
+      const headers = await getAuthHeaders();
+      await axios.post(`${API_URL}/ml/session`, { ssid: mlSSID, csrf: mlCSRF }, { headers });
       setOpenMLSessionDialog(false);
       loadMLStatus();
-      
-      // Notifica o sistema sobre a atualização do ML
       window.dispatchEvent(new CustomEvent('ml-connected'));
-      
-      toast({
-        title: '✅ Sessão Ativada!',
-        description: 'Agora seus links serão gerados como afiliado!',
-        className: 'bg-green-600 text-white border-none',
-      });
-    } catch (error) {
+      toast({ title: '✅ Sessão Ativada!', description: 'Agora seus links serão gerados como afiliado!', className: 'bg-green-600 text-white border-none' });
+    } catch {
       toast({ title: 'Erro', description: 'Falha ao salvar sessão.', variant: 'destructive' });
     } finally {
       setMlSessionLoading(false);
     }
   };
 
+  // ── Magalu ────────────────────────────────────────────────────────────────
+
   const loadMagaluConfig = async () => {
     try {
-      const { data } = await axios.get(`${API_URL}/integrations/magalu`, {
-        headers: NGROK_HEADERS,
-      });
+      const headers = await getAuthHeaders();
+      const { data } = await axios.get(`${API_URL}/integrations/magalu`, { headers });
       if (data?.affiliateId) {
         setSavedMagaluId(data.affiliateId);
         setMagaluId(data.affiliateId);
@@ -194,28 +186,20 @@ export function SettingsPage() {
     }
     setMagaluLoading(true);
     try {
-      await axios.post(
-        `${API_URL}/integrations/magalu`,
-        { provider: 'magalu', affiliateId: magaluId },
-        { headers: NGROK_HEADERS }
-      );
+      const headers = await getAuthHeaders();
+      await axios.post(`${API_URL}/integrations/magalu`, { provider: 'magalu', affiliateId: magaluId }, { headers });
       setSavedMagaluId(magaluId);
       setOpenMagaluDialog(false);
-      
-      // Notifica o sistema sobre a atualização do Magalu
       window.dispatchEvent(new CustomEvent('magalu-config-updated'));
-      
-      toast({
-        title: '✅ Configuração salva!',
-        description: `ID "${magaluId}" será usado nos scrapings.`,
-        className: 'bg-green-600 text-white border-none',
-      });
-    } catch (error) {
+      toast({ title: '✅ Configuração salva!', description: `ID "${magaluId}" será usado nos scrapings.`, className: 'bg-green-600 text-white border-none' });
+    } catch {
       toast({ title: 'Erro', description: 'Falha ao salvar configuração', variant: 'destructive' });
     } finally {
       setMagaluLoading(false);
     }
   };
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="p-6 space-y-8 max-w-5xl mx-auto">
@@ -225,7 +209,7 @@ export function SettingsPage() {
       </div>
 
       <div className="grid gap-6">
-        {/* ── MERCADO LIVRE ────────────────────────────────────────────────── */}
+        {/* ── MERCADO LIVRE ──────────────────────────────────────────────── */}
         <Card ref={mlCardRef} className="overflow-hidden border-zinc-800 bg-zinc-950/50 backdrop-blur-sm">
           <CardHeader className="border-b border-zinc-800/50 bg-zinc-900/20">
             <div className="flex items-center justify-between">
@@ -242,17 +226,18 @@ export function SettingsPage() {
               {mlStatus?.authenticated ? (
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" className="border-zinc-700 hover:bg-zinc-800" onClick={() => setOpenMLSessionDialog(true)}>
-                    <Key className="w-4 h-4 mr-2" />
-                    Sessão
+                    <Key className="w-4 h-4 mr-2" />Sessão
                   </Button>
                   <Button variant="ghost" size="sm" className="text-zinc-500 hover:text-red-400 hover:bg-red-400/10" onClick={disconnectML}>
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
               ) : (
-                <Button onClick={connectML} className="bg-[#FFE600] text-black hover:bg-[#FFE600]/90 font-bold gap-2">
-                  <ExternalLink className="w-4 h-4" />
-                  Conectar Conta
+                <Button onClick={connectML} disabled={mlAwaitingReturn} className="bg-[#FFE600] text-black hover:bg-[#FFE600]/90 font-bold gap-2">
+                  {mlAwaitingReturn
+                    ? <><Loader2 className="w-4 h-4 animate-spin" />Aguardando...</>
+                    : <><ExternalLink className="w-4 h-4" />Conectar Conta</>
+                  }
                 </Button>
               )}
             </div>
@@ -279,7 +264,9 @@ export function SettingsPage() {
 
                   <div className={`flex items-center gap-4 p-4 rounded-xl border ${mlStatus.hasCookies ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-amber-500/20 bg-amber-500/5'}`}>
                     <div className={`p-2 rounded-full ${mlStatus.hasCookies ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
-                      {mlStatus.hasCookies ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : <AlertCircle className="w-5 h-5 text-amber-500" />}
+                      {mlStatus.hasCookies
+                        ? <CheckCircle className="w-5 h-5 text-emerald-500" />
+                        : <AlertCircle className="w-5 h-5 text-amber-500" />}
                     </div>
                     <div>
                       <p className="text-xs text-zinc-500 uppercase font-bold tracking-wider">Geração Afiliada</p>
@@ -301,11 +288,7 @@ export function SettingsPage() {
                         <p className="text-sm text-amber-200/70 leading-relaxed">
                           Para que o sistema consiga gerar links <strong>afiliados</strong>, é necessário fornecer o token de sessão (SSID) da sua conta.
                         </p>
-                        <Button 
-                          variant="link" 
-                          className="p-0 h-auto text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
-                          onClick={() => setOpenMLSessionDialog(true)}
-                        >
+                        <Button variant="link" className="p-0 h-auto text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1" onClick={() => setOpenMLSessionDialog(true)}>
                           Configurar sessão agora <ExternalLink className="w-3 h-3" />
                         </Button>
                       </div>
@@ -341,8 +324,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <Button variant="outline" size="sm" className="border-zinc-700 hover:bg-zinc-800" onClick={() => setOpenMagaluDialog(true)}>
-                <Settings className="w-4 h-4 mr-2" />
-                Configurar
+                <Settings className="w-4 h-4 mr-2" />Configurar
               </Button>
             </div>
           </CardHeader>
@@ -371,24 +353,22 @@ export function SettingsPage() {
         <DialogContent className="sm:max-w-[500px] bg-zinc-950 border-zinc-800 text-zinc-200">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-              <Key className="w-6 h-6 text-amber-500" />
-              Ativar Sessão
+              <Key className="w-6 h-6 text-amber-500" />Ativar Sessão
             </DialogTitle>
             <DialogDescription className="text-zinc-400">
               Siga os passos abaixo para capturar o SSID e ativar a geração de links encurtados.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-6 py-4">
             <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-xl space-y-3">
               <div className="flex items-center gap-2 text-amber-500 font-bold text-sm">
-                <HelpCircle className="w-4 h-4" />
-                Como obter os dados?
+                <HelpCircle className="w-4 h-4" />Como obter os dados?
               </div>
               <ol className="text-xs text-zinc-400 space-y-2 list-decimal ml-4">
                 <li>Acesse o Mercado Livre no seu navegador.</li>
-                <li>Aperte <kbd className="px-1 py-0.5 bg-zinc-800 rounded border border-zinc-700">F12</kbd> &rarr; Aba <strong>Application</strong> (ou Aplicativo).</li>
-                <li>No menu lateral, clique em <strong>Cookies</strong> &rarr; mercadolivre.com.br.</li>
+                <li>Aperte <kbd className="px-1 py-0.5 bg-zinc-800 rounded border border-zinc-700">F12</kbd> → Aba <strong>Application</strong>.</li>
+                <li>No menu lateral, clique em <strong>Cookies</strong> → mercadolivre.com.br.</li>
                 <li>Copie os valores de <strong>ssid</strong> e <strong>_csrf_token</strong>.</li>
               </ol>
             </div>
@@ -396,24 +376,11 @@ export function SettingsPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="ssid" className="text-zinc-300 font-medium">Valor do SSID (Obrigatório)</Label>
-                <Input 
-                  id="ssid" 
-                  className="bg-zinc-900 border-zinc-800 focus:ring-amber-500/50"
-                  placeholder="Ex: 1.23456789.123456789..." 
-                  value={mlSSID} 
-                  onChange={(e) => setMlSSID(e.target.value)}
-                />
+                <Input id="ssid" className="bg-zinc-900 border-zinc-800 focus:ring-amber-500/50" placeholder="Ex: 1.23456789.123456789..." value={mlSSID} onChange={(e) => setMlSSID(e.target.value)} />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="csrf" className="text-zinc-300 font-medium">Valor do _csrf_token (Opcional)</Label>
-                <Input 
-                  id="csrf" 
-                  className="bg-zinc-900 border-zinc-800 focus:ring-amber-500/50"
-                  placeholder="Ex: a1b2c3d4..." 
-                  value={mlCSRF} 
-                  onChange={(e) => setMlCSRF(e.target.value)}
-                />
+                <Input id="csrf" className="bg-zinc-900 border-zinc-800 focus:ring-amber-500/50" placeholder="Ex: a1b2c3d4..." value={mlCSRF} onChange={(e) => setMlCSRF(e.target.value)} />
               </div>
             </div>
           </div>
@@ -452,4 +419,3 @@ export function SettingsPage() {
     </div>
   );
 }
- 

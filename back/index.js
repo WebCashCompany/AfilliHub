@@ -1,14 +1,15 @@
 // back/index.js
 require('dotenv').config();
-const express = require('express');
-const cors    = require('cors');
-const http    = require('http');
+const express    = require('express');
+const cors       = require('cors');
+const http       = require('http');
 const { Server } = require('socket.io');
 
 const { connectDB, getProductConnection, getWhatsAppConnection } = require('./database/mongodb');
 const { getWhatsAppSessionModel }  = require('./database/models/WhatsAppSession');
 const { getWhatsAppAuthModels }    = require('./database/models/WhatsAppAuthKeys');
 const { getUserPreferencesModel }  = require('./database/models/UserPreferences');
+const supabase = require('./database/supabase');
 
 const app    = express();
 const server = http.createServer(app);
@@ -24,23 +25,19 @@ function isOriginAllowed(origin) {
   if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok(-free)?\.app$/.test(origin)) return true;
   if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok\.io$/.test(origin)) return true;
   return false;
-} 
+}
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (isOriginAllowed(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`🚫 CORS bloqueado: ${origin}`);
-      callback(new Error(`CORS bloqueado: ${origin}`));
-    }
+    if (isOriginAllowed(origin)) callback(null, true);
+    else { console.warn(`🚫 CORS bloqueado: ${origin}`); callback(new Error(`CORS bloqueado: ${origin}`)); }
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
     'Origin', 'X-Requested-With', 'Content-Type',
     'Accept', 'Authorization', 'ngrok-skip-browser-warning',
   ],
-  credentials: true,
+  credentials:          true,
   optionsSuccessStatus: 200,
 };
 
@@ -60,8 +57,8 @@ const io = new Server(server, {
       if (isOriginAllowed(origin)) callback(null, true);
       else callback(new Error(`Socket CORS bloqueado: ${origin}`));
     },
-    methods: ['GET', 'POST'],
-    credentials: true,
+    methods:        ['GET', 'POST'],
+    credentials:    true,
     allowedHeaders: ['ngrok-skip-browser-warning'],
   },
   transports:   ['websocket', 'polling'],
@@ -69,11 +66,26 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
+// ─── Verifica JWT via Supabase SDK (compatível com ECC P-256) ────────────────
+async function getUserIdFromSocket(socket) {
+  try {
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.replace('Bearer ', '');
+
+    if (!token) return null;
+
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) return null;
+    return user.id;
+  } catch (e) {
+    return null;
+  }
+}
+
 let whatsappService   = null;
 let automationService = null;
-let sessionModel      = null;
 let preferencesModel  = null;
-let integrationModel  = null;
 
 console.log('\n╔════════════════════════════════════════════════════╗');
 console.log('║    🚀 AFFILIATE HUB PRO - API SERVER 🚀           ║');
@@ -86,53 +98,58 @@ async function startServer() {
     const prodConnection = getProductConnection();
     const waConnection   = getWhatsAppConnection();
 
-    sessionModel     = getWhatsAppSessionModel(waConnection);
-    const authModels = getWhatsAppAuthModels(waConnection);
-    preferencesModel = getUserPreferencesModel(prodConnection);
-    integrationModel = require('./models/Integration')(prodConnection);
+    const sessionModel = getWhatsAppSessionModel(waConnection);
+    const authModels   = getWhatsAppAuthModels(waConnection);
+    preferencesModel   = getUserPreferencesModel(prodConnection);
 
+    // ─── Serviços ────────────────────────────────────────────────────
     const WhatsAppMultiSessionService = require('./services/WhatsAppMultiSessionService');
     whatsappService = new WhatsAppMultiSessionService(io, sessionModel, authModels);
 
-    // ── AutomationService — precisa do whatsappService e io ──────────────────
     const AutomationService = require('./services/AutomationService');
     automationService = new AutomationService(whatsappService, io);
 
-    // ─────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────
     // SOCKET.IO EVENTS
-    // ─────────────────────────────────────────────────────
-    io.on('connection', (socket) => {
-      console.log(`🔌 [SOCKET] Cliente conectado: ${socket.id}`);
+    // ─────────────────────────────────────────────────────────────────
+    io.on('connection', async (socket) => {
+      const userId = await getUserIdFromSocket(socket); // ← async, sem jwt.verify
 
-      const sendSessionsToSocket = async (targetSocket) => {
+      if (userId) {
+        socket.join(`user:${userId}`);
+        console.log(`🔌 [SOCKET] userId=${userId} conectado (${socket.id})`);
+      } else {
+        console.warn(`⚠️ [SOCKET] Conexão sem token válido (${socket.id})`);
+      }
+
+      const sendSessionsToSocket = async (targetSocket, uid) => {
+        if (!uid) {
+          targetSocket.emit('sessions:list', { sessions: [] });
+          return;
+        }
         try {
-          const sessions = await whatsappService.getAllSessions();
+          const sessions = await whatsappService.getAllSessions(uid);
           targetSocket.emit('sessions:list',          { sessions });
           targetSocket.emit('whatsapp:sessions-list', { sessions });
         } catch (error) {
           console.error('❌ [SOCKET] Erro ao enviar sessões:', error.message);
-          targetSocket.emit('sessions:list',          { sessions: [] });
-          targetSocket.emit('whatsapp:sessions-list', { sessions: [] });
+          targetSocket.emit('sessions:list', { sessions: [] });
         }
       };
 
-      // Ao conectar/reconectar, envia o estado atual da automação (se ativa)
-      socket.on('automation:request-state', ({ userId = 'default' } = {}) => {
+      socket.on('sessions:get',              () => sendSessionsToSocket(socket, userId));
+      socket.on('whatsapp:request-sessions', () => sendSessionsToSocket(socket, userId));
+
+      socket.on('automation:request-state', () => {
+        if (!userId) return;
         const state = automationService?.getStatus(userId);
-        if (state) {
-          socket.emit('automation:state', { userId, ...state });
-        } else {
-          socket.emit('automation:state', { userId, active: false });
-        }
+        socket.emit('automation:state', { userId, ...(state || { active: false }) });
       });
 
-      socket.on('sessions:get', () => sendSessionsToSocket(socket));
-      socket.on('whatsapp:request-sessions', () => sendSessionsToSocket(socket));
-
-      socket.on('preferences:request', async (data) => {
+      socket.on('preferences:request', async () => {
+        if (!userId) return;
         try {
-          const userId = data?.userId || 'default';
-          const prefs  = await preferencesModel.getPreferences(userId);
+          const prefs = await preferencesModel.getPreferences(userId);
           socket.emit('preferences:response', { preferences: prefs.toPublic() });
         } catch (error) {
           console.error('❌ [SOCKET] Erro ao enviar preferências:', error.message);
@@ -140,27 +157,22 @@ async function startServer() {
       });
 
       socket.on('disconnect', () => {
-        console.log(`❌ [SOCKET] Cliente desconectado: ${socket.id}`);
+        console.log(`❌ [SOCKET] ${userId || 'anônimo'} desconectado (${socket.id})`);
       });
     });
 
-    // ─────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────
     // ROTAS
-    // ─────────────────────────────────────────────────────
-    app.get('/api/health', async (req, res) => {
-      const activeSessions = await whatsappService.getActiveSessions();
-      res.json({ status: 'OK', whatsapp: { active: activeSessions.length } });
-    });
+    // ─────────────────────────────────────────────────────────────────
+    app.get('/api/health', (req, res) => res.json({ status: 'OK' }));
 
     app.use('/api/products',     require('./routes/products.routes'));
     app.use('/api/scraping',     require('./routes/scraping.routes'));
     app.use('/api/divulgacao',   require('./routes/divulgacao.routes')(whatsappService));
     app.use('/api/sessions',     require('./routes/sessions.routes'));
     app.use('/api/preferences',  require('./routes/preferences.routes')(preferencesModel, io));
-    app.use('/api/integrations', require('./routes/integrations')(integrationModel));
+    app.use('/api/integrations', require('./routes/integrations')());
     app.use('/api/ml',           require('./routes/ml-oauth.routes'));
-
-    // ── Nova rota de automação (backend-driven) ───────────────────────────────
     app.use('/api/automation',   require('./routes/automation.routes')(automationService));
 
     server.listen(PORT, () => {
@@ -180,13 +192,8 @@ startServer();
 process.on('SIGINT', async () => {
   console.log('\n🛑 Encerrando servidor...');
   if (whatsappService) {
-    for (const [sessionId, session] of whatsappService.sessions) {
-      try {
-        await session.softDisconnect();
-        console.log(`✅ ${sessionId} desconectado.`);
-      } catch (e) {
-        console.error(`Erro ao desligar ${sessionId}:`, e.message);
-      }
+    for (const [, session] of whatsappService.sessions) {
+      try { await session.softDisconnect(); } catch (e) {}
     }
   }
   process.exit(0);

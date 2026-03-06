@@ -1,54 +1,49 @@
 const express     = require('express');
 const router      = express.Router();
 const mlAffiliate = require('../services/MLAffiliateService');
-const { getProductConnection } = require('../database/mongodb');
-const IntegrationModel = require('../models/Integration');
+const supabase    = require('../database/supabase');
 
-// ✅ Ngrok exige este header para não mostrar a página de aviso
 router.use((req, res, next) => {
   res.setHeader('ngrok-skip-browser-warning', 'true');
   next();
 });
 
-// ─── Salva credenciais no MongoDB ───────────────────────────────────────────
-async function saveMLCredentials(data) {
-  try {
-    const conn        = getProductConnection();
-    const Integration = IntegrationModel(conn);
+// ─── Helper: extrai user_id do JWT do Supabase ──────────────────────────────
+async function getUserId(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return null;
 
-    await Integration.findOneAndUpdate(
-      { provider: 'mercadolivre' },
-      {
-        provider:     'mercadolivre',
-        accessToken:  data.accessToken,
-        refreshToken: data.refreshToken,
-        tokenExpiry:  data.tokenExpiry,
-        userId:       data.userId,
-        ssid:         data.ssid || '',
-        csrf:         data.csrf || '',
-        connectedAt:  new Date(),
-        isActive:     true
-      },
-      { upsert: true, new: true }
+  const token = authHeader.replace('Bearer ', '');
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+  return user.id;
+}
+
+// ─── Helper: upsert na tabela marketplace_integrations ──────────────────────
+async function upsertIntegration(userId, provider, fields) {
+  const { error } = await supabase
+    .from('marketplace_integrations')
+    .upsert(
+      { user_id: userId, provider, ...fields, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,provider' }
     );
-
-    console.log('✅ [ML OAuth] Credenciais salvas no MongoDB');
-  } catch (error) {
-    console.error('❌ [ML OAuth] Erro ao salvar no MongoDB:', error.message);
-    throw error;
-  }
+  if (error) throw error;
 }
 
 // ─── GET /api/ml/auth ────────────────────────────────────────────────────────
-router.get('/auth', (req, res) => {
-  const authUrl = mlAffiliate.getAuthUrl();
-  console.log('🔗 [ML OAuth] Redirecionando para login ML...');
-  res.redirect(authUrl);
+// Exige JWT — extrai userId e embute no state do OAuth
+router.get('/auth', async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Não autenticado' });
+
+  console.log(`🔗 [ML OAuth] Redirecionando userId=${userId} para login ML...`);
+  res.redirect(mlAffiliate.getAuthUrl(userId));
 });
 
 // ─── GET /api/ml/callback ────────────────────────────────────────────────────
+// ML redireciona aqui após autorização — recupera userId do state
 router.get('/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, state, error } = req.query;
   const redirectUrl = 'https://vantpromo.vercel.app/settings';
 
   if (error) {
@@ -56,24 +51,33 @@ router.get('/callback', async (req, res) => {
     return res.redirect(`${redirectUrl}?ml_error=${encodeURIComponent(error)}`);
   }
 
-  if (!code) return res.redirect(`${redirectUrl}?ml_error=no_code`);
+  if (!code)  return res.redirect(`${redirectUrl}?ml_error=no_code`);
+  if (!state) return res.redirect(`${redirectUrl}?ml_error=no_state`);
+
+  // Recupera o userId que foi embutido no state durante /auth
+  let userId;
+  try {
+    userId = Buffer.from(state, 'base64').toString('utf8');
+  } catch {
+    return res.redirect(`${redirectUrl}?ml_error=invalid_state`);
+  }
 
   try {
     console.log('🔄 [ML OAuth] Trocando código por tokens...');
     const tokenData = await mlAffiliate.exchangeCode(code);
-    
-    await saveMLCredentials({
-      accessToken:  tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
-      tokenExpiry:  Date.now() + (tokenData.expires_in * 1000),
-      userId:       tokenData.user_id,
-      ssid:         '',
-      csrf:         '',
+
+    await upsertIntegration(userId, 'mercadolivre', {
+      ml_user_id:    String(tokenData.user_id),
+      access_token:  tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      token_expiry:  new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
+      connected_at:  new Date().toISOString(),
     });
 
+    console.log(`✅ [ML OAuth] userId=${userId} autenticado e salvo no Supabase`);
     return res.redirect(`${redirectUrl}?ml_connected=true&need_session=true`);
   } catch (err) {
-    console.error('❌ [ML OAuth] Erro no callback:', err.message);
+    console.error('❌ [ML Callback]', err.message);
     return res.redirect(`${redirectUrl}?ml_error=token_exchange_failed`);
   }
 });
@@ -83,62 +87,80 @@ router.post('/session', async (req, res) => {
   const { ssid, csrf } = req.body;
   if (!ssid) return res.status(400).json({ error: 'SSID é obrigatório' });
 
-  try {
-    const conn        = getProductConnection();
-    const Integration = IntegrationModel(conn);
-    
-    const config = await Integration.findOneAndUpdate(
-      { provider: 'mercadolivre' },
-      { $set: { ssid, csrf, updatedAt: new Date() } },
-      { new: true }
-    );
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Não autenticado' });
 
-    if (!config) return res.status(404).json({ error: 'Integração não encontrada.' });
+  try {
+    await upsertIntegration(userId, 'mercadolivre', {
+      ssid,
+      csrf_token:  csrf || '',
+      has_cookies: true,
+    });
 
     mlAffiliate.updateSession(ssid, csrf);
+    console.log(`🍪 [ML Session] userId=${userId} sessão salva`);
     res.json({ success: true });
   } catch (err) {
+    console.error('❌ [ML Session]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ─── GET /api/ml/status ──────────────────────────────────────────────────────
-// ✅ AJUSTE AQUI: Garantir que o retorno seja exatamente o que o frontend espera
 router.get('/status', async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.json({ authenticated: false, hasCookies: false });
+
   try {
-    const conn        = getProductConnection();
-    const Integration = IntegrationModel(conn);
-    const config      = await Integration.findOne({ provider: 'mercadolivre' });
+    const { data, error } = await supabase
+      .from('marketplace_integrations')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('provider', 'mercadolivre')
+      .single();
 
-    // Força o retorno de um objeto limpo
-    const status = {
-      authenticated: !!(config && config.accessToken),
-      connectedAt:   config?.connectedAt || null,
-      userId:        config?.userId      || null,
-      hasCookies:    !!(config?.ssid),
-      tokenExpiry:   config?.tokenExpiry || null,
-    };
+    if (error || !data) {
+      return res.json({ authenticated: false, hasCookies: false });
+    }
 
-    console.log(`📊 [ML Status] Authenticated: ${status.authenticated} | HasCookies: ${status.hasCookies}`);
-    res.json(status);
-  } catch (error) {
-    console.error('❌ [ML Status] Erro:', error.message);
+    // Carrega credenciais no serviço para uso imediato (scraping, geração de links)
+    await mlAffiliate.initFromSupabase(userId);
+
+    console.log(`📊 [ML Status] userId=${userId} authenticated=${!!data.access_token} hasCookies=${!!data.ssid}`);
+    res.json({
+      authenticated: !!data.access_token,
+      connectedAt:   data.connected_at,
+      userId:        data.ml_user_id,
+      hasCookies:    !!data.ssid,
+      tokenExpiry:   data.token_expiry,
+    });
+  } catch (err) {
+    console.error('❌ [ML Status]', err.message);
     res.json({ authenticated: false, hasCookies: false });
   }
 });
 
 // ─── DELETE /api/ml/disconnect ───────────────────────────────────────────────
 router.delete('/disconnect', async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Não autenticado' });
+
   try {
-    const conn        = getProductConnection();
-    const Integration = IntegrationModel(conn);
-    await Integration.deleteMany({ provider: 'mercadolivre' });
+    const { error } = await supabase
+      .from('marketplace_integrations')
+      .delete()
+      .eq('user_id', userId)
+      .eq('provider', 'mercadolivre');
+
+    if (error) throw error;
+
     mlAffiliate.disconnect();
+    console.log(`🗑️ [ML Disconnect] userId=${userId} desconectado`);
     res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error('❌ [ML Disconnect]', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
 module.exports = router;
- 

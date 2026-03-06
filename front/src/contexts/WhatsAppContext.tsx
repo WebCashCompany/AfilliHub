@@ -28,20 +28,20 @@ const WhatsAppContext = createContext<WhatsAppContextData>({} as WhatsAppContext
 export function WhatsAppProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
 
-  const [sessions, setSessions] = useState<WhatsAppSession[]>([]);
+  const [sessions, setSessions]           = useState<WhatsAppSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [groups, setGroups] = useState<WhatsAppGroup[]>([]);
+  const [groups, setGroups]               = useState<WhatsAppGroup[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting]   = useState(false);
+  const [isLoading, setIsLoading]         = useState(false);
+  const [qrCode, setQrCode]               = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
   const currentSessionIdRef = useRef<string | null>(null);
   currentSessionIdRef.current = currentSessionId;
 
   // ─────────────────────────────────────────────────────────
-  // CHAVES DO LOCALSTORAGE VINCULADAS AO USUÁRIO
+  // LOCALSTORAGE VINCULADO AO USUÁRIO
   // ─────────────────────────────────────────────────────────
   const storageKey = useCallback((key: string) =>
     user?.id ? `whatsapp_${key}_${user.id}` : null,
@@ -70,7 +70,7 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   }, [storageKey]);
 
   // ─────────────────────────────────────────────────────────
-  // HELPER: normalizar sessões
+  // NORMALIZAR SESSÕES
   // ─────────────────────────────────────────────────────────
   const normalizeSessions = (data: any): WhatsAppSession[] => {
     if (Array.isArray(data)) return data;
@@ -79,11 +79,13 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   };
 
   // ─────────────────────────────────────────────────────────
-  // INICIALIZAR SOCKET.IO
+  // CONECTAR SOCKET — só após usuário logado
   // ─────────────────────────────────────────────────────────
   useEffect(() => {
-    console.log('🔌 Conectando Socket.IO...');
-    socketService.connect();
+    if (!user?.id) return; // aguarda login
+
+    console.log('🔌 Conectando Socket.IO (usuário autenticado)...');
+    socketService.connect(); // async mas não precisa await aqui — callbacks são registrados abaixo
 
     const checkInterval = setInterval(() => {
       setSocketConnected(socketService.isConnected());
@@ -93,10 +95,10 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
       clearInterval(checkInterval);
       socketService.disconnect();
     };
-  }, []);
+  }, [user?.id]); // reconecta se mudar de usuário
 
   // ─────────────────────────────────────────────────────────
-  // CARREGAR DADOS SALVOS QUANDO USUÁRIO LOGA
+  // CARREGAR DADOS SALVOS AO LOGAR
   // ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user?.id) return;
@@ -146,13 +148,11 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
 
     const handleDisconnected = (data: { sessionId: string; reason: string }) => {
       console.log('❌ [REAL-TIME] Sessão desconectada:', data.sessionId, data.reason);
-
       setSessions(prev => prev.map(s =>
         s.sessionId === data.sessionId
           ? { ...s, conectado: false, status: 'offline' as const }
           : s
       ));
-
       if (data.sessionId === currentSessionIdRef.current) {
         setCurrentSessionId(null);
         setGroups([]);
@@ -167,12 +167,10 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
       console.log('📋 [REAL-TIME] Sessões atualizadas:', list.length);
       setSessions(list);
 
-      // Se há uma sessão salva no storage, verificar se ainda está ativa
       const saved = currentSessionIdRef.current;
       if (saved) {
         const stillActive = list.find(s => s.sessionId === saved && s.conectado);
         if (!stillActive) {
-          // Sessão salva não está mais ativa — tentar pegar outra ativa
           const anyActive = list.find(s => s.conectado);
           if (anyActive) {
             setCurrentSessionId(anyActive.sessionId);
@@ -180,7 +178,6 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
           }
         }
       } else {
-        // Nenhuma sessão selecionada — auto-selecionar primeira ativa
         const anyActive = list.find(s => s.conectado);
         if (anyActive) {
           setCurrentSessionId(anyActive.sessionId);
@@ -203,20 +200,14 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   }, [user?.id]);
 
   // ─────────────────────────────────────────────────────────
-  // PERSISTIR SESSÃO ATUAL POR USUÁRIO
+  // PERSISTÊNCIA
   // ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user?.id) return;
-    if (currentSessionId) {
-      saveToStorage('current_session', currentSessionId);
-    } else {
-      removeFromStorage('current_session');
-    }
+    if (currentSessionId) saveToStorage('current_session', currentSessionId);
+    else removeFromStorage('current_session');
   }, [currentSessionId, user?.id]);
 
-  // ─────────────────────────────────────────────────────────
-  // PERSISTIR GRUPOS SELECIONADOS POR USUÁRIO
-  // ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user?.id) return;
     saveToStorage('selected_groups', selectedGroups);
@@ -278,12 +269,8 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
 
   const setCurrentSession = useCallback((sessionId: string | null) => {
     setCurrentSessionId(sessionId);
-    if (sessionId) {
-      loadGroups(sessionId);
-    } else {
-      setGroups([]);
-      setSelectedGroups([]);
-    }
+    if (sessionId) loadGroups(sessionId);
+    else { setGroups([]); setSelectedGroups([]); }
   }, [loadGroups]);
 
   const getActiveSession = useCallback(() => {
@@ -292,25 +279,12 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   }, [sessions]);
 
   return (
-    <WhatsAppContext.Provider
-      value={{
-        sessions,
-        currentSessionId,
-        groups,
-        selectedGroups,
-        isConnecting,
-        isLoading,
-        qrCode,
-        socketConnected,
-        setCurrentSession,
-        connectNewSession,
-        disconnectSession,
-        refreshSessions,
-        loadGroups,
-        setSelectedGroups,
-        getActiveSession
-      }}
-    >
+    <WhatsAppContext.Provider value={{
+      sessions, currentSessionId, groups, selectedGroups,
+      isConnecting, isLoading, qrCode, socketConnected,
+      setCurrentSession, connectNewSession, disconnectSession,
+      refreshSessions, loadGroups, setSelectedGroups, getActiveSession,
+    }}>
       {children}
     </WhatsAppContext.Provider>
   );

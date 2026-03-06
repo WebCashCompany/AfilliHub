@@ -1,15 +1,10 @@
 // src/contexts/UserPreferencesContext.tsx
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { socketService } from '@/api/services/socket.service';
+import { useAuth } from '@/contexts/AuthContext';
 import { ENV } from '@/config/environment';
 
 const API_BASE_URL = ENV.API_BASE_URL;
-
-// ✅ Headers obrigatórios para todas as chamadas ao backend via ngrok
-const NGROK_HEADERS = {
-  'ngrok-skip-browser-warning': 'true',
-  'Content-Type': 'application/json',
-};
 
 export interface UserPreferences {
   userId: string;
@@ -27,27 +22,17 @@ export interface UserPreferences {
   };
   telegram: {
     enabled: boolean;
-    selectedChannels: Array<{
-      id: string;
-      name: string;
-    }>;
+    selectedChannels: Array<{ id: string; name: string }>;
   };
   automation: {
     active: boolean;
     paused: boolean;
-    config: {
-      intervalMinutes: number;
-      categories: string[];
-      marketplaces: string[];
-    } | null;
+    config: { intervalMinutes: number; categories: string[]; marketplaces: string[] } | null;
     currentProductIndex: number;
     totalSent: number;
   };
   customMessage: string;
-  notifications: {
-    browser: boolean;
-    sound: boolean;
-  };
+  notifications: { browser: boolean; sound: boolean };
   updatedAt?: Date;
 }
 
@@ -55,8 +40,6 @@ interface UserPreferencesContextData {
   preferences: UserPreferences | null;
   isLoading: boolean;
   isSyncing: boolean;
-  
-  // Métodos
   updatePreferences: (updates: Partial<UserPreferences>) => Promise<void>;
   updateTheme: (theme: 'light' | 'dark' | 'system') => Promise<void>;
   updateWhatsAppGroups: (groups: any[]) => Promise<void>;
@@ -69,110 +52,37 @@ interface UserPreferencesContextData {
 
 const UserPreferencesContext = createContext<UserPreferencesContextData>({} as UserPreferencesContextData);
 
-const DEFAULT_PREFERENCES: UserPreferences = {
-  userId: 'default',
-  theme: 'dark',
+const DEFAULT_PREFERENCES: Omit<UserPreferences, 'userId'> = {
+  theme:    'dark',
   language: 'pt-BR',
-  whatsapp: {
-    currentSessionId: null,
-    selectedGroups: [],
-    enabled: true
-  },
-  telegram: {
-    enabled: false,
-    selectedChannels: []
-  },
-  automation: {
-    active: false,
-    paused: false,
-    config: null,
-    currentProductIndex: 0,
-    totalSent: 0
-  },
+  whatsapp: { currentSessionId: null, selectedGroups: [], enabled: true },
+  telegram: { enabled: false, selectedChannels: [] },
+  automation: { active: false, paused: false, config: null, currentProductIndex: 0, totalSent: 0 },
   customMessage: '',
-  notifications: {
-    browser: true,
-    sound: true
-  }
+  notifications: { browser: true, sound: true }
 };
 
 export function UserPreferencesProvider({ children }: { children: ReactNode }) {
+  const { session, user, isAuthenticated } = useAuth();
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoading,   setIsLoading]   = useState(true);
+  const [isSyncing,   setIsSyncing]   = useState(false);
 
-  // ═══════════════════════════════════════════════════════════
-  // CARREGAR PREFERÊNCIAS DO SERVIDOR
-  // ═══════════════════════════════════════════════════════════
-  const loadPreferences = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/preferences?userId=default`, {
-        headers: NGROK_HEADERS, // ✅ ngrok header
-      });
-      const data = await response.json();
-      
-      if (data.success && data.preferences) {
-        console.log('✅ Preferências carregadas do servidor:', data.preferences);
-        setPreferences(data.preferences);
-        applyTheme(data.preferences.theme);
-      } else {
-        console.warn('⚠️ Sem preferências no servidor, usando padrão');
-        setPreferences(DEFAULT_PREFERENCES);
-      }
-    } catch (error) {
-      console.error('❌ Erro ao carregar preferências:', error);
-      
-      // Fallback para localStorage
-      const savedPrefs = localStorage.getItem('user_preferences');
-      if (savedPrefs) {
-        try {
-          const parsed = JSON.parse(savedPrefs);
-          console.log('📦 Preferências carregadas do localStorage (fallback)');
-          setPreferences(parsed);
-          applyTheme(parsed.theme);
-        } catch (e) {
-          setPreferences(DEFAULT_PREFERENCES);
-        }
-      } else {
-        setPreferences(DEFAULT_PREFERENCES);
-      }
-    } finally {
-      setIsLoading(false);
+  // ── Helper: headers com token JWT ────────────────────────────────
+  const getHeaders = useCallback((): Record<string, string> => {
+    const headers: Record<string, string> = {
+      'Content-Type':              'application/json',
+      'ngrok-skip-browser-warning': 'true',
+    };
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
     }
-  }, []);
+    return headers;
+  }, [session]);
 
-  // ═══════════════════════════════════════════════════════════
-  // INICIALIZAR
-  // ═══════════════════════════════════════════════════════════
-  useEffect(() => {
-    loadPreferences();
-  }, [loadPreferences]);
-
-  // ═══════════════════════════════════════════════════════════
-  // SOCKET.IO - SINCRONIZAÇÃO EM TEMPO REAL
-  // ═══════════════════════════════════════════════════════════
-  useEffect(() => {
-    const handlePreferencesUpdated = (data: { userId: string; preferences: UserPreferences }) => {
-      console.log('🔄 [REAL-TIME] Preferências atualizadas por outro dispositivo:', data.userId);
-      setPreferences(data.preferences);
-      applyTheme(data.preferences.theme);
-      localStorage.setItem('user_preferences', JSON.stringify(data.preferences));
-    };
-
-    socketService.on('preferences:updated', handlePreferencesUpdated);
-
-    return () => {
-      socketService.off('preferences:updated', handlePreferencesUpdated);
-    };
-  }, []);
-
-  // ═══════════════════════════════════════════════════════════
-  // APLICAR TEMA
-  // ═══════════════════════════════════════════════════════════
+  // ── Aplicar tema ─────────────────────────────────────────────────
   const applyTheme = (theme: 'light' | 'dark' | 'system') => {
     const root = window.document.documentElement;
-    
     if (theme === 'system') {
       const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       root.classList.remove('light', 'dark');
@@ -183,67 +93,100 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // ATUALIZAR PREFERÊNCIAS
-  // ═══════════════════════════════════════════════════════════
+  // ── Carregar preferências ─────────────────────────────────────────
+  const loadPreferences = useCallback(async () => {
+    if (!isAuthenticated || !user) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/preferences`, {
+        headers: getHeaders(),
+      });
+      const data = await response.json();
+
+      if (data.success && data.preferences) {
+        console.log('✅ Preferências carregadas do servidor:', data.preferences);
+        setPreferences(data.preferences);
+        applyTheme(data.preferences.theme);
+      } else {
+        console.warn('⚠️ Sem preferências no servidor, usando padrão');
+        setPreferences({ userId: user.id, ...DEFAULT_PREFERENCES });
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar preferências:', error);
+      setPreferences({ userId: user.id, ...DEFAULT_PREFERENCES });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, user, getHeaders]);
+
+  // ── Inicializar quando o usuário logar ───────────────────────────
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      loadPreferences();
+    } else if (!isAuthenticated) {
+      // Limpar preferências ao fazer logout — evita vazamento entre logins
+      setPreferences(null);
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, user?.id]);
+
+  // ── Socket.IO — sincronização em tempo real ───────────────────────
+  useEffect(() => {
+    const handlePreferencesUpdated = (data: { userId: string; preferences: UserPreferences }) => {
+      // Só atualiza se for do mesmo usuário (redundante com rooms, mas seguro)
+      if (!user || data.userId !== user.id) return;
+      console.log('🔄 [REAL-TIME] Preferências atualizadas');
+      setPreferences(data.preferences);
+      applyTheme(data.preferences.theme);
+    };
+
+    socketService.on('preferences:updated', handlePreferencesUpdated);
+    return () => { socketService.off('preferences:updated', handlePreferencesUpdated); };
+  }, [user?.id]);
+
+  // ── Atualizar preferências ────────────────────────────────────────
   const updatePreferences = useCallback(async (updates: Partial<UserPreferences>) => {
-    if (!preferences) return;
+    if (!preferences || !isAuthenticated) return;
 
     setIsSyncing(true);
-    
-    // Atualizar localmente primeiro (otimista)
+
+    // Otimista: atualiza local imediatamente
     const newPreferences = { ...preferences, ...updates };
     setPreferences(newPreferences);
-    localStorage.setItem('user_preferences', JSON.stringify(newPreferences));
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/preferences`, {
-        method: 'PATCH',
-        headers: NGROK_HEADERS, // ✅ ngrok header
-        body: JSON.stringify({
-          userId: 'default',
-          updates
-        })
+        method:  'PATCH',
+        headers: getHeaders(),
+        body:    JSON.stringify({ updates })
       });
 
       const data = await response.json();
-      
-      if (data.success) {
-        console.log('✅ Preferências sincronizadas com servidor');
-      } else {
+      if (!data.success) {
         console.error('❌ Erro ao sincronizar preferências:', data.error);
+        // Reverter em caso de erro
+        setPreferences(preferences);
       }
     } catch (error) {
       console.error('❌ Erro ao salvar preferências:', error);
+      setPreferences(preferences);
     } finally {
       setIsSyncing(false);
     }
-  }, [preferences]);
+  }, [preferences, isAuthenticated, getHeaders]);
 
-  // ═══════════════════════════════════════════════════════════
-  // MÉTODOS ESPECÍFICOS
-  // ═══════════════════════════════════════════════════════════
   const updateTheme = useCallback(async (theme: 'light' | 'dark' | 'system') => {
     applyTheme(theme);
     await updatePreferences({ theme });
   }, [updatePreferences]);
 
   const updateWhatsAppGroups = useCallback(async (groups: any[]) => {
-    await updatePreferences({
-      whatsapp: {
-        ...preferences!.whatsapp,
-        selectedGroups: groups
-      }
-    });
+    await updatePreferences({ whatsapp: { ...preferences!.whatsapp, selectedGroups: groups } });
   }, [updatePreferences, preferences]);
 
   const updateWhatsAppSession = useCallback(async (sessionId: string | null) => {
-    await updatePreferences({
-      whatsapp: {
-        ...preferences!.whatsapp,
-        currentSessionId: sessionId
-      }
-    });
+    await updatePreferences({ whatsapp: { ...preferences!.whatsapp, currentSessionId: sessionId } });
   }, [updatePreferences, preferences]);
 
   const updateCustomMessage = useCallback(async (message: string) => {
@@ -251,57 +194,47 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
   }, [updatePreferences]);
 
   const updateAutomation = useCallback(async (automation: Partial<UserPreferences['automation']>) => {
-    await updatePreferences({
-      automation: {
-        ...preferences!.automation,
-        ...automation
-      }
-    });
+    await updatePreferences({ automation: { ...preferences!.automation, ...automation } });
   }, [updatePreferences, preferences]);
 
   const resetPreferences = useCallback(async () => {
+    if (!isAuthenticated) return;
     setIsSyncing(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/preferences?userId=default`, {
-        method: 'DELETE',
-        headers: NGROK_HEADERS, // ✅ ngrok header
+      const response = await fetch(`${API_BASE_URL}/api/preferences`, {
+        method:  'DELETE',
+        headers: getHeaders(),
       });
-
       const data = await response.json();
-      
       if (data.success) {
         setPreferences(data.preferences);
         applyTheme(data.preferences.theme);
-        localStorage.setItem('user_preferences', JSON.stringify(data.preferences));
-        console.log('✅ Preferências resetadas');
       }
     } catch (error) {
       console.error('❌ Erro ao resetar preferências:', error);
     } finally {
       setIsSyncing(false);
     }
-  }, []);
+  }, [isAuthenticated, getHeaders]);
 
   const refreshPreferences = useCallback(async () => {
     await loadPreferences();
   }, [loadPreferences]);
 
   return (
-    <UserPreferencesContext.Provider
-      value={{
-        preferences,
-        isLoading,
-        isSyncing,
-        updatePreferences,
-        updateTheme,
-        updateWhatsAppGroups,
-        updateWhatsAppSession,
-        updateCustomMessage,
-        updateAutomation,
-        resetPreferences,
-        refreshPreferences
-      }}
-    >
+    <UserPreferencesContext.Provider value={{
+      preferences,
+      isLoading,
+      isSyncing,
+      updatePreferences,
+      updateTheme,
+      updateWhatsAppGroups,
+      updateWhatsAppSession,
+      updateCustomMessage,
+      updateAutomation,
+      resetPreferences,
+      refreshPreferences
+    }}>
       {children}
     </UserPreferencesContext.Provider>
   );
@@ -309,8 +242,6 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
 
 export function useUserPreferences() {
   const context = useContext(UserPreferencesContext);
-  if (!context) {
-    throw new Error('useUserPreferences deve ser usado dentro de UserPreferencesProvider');
-  }
+  if (!context) throw new Error('useUserPreferences deve ser usado dentro de UserPreferencesProvider');
   return context;
 }
