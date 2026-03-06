@@ -15,27 +15,14 @@ const server = http.createServer(app);
 const PORT   = process.env.PORT || 3001;
 
 // ─────────────────────────────────────────────────────────────────────
-// CORS — cobre os 3 cenários:
-//   1. Dev local:   frontend localhost:* → backend localhost:3001
-//   2. Produção:    frontend Vercel      → backend ngrok
-//   3. Híbrido:     frontend Vercel      → backend ngrok (URL dinâmica)
-//
-// credentials:true é INCOMPATÍVEL com origin:'*' — por isso usamos
-// uma função que valida e espelha a origem exata de cada request.
+// CORS
 // ─────────────────────────────────────────────────────────────────────
 function isOriginAllowed(origin) {
-  if (!origin) return true; // curl, Postman, apps mobile — sem origin
-
-  // Qualquer localhost / 127.0.0.1 em qualquer porta (dev)
+  if (!origin) return true;
   if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
-
-  // Vercel — domínio fixo e previews de PR
   if (/^https:\/\/vantpromo(-.+)?\.vercel\.app$/.test(origin)) return true;
-
-  // Ngrok — URLs dinâmicas (formato atual e legado)
   if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok(-free)?\.app$/.test(origin)) return true;
-  if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok\.io$/.test(origin))          return true;
-
+  if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok\.io$/.test(origin)) return true;
   return false;
 }
 
@@ -50,41 +37,28 @@ const corsOptions = {
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
-    'Origin',
-    'X-Requested-With',
-    'Content-Type',
-    'Accept',
-    'Authorization',
-    'ngrok-skip-browser-warning',
+    'Origin', 'X-Requested-With', 'Content-Type',
+    'Accept', 'Authorization', 'ngrok-skip-browser-warning',
   ],
   credentials: true,
   optionsSuccessStatus: 200,
 };
 
-// 1. CORS em todas as rotas
 app.use(cors(corsOptions));
-
-// 2. Responde OPTIONS imediatamente (preflight)
-//    Fix necessário para Express 5 / Node 24
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   next();
 });
-
 app.use(express.json());
 
 // ─────────────────────────────────────────────────────────────────────
-// SOCKET.IO — mesma função de validação de origem
+// SOCKET.IO
 // ─────────────────────────────────────────────────────────────────────
 const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
-      if (isOriginAllowed(origin)) {
-        callback(null, true);
-      } else {
-        console.warn(`🚫 Socket CORS bloqueado: ${origin}`);
-        callback(new Error(`Socket CORS bloqueado: ${origin}`));
-      }
+      if (isOriginAllowed(origin)) callback(null, true);
+      else callback(new Error(`Socket CORS bloqueado: ${origin}`));
     },
     methods: ['GET', 'POST'],
     credentials: true,
@@ -95,13 +69,14 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
-let whatsappService  = null;
-let sessionModel     = null;
-let preferencesModel = null;
-let integrationModel = null;
+let whatsappService   = null;
+let automationService = null;
+let sessionModel      = null;
+let preferencesModel  = null;
+let integrationModel  = null;
 
 console.log('\n╔════════════════════════════════════════════════════╗');
-console.log('║    🚀 AFFILIATE HUB PRO - API SERVER 🚀          ║');
+console.log('║    🚀 AFFILIATE HUB PRO - API SERVER 🚀           ║');
 console.log('╚════════════════════════════════════════════════════╝\n');
 
 async function startServer() {
@@ -118,6 +93,10 @@ async function startServer() {
 
     const WhatsAppMultiSessionService = require('./services/WhatsAppMultiSessionService');
     whatsappService = new WhatsAppMultiSessionService(io, sessionModel, authModels);
+
+    // ── AutomationService — precisa do whatsappService e io ──────────────────
+    const AutomationService = require('./services/AutomationService');
+    automationService = new AutomationService(whatsappService, io);
 
     // ─────────────────────────────────────────────────────
     // SOCKET.IO EVENTS
@@ -137,15 +116,18 @@ async function startServer() {
         }
       };
 
-      socket.on('sessions:get', () => {
-        console.log(`📋 [SOCKET] sessions:get recebido de ${socket.id}`);
-        sendSessionsToSocket(socket);
+      // Ao conectar/reconectar, envia o estado atual da automação (se ativa)
+      socket.on('automation:request-state', ({ userId = 'default' } = {}) => {
+        const state = automationService?.getStatus(userId);
+        if (state) {
+          socket.emit('automation:state', { userId, ...state });
+        } else {
+          socket.emit('automation:state', { userId, active: false });
+        }
       });
 
-      socket.on('whatsapp:request-sessions', () => {
-        console.log(`📋 [SOCKET] whatsapp:request-sessions recebido de ${socket.id}`);
-        sendSessionsToSocket(socket);
-      });
+      socket.on('sessions:get', () => sendSessionsToSocket(socket));
+      socket.on('whatsapp:request-sessions', () => sendSessionsToSocket(socket));
 
       socket.on('preferences:request', async (data) => {
         try {
@@ -177,6 +159,9 @@ async function startServer() {
     app.use('/api/preferences',  require('./routes/preferences.routes')(preferencesModel, io));
     app.use('/api/integrations', require('./routes/integrations')(integrationModel));
     app.use('/api/ml',           require('./routes/ml-oauth.routes'));
+
+    // ── Nova rota de automação (backend-driven) ───────────────────────────────
+    app.use('/api/automation',   require('./routes/automation.routes')(automationService));
 
     server.listen(PORT, () => {
       console.log('\n╔════════════════════════════════════════════════════╗');
