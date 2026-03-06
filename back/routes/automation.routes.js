@@ -1,12 +1,11 @@
 // back/routes/automation.routes.js
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const { requireAuth } = require('../middleware/requireAuth');
+const { requireAuth } = require("../middleware/requireAuth");
 
 module.exports = (automationService) => {
-
   // ── POST /api/automation/start ────────────────────────────────────────────
-  router.post('/start', requireAuth, async (req, res) => {
+  router.post("/start", requireAuth, async (req, res) => {
     try {
       const userId = req.userId; // ← vem do token, nunca do body
 
@@ -17,16 +16,18 @@ module.exports = (automationService) => {
         intervalMinutes,
         currentIndex = 0,
         totalSent = 0,
+        categories = [], // ✅ NOVO: Receber categorias
+        marketplaces = [], // ✅ NOVO: Receber marketplaces
       } = req.body;
 
-      if (!sessionId)        return res.status(400).json({ success: false, error: 'sessionId é obrigatório' });
-      if (!grupoIds?.length) return res.status(400).json({ success: false, error: 'grupoIds é obrigatório' });
-      if (!products?.length) return res.status(400).json({ success: false, error: 'products é obrigatório' });
+      if (!sessionId) return res.status(400).json({ success: false, error: "sessionId é obrigatório" });
+      if (!grupoIds?.length) return res.status(400).json({ success: false, error: "grupoIds é obrigatório" });
+      if (!products?.length) return res.status(400).json({ success: false, error: "products é obrigatório" });
       if (!intervalMinutes || intervalMinutes < 1) {
-        return res.status(400).json({ success: false, error: 'intervalMinutes deve ser >= 1' });
+        return res.status(400).json({ success: false, error: "intervalMinutes deve ser >= 1" });
       }
 
-      const state = automationService.start({
+      const state = await automationService.start({
         userId,
         sessionId,
         grupoIds,
@@ -34,19 +35,21 @@ module.exports = (automationService) => {
         intervalMinutes,
         currentIndex,
         totalSent,
+        categories, // ✅ Passar categorias
+        marketplaces, // ✅ Passar marketplaces
       });
 
       res.json({ success: true, state });
     } catch (error) {
-      console.error('❌ [automation/start]', error.message);
+      console.error("❌ [automation/start]", error.message);
       res.status(500).json({ success: false, error: error.message });
     }
   });
 
   // ── POST /api/automation/stop ─────────────────────────────────────────────
-  router.post('/stop', requireAuth, (req, res) => {
+  router.post("/stop", requireAuth, async (req, res) => {
     try {
-      automationService.stop(req.userId);
+      await automationService.stop(req.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -54,9 +57,9 @@ module.exports = (automationService) => {
   });
 
   // ── POST /api/automation/pause ────────────────────────────────────────────
-  router.post('/pause', requireAuth, (req, res) => {
+  router.post("/pause", requireAuth, async (req, res) => {
     try {
-      automationService.pause(req.userId);
+      await automationService.pause(req.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -64,9 +67,9 @@ module.exports = (automationService) => {
   });
 
   // ── POST /api/automation/resume ───────────────────────────────────────────
-  router.post('/resume', requireAuth, (req, res) => {
+  router.post("/resume", requireAuth, async (req, res) => {
     try {
-      automationService.resume(req.userId);
+      await automationService.resume(req.userId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -74,7 +77,7 @@ module.exports = (automationService) => {
   });
 
   // ── POST /api/automation/send-now ─────────────────────────────────────────
-  router.post('/send-now', requireAuth, async (req, res) => {
+  router.post("/send-now", requireAuth, async (req, res) => {
     try {
       const result = await automationService.sendNow(req.userId);
       res.json({ success: true, result });
@@ -84,9 +87,10 @@ module.exports = (automationService) => {
   });
 
   // ── GET /api/automation/status ────────────────────────────────────────────
-  router.get('/status', requireAuth, (req, res) => {
+  router.get("/status", requireAuth, async (req, res) => {
     try {
-      const state = automationService.getStatus(req.userId);
+      // ✅ AGORA É ASSÍNCRONO: pode precisar carregar do BD
+      const state = await automationService.getStatus(req.userId);
       res.json({ success: true, active: !!state, state });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });

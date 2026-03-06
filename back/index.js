@@ -9,6 +9,8 @@ const { connectDB, getProductConnection, getWhatsAppConnection } = require('./da
 const { getWhatsAppSessionModel }  = require('./database/models/WhatsAppSession');
 const { getWhatsAppAuthModels }    = require('./database/models/WhatsAppAuthKeys');
 const { getUserPreferencesModel }  = require('./database/models/UserPreferences');
+const { getAutomationStateModel } = require('./database/models/AutomationState');
+
 const supabase = require('./database/supabase');
 
 const app    = express();
@@ -86,6 +88,7 @@ async function getUserIdFromSocket(socket) {
 let whatsappService   = null;
 let automationService = null;
 let preferencesModel  = null;
+let automationModel   = null; // ✅ NOVO: Referência para o modelo de automação
 
 console.log('\n╔════════════════════════════════════════════════════╗');
 console.log('║    🚀 AFFILIATE HUB PRO - API SERVER 🚀           ║');
@@ -101,13 +104,20 @@ async function startServer() {
     const sessionModel = getWhatsAppSessionModel(waConnection);
     const authModels   = getWhatsAppAuthModels(waConnection);
     preferencesModel   = getUserPreferencesModel(prodConnection);
+    automationModel = getAutomationStateModel(prodConnection);
+ // ✅ NOVO: Inicializar modelo de automação
 
     // ─── Serviços ────────────────────────────────────────────────────
     const WhatsAppMultiSessionService = require('./services/WhatsAppMultiSessionService');
     whatsappService = new WhatsAppMultiSessionService(io, sessionModel, authModels);
 
     const AutomationService = require('./services/AutomationService');
-    automationService = new AutomationService(whatsappService, io);
+    // ✅ NOVO: Passar o automationModel para o AutomationService
+    automationService = new AutomationService(whatsappService, io, automationModel);
+
+    // ✅ NOVO: Inicializar automações ativas do MongoDB
+    // Isso garante que se o servidor reiniciar, as automações voltem a rodar!
+    automationService.initializeActiveAutomations();
 
     // ─────────────────────────────────────────────────────────────────
     // SOCKET.IO EVENTS
@@ -118,6 +128,12 @@ async function startServer() {
       if (userId) {
         socket.join(`user:${userId}`);
         console.log(`🔌 [SOCKET] userId=${userId} conectado (${socket.id})`);
+        
+        // ✅ NOVO: Enviar o estado atual da automação assim que o usuário conecta
+        const state = await automationService?.getStatus(userId);
+        if (state) {
+          socket.emit('automation:state', { userId, ...state });
+        }
       } else {
         console.warn(`⚠️ [SOCKET] Conexão sem token válido (${socket.id})`);
       }
@@ -140,9 +156,9 @@ async function startServer() {
       socket.on('sessions:get',              () => sendSessionsToSocket(socket, userId));
       socket.on('whatsapp:request-sessions', () => sendSessionsToSocket(socket, userId));
 
-      socket.on('automation:request-state', () => {
+      socket.on('automation:request-state', async () => {
         if (!userId) return;
-        const state = automationService?.getStatus(userId);
+        const state = await automationService?.getStatus(userId); // ✅ Agora é async
         socket.emit('automation:state', { userId, ...(state || { active: false }) });
       });
 

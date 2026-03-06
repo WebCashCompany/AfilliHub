@@ -14,7 +14,6 @@ class SocketService {
       return;
     }
 
-    // ── Busca o token JWT do Supabase antes de conectar ──────────────
     let token = '';
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -33,10 +32,7 @@ class SocketService {
       reconnectionDelay: 1000,
       timeout: 10000,
       withCredentials: true,
-      // ── Token JWT enviado no handshake ──────────────────────────────
-      // O servidor lê socket.handshake.auth.token e coloca o socket
-      // na room `user:{userId}` para isolar eventos por usuário.
-      auth: { token }
+      auth: { token },
     });
 
     this.socket.on('connect', () => {
@@ -49,6 +45,10 @@ class SocketService {
 
       this.emit('sessions:get', {});
       this.emit('whatsapp:request-sessions', {});
+
+      // ── NOVO: notifica listeners externos que o socket conectou ──────
+      // Usado pelo DistributionPage para re-pedir o estado da automação
+      this.triggerCallbacks('connect', {});
     });
 
     this.socket.on('connect_error', (error) => {
@@ -115,13 +115,42 @@ class SocketService {
       this.triggerCallbacks('preferences:response', data);
     });
 
+    // ═══════════════════════════════════════════════════════════
+    // EVENTOS DA AUTOMAÇÃO
+    // ═══════════════════════════════════════════════════════════
+
     this.socket.on('automation:state', (data: any) => {
+      console.log('🤖 [AUTOMATION] Estado recebido:', data);
       this.triggerCallbacks('automation:state', data);
+    });
+
+    this.socket.on('automation:product-sent', (data: any) => {
+      console.log('📤 [AUTOMATION] Produto enviado:', data);
+      this.triggerCallbacks('automation:product-sent', data);
+    });
+
+    this.socket.on('automation:error', (data: any) => {
+      console.error('❌ [AUTOMATION] Erro:', data);
+      this.triggerCallbacks('automation:error', data);
+    });
+
+    this.socket.on('automation:cancelled', (data: any) => {
+      console.log('🛑 [AUTOMATION] Cancelada:', data);
+      this.triggerCallbacks('automation:cancelled', data);
+    });
+
+    this.socket.on('automation:paused', (data: any) => {
+      console.log('⏸️ [AUTOMATION] Pausada:', data);
+      this.triggerCallbacks('automation:paused', data);
+    });
+
+    this.socket.on('automation:resumed', (data: any) => {
+      console.log('▶️ [AUTOMATION] Retomada:', data);
+      this.triggerCallbacks('automation:resumed', data);
     });
   }
 
   // ── Atualiza o token após login/refresh de sessão ─────────────────
-  // Chame isso no AuthContext após SIGNED_IN ou TOKEN_REFRESHED
   async updateToken() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -129,7 +158,6 @@ class SocketService {
 
       if (this.socket && token) {
         this.socket.auth = { token };
-        // Reconecta para entrar na room correta com o novo userId
         this.socket.disconnect();
         this.socket.connect();
         console.log('🔑 [Socket] Token atualizado e reconectando...');
