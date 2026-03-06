@@ -24,7 +24,7 @@ function isOriginAllowed(origin) {
   if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok(-free)?\.app$/.test(origin)) return true;
   if (/^https:\/\/[a-zA-Z0-9-]+\.ngrok\.io$/.test(origin)) return true;
   return false;
-}
+} 
 
 const corsOptions = {
   origin: (origin, callback) => {
