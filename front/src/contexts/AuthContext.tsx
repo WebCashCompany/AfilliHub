@@ -18,10 +18,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+// Hierarquia: basico < premium < max
+// - basico: acesso apenas a produtos e automação
+// - premium: acesso ampliado (sem analytics/relatórios avançados)
+// - max: acesso total
 const ROLE_ROUTES: Record<UserRole, string[]> = {
-  administrador: ['*'],
-  empresa: ['*'],
-  colaborador: ['/products', '/automation'],
+  basico:   ['/products', '/automation'],
+  premium:  ['/products', '/automation', '/distribution', '/reports', '/goals', '/settings', '/trash'],
+  max:      ['*'],
 };
 
 const clearSupabaseCache = () => {
@@ -48,16 +52,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const initDone = useRef(false);
 
+  // ⚠️ FIX CRÍTICO: sempre filtra pelo userId passado explicitamente,
+  // nunca confia em filtros implícitos. Isso evita que uma conta
+  // veja dados de outra quando o RLS não está configurado corretamente.
   const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, email, name, role, avatar_url, created_at')
-        .eq('id', userId)
+        .eq('id', userId)   // ← filtro explícito por userId
         .single();
 
       if (error) {
         console.warn('[Auth] Perfil não encontrado:', error.message);
+        return null;
+      }
+
+      // Validação extra: garante que o perfil retornado realmente pertence ao usuário
+      if (!data || data.id !== userId) {
+        console.error('[Auth] Perfil retornado não corresponde ao usuário autenticado!');
         return null;
       }
 
@@ -124,10 +137,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       try {
-        // Se o usuário fez login com "não lembrar", a sessão foi removida do
-        // localStorage — mas a flag no sessionStorage ainda existe enquanto
-        // a aba estiver aberta. Recarregar a página dentro da mesma aba
-        // mantém o sessionStorage, então checamos se precisamos limpar.
         const sessionOnly = sessionStorage.getItem(SESSION_ONLY_FLAG);
 
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -139,16 +148,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Se não há sessão no localStorage e a flag também não existe, usuário deslogado.
         if (!session && !sessionOnly) {
           clearSession();
           return;
         }
 
-        // Se há flag de sessão temporária mas o localStorage foi limpo,
-        // não há sessão a recuperar — precisamos deslogar.
         if (!session) {
           sessionStorage.removeItem(SESSION_ONLY_FLAG);
+          clearSession();
+          return;
+        }
+
+        // ⚠️ FIX: verifica se a sessão recuperada realmente pertence a um usuário válido
+        // antes de aplicar. Evita sessões "fantasmas" de outros usuários.
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (!currentUser || currentUser.id !== session.user.id) {
+          console.error('[Auth] Sessão inconsistente detectada, limpando...');
+          await supabase.auth.signOut();
+          clearSupabaseCache();
           clearSession();
           return;
         }
@@ -177,6 +194,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     rememberMe: boolean = true,
   ): Promise<{ error: string | null }> => {
     try {
+      // ⚠️ FIX: limpa qualquer sessão/cache anterior ANTES de fazer login,
+      // evitando que dados de um usuário anterior "contaminem" o novo login.
+      clearSupabaseCache();
+      sessionStorage.removeItem(SESSION_ONLY_FLAG);
+
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
       if (error) {
@@ -196,13 +218,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (!rememberMe) {
-        // Remove a sessão do localStorage para que não persista entre sessões do browser.
-        // A sessão continua ativa em memória enquanto o app estiver aberto.
-        // A flag no sessionStorage permite reloads dentro da mesma aba.
         clearSupabaseCache();
         sessionStorage.setItem(SESSION_ONLY_FLAG, '1');
       } else {
-        // Garante que flag de sessão temporária anterior seja removida
         sessionStorage.removeItem(SESSION_ONLY_FLAG);
       }
 

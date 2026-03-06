@@ -17,9 +17,9 @@ import {
   ChevronLeft,
   ChevronRight,
   User,
-  Shield,
-  Building2,
-  Users,
+  Star,
+  Crown,
+  Sparkles,
   Sun,
   Moon,
   Menu,
@@ -50,29 +50,31 @@ interface NavItem {
   allowedRoles?: string[];
 }
 
+// Rotas visíveis por role (espelha ROLE_ROUTES do AuthContext)
 const NAV_ITEMS: NavItem[] = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/analytics', label: 'Analytics', icon: BarChart2 },
-  { path: '/automation', label: 'Automação', icon: Zap, allowedRoles: ['administrador', 'empresa', 'colaborador'] },
-  { path: '/products', label: 'Produtos', icon: Package, allowedRoles: ['administrador', 'empresa', 'colaborador'] },
-  { path: '/distribution', label: 'Divulgação', icon: Send },
-  { path: '/reports', label: 'Relatórios', icon: FileText },
-  { path: '/goals', label: 'Metas', icon: Target },
-  { path: '/settings', label: 'Configurações', icon: Settings },
-  { path: '/trash', label: 'Lixeira', icon: Trash2 },
+  { path: '/', label: 'Dashboard', icon: LayoutDashboard, allowedRoles: ['max'] },
+  { path: '/analytics', label: 'Analytics', icon: BarChart2, allowedRoles: ['max'] },
+  { path: '/automation', label: 'Automação', icon: Zap, allowedRoles: ['basico', 'premium', 'max'] },
+  { path: '/products', label: 'Produtos', icon: Package, allowedRoles: ['basico', 'premium', 'max'] },
+  { path: '/distribution', label: 'Divulgação', icon: Send, allowedRoles: ['premium', 'max'] },
+  { path: '/reports', label: 'Relatórios', icon: FileText, allowedRoles: ['premium', 'max'] },
+  { path: '/goals', label: 'Metas', icon: Target, allowedRoles: ['premium', 'max'] },
+  { path: '/settings', label: 'Configurações', icon: Settings, allowedRoles: ['premium', 'max'] },
+  { path: '/trash', label: 'Lixeira', icon: Trash2, allowedRoles: ['premium', 'max'] },
 ];
 
 const MOBILE_BOTTOM_ITEMS: NavItem[] = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/automation', label: 'Automação', icon: Zap, allowedRoles: ['administrador', 'empresa', 'colaborador'] },
-  { path: '/products', label: 'Produtos', icon: Package },
-  { path: '/distribution', label: 'Divulgação', icon: Send },
+  { path: '/', label: 'Dashboard', icon: LayoutDashboard, allowedRoles: ['max'] },
+  { path: '/automation', label: 'Automação', icon: Zap, allowedRoles: ['basico', 'premium', 'max'] },
+  { path: '/products', label: 'Produtos', icon: Package, allowedRoles: ['basico', 'premium', 'max'] },
+  { path: '/distribution', label: 'Divulgação', icon: Send, allowedRoles: ['premium', 'max'] },
 ];
 
+// Labels e ícones para cada role
 const ROLE_LABELS: Record<string, { label: string; icon: React.ElementType; color: string }> = {
-  administrador: { label: 'Administrador', icon: Shield, color: 'text-blue-400' },
-  empresa: { label: 'Empresa', icon: Building2, color: 'text-purple-400' },
-  colaborador: { label: 'Colaborador', icon: Users, color: 'text-green-400' },
+  basico:   { label: 'Básico',   icon: Star,     color: 'text-slate-400' },
+  premium:  { label: 'Premium',  icon: Sparkles, color: 'text-purple-400' },
+  max:      { label: 'Max',      icon: Crown,    color: 'text-yellow-400' },
 };
 
 function useIsMobile(breakpoint = 768) {
@@ -207,8 +209,6 @@ function MobileBottomNav({ items, onMenuOpen }: { items: NavItem[]; onMenuOpen: 
   );
 }
 
-// ── Mobile Top Header ─────────────────────────────────────────
-// ✅ FIX: "Sair da conta" movido para o dropdown do avatar no topo
 function MobileHeader({
   profile, role, onMenuOpen, onSignOut,
 }: { profile: { name?: string; email?: string } | null; role: string | null; onMenuOpen: () => void; onSignOut: () => void }) {
@@ -239,7 +239,6 @@ function MobileHeader({
           {isDark ? <Sun style={{ width: 18, height: 18 }} /> : <Moon style={{ width: 18, height: 18 }} />}
         </button>
 
-        {/* ✅ Avatar com "Sair da conta" no dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 px-2 h-9 rounded-lg hover:bg-muted transition-colors">
@@ -270,10 +269,6 @@ function MobileHeader({
   );
 }
 
-// ── Mobile Drawer ─────────────────────────────────────────────
-// ✅ FIX 1: Botão "Sair da conta" adicionado ao lado do nome no perfil
-// ✅ FIX 2: Rodapé substituído por traço + logo Webcash + "Powered by"
-// ✅ FIX 3: Logo flutuante REMOVIDA do mobile
 function MobileDrawer({
   open, onClose, items, profile, role, onSignOut,
 }: {
@@ -332,7 +327,7 @@ function MobileDrawer({
           </button>
         </div>
 
-        {/* ✅ Perfil com botão "Sair da conta" ao lado do nome */}
+        {/* Perfil com botão "Sair da conta" ao lado do nome */}
         <div className="px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-3">
             <Avatar style={{ width: 36, height: 36 }}>
@@ -347,7 +342,6 @@ function MobileDrawer({
                 <p className={cn('text-[11px] truncate', roleInfo?.color)}>{roleInfo?.label}</p>
               </div>
             </div>
-            {/* ✅ Botão sair ao lado do nome */}
             <button
               onClick={() => { onClose(); onSignOut(); }}
               className="w-8 h-8 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-500/10 transition-colors shrink-0"
@@ -371,9 +365,8 @@ function MobileDrawer({
           ))}
         </nav>
 
-        {/* ✅ Rodapé: traço fino + logo Webcash flutuante + "Powered by" */}
+        {/* Rodapé */}
         <div className="shrink-0">
-          {/* Traço fino com gradiente e opacidade suave */}
           <div style={{
             height: 1,
             margin: '0 16px',
@@ -427,7 +420,6 @@ function MobileDrawer({
   );
 }
 
-// ── Botão flutuante — APENAS DESKTOP ─────────────────────────
 function FloatingLogoButton() {
   return (
     <a
@@ -477,24 +469,17 @@ export function DashboardLayout() {
 
   const getInitials = (name: string) => name.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase();
 
+  // Filtra itens de navegação pelo role atual
   const visibleNavItems = NAV_ITEMS.filter((item) => {
-    if (!item.allowedRoles) {
-      if (role === 'colaborador') return false;
-      return true;
-    }
     if (!role) return false;
+    if (!item.allowedRoles) return false;
     return item.allowedRoles.includes(role);
   });
 
   const visibleBottomItems = MOBILE_BOTTOM_ITEMS.filter((item) => {
-    const full = NAV_ITEMS.find((n) => n.path === item.path);
-    if (!full) return false;
-    if (!full.allowedRoles) {
-      if (role === 'colaborador') return false;
-      return true;
-    }
     if (!role) return false;
-    return full.allowedRoles.includes(role);
+    if (!item.allowedRoles) return false;
+    return item.allowedRoles.includes(role);
   });
 
   const roleInfo = role ? ROLE_LABELS[role] : null;
@@ -526,13 +511,12 @@ export function DashboardLayout() {
             items={visibleBottomItems}
             onMenuOpen={() => setDrawerOpen(true)}
           />
-          {/* ✅ FloatingLogoButton REMOVIDA do mobile */}
         </div>
       </TooltipProvider>
     );
   }
 
-  // ── DESKTOP (intocado) ────────────────────────────────────
+  // ── DESKTOP ────────────────────────────────────────────────
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-screen bg-background overflow-hidden">
@@ -641,7 +625,6 @@ export function DashboardLayout() {
           <Outlet />
         </main>
 
-        {/* ✅ Logo flutuante apenas no desktop */}
         <FloatingLogoButton />
       </div>
     </TooltipProvider>

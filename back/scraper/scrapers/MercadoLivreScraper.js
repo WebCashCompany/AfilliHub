@@ -1,6 +1,6 @@
 /**
  * MERCADO LIVRE SCRAPER
- * @version 3.3.4 - ✅ Geração de link meli.la via SSID/CSRF manual
+ * @version 3.4.0 - ✅ Paginação precisa + zero perda de itens
  */
 
 const { chromium } = require('playwright');
@@ -58,6 +58,11 @@ class MercadoLivreScraper {
     return this.categoriaInfo.url;
   }
 
+  /**
+   * ✅ FIX: Paginação usa offset acumulado real (não pageNum * 50 fixo)
+   * O ML aceita _Desde_N onde N é o índice do primeiro item da página.
+   * Passamos o offset acumulado de itens raspados nas páginas anteriores.
+   */
   getPageUrl(baseUrl, pageNum, offset) {
     if (pageNum === 1) return baseUrl;
     return `${baseUrl}_Desde_${offset + 1}_NoIndex_True`;
@@ -143,15 +148,10 @@ class MercadoLivreScraper {
     return { browser: this.browser, context: this.context };
   }
 
-  /**
-   * ✅ MÉTODO ATUALIZADO: Agora gera o link meli.la usando SSID/CSRF manuais
-   */
   async getAffiliateLink(productUrl) {
-    // mlAffiliate.isAuthenticated() agora retorna true se tiver Token E SSID
     if (mlAffiliate.isAuthenticated()) {
       try {
         const link = await mlAffiliate.generateAffiliateLink(productUrl);
-        // Se o link retornado for diferente do original e não contiver tracking_id, é um meli.la
         if (link && link !== productUrl && !link.includes('tracking_id=')) {
           return link;
         }
@@ -162,6 +162,10 @@ class MercadoLivreScraper {
     return null;
   }
 
+  /**
+   * ✅ FIX: Retorna também o total REAL de cards encontrados na página
+   * para o controle de paginação ser preciso.
+   */
   async scrapePage(url) {
     const mainPage = await this.context.newPage();
 
@@ -228,6 +232,7 @@ class MercadoLivreScraper {
           } catch (e) {}
         });
 
+        // ✅ Retorna total real de cards (não só os aprovados no filtro de desconto)
         return { products, total: cards.length };
       }, { minDiscount: this.minDiscount });
 
@@ -241,23 +246,35 @@ class MercadoLivreScraper {
     }
   }
 
+  /**
+   * ✅ FIX: Remove o .slice() prematuro — todos os produtos válidos são processados.
+   * O controle de limite é feito DENTRO do loop, após cada produto ser efetivamente adicionado.
+   */
   async processProducts(products, allProducts) {
     const BATCH_SIZE = 5;
 
-    const validProducts = products
-      .filter(p => !this.seenLinks.has(p.link) && this.isProductUrl(p.link))
-      .slice(0, this.limit - allProducts.length);
+    // ✅ Sem .slice() aqui: filtra apenas duplicatas e URLs inválidas
+    const validProducts = products.filter(p =>
+      !this.seenLinks.has(p.link) && this.isProductUrl(p.link)
+    );
 
     if (validProducts.length === 0) return;
 
+    // Marca todos como vistos imediatamente para evitar duplicatas entre batches
     validProducts.forEach(p => this.seenLinks.add(p.link));
 
     for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
+      // ✅ Checa o limite ANTES de cada batch, não antes de montar validProducts
       if (allProducts.length >= this.limit) break;
 
-      const batch = validProducts.slice(i, i + BATCH_SIZE);
+      // ✅ Garante que o batch não ultrapasse o limite restante
+      const remaining = this.limit - allProducts.length;
+      const batch     = validProducts.slice(i, i + Math.min(BATCH_SIZE, remaining));
 
       const results = await Promise.all(batch.map(async (prodData) => {
+        // Checagem individual caso outro batch paralelo tenha preenchido o limite
+        if (allProducts.length >= this.limit) return null;
+
         let finalPrice    = prodData.currentPrice;
         let couponApplied = false;
         let couponText    = '';
@@ -327,25 +344,57 @@ class MercadoLivreScraper {
     const allProducts = [];
     const baseUrl     = this.getSearchUrl();
     let pageNum       = 1;
+    // ✅ FIX: offset acumulado real — soma os cards de cada página anterior
+    let totalCardsSeen = 0;
+    // ✅ FIX: controle de páginas sem novos resultados para parar com segurança
+    let emptyPages    = 0;
+    const MAX_EMPTY   = 2;
 
     console.log(`🚀 Iniciando scraping de: ${baseUrl}`);
 
     while (allProducts.length < this.limit && pageNum <= 10) {
-      const offset = (pageNum - 1) * 50;
-      const url    = this.getPageUrl(baseUrl, pageNum, offset);
-      
-      console.log(`📄 Raspando página ${pageNum}...`);
-      const { products, total } = await this.scrapePage(url);
-      
-      if (products.length === 0) break;
+      const url = this.getPageUrl(baseUrl, pageNum, totalCardsSeen);
 
+      console.log(`📄 Raspando página ${pageNum} (offset ${totalCardsSeen})...`);
+      const { products, total } = await this.scrapePage(url);
+
+      this.stats.pagesScraped++;
+
+      if (total === 0) {
+        // Página em branco: pode ser rate-limit ou fim real de resultados
+        emptyPages++;
+        console.warn(`⚠️  Página ${pageNum} sem cards (${emptyPages}/${MAX_EMPTY})`);
+        if (emptyPages >= MAX_EMPTY) break;
+        pageNum++;
+        continue;
+      }
+
+      emptyPages = 0; // reseta contador ao receber itens
+
+      // ✅ Acumula o total REAL de cards vistos para calcular o próximo offset
+      totalCardsSeen += total;
+
+      const beforeCount = allProducts.length;
       await this.processProducts(products, allProducts);
-      
-      if (total < 50) break;
+      const afterCount = allProducts.length;
+
+      console.log(`   ✔ ${afterCount - beforeCount} novos produtos (total: ${afterCount}/${this.limit})`);
+
+      // ✅ FIX: Só para se o ML indicar explicitamente que acabou (total < 48)
+      // Margem de 2 para tolerar cards patrocinados que o ML às vezes omite
+      if (total < 48) {
+        console.log('📭 Última página detectada (total de cards < 48). Encerrando.');
+        break;
+      }
+
       pageNum++;
     }
 
     if (this.browser) await this.browser.close();
+
+    this.stats.productsCollected = allProducts.length;
+    console.log(`\n📊 Stats finais:`, this.stats);
+
     return allProducts;
   }
 }

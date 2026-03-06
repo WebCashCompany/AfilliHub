@@ -2,19 +2,17 @@
 
 /**
  * ═══════════════════════════════════════════════════════════
- * API CLIENT - AXIOS INSTANCE
+ * API CLIENT
  * ═══════════════════════════════════════════════════════════
- * 
- * Cliente HTTP centralizado com interceptors e tratamento
- * de erros automático.
+ *
+ * Cliente HTTP centralizado.
+ * Injeta automaticamente o JWT do Supabase em todo request,
+ * garantindo isolamento de dados por usuário no backend.
  */
 
 import ENV from '@/config/environment';
+import { supabase } from '@/lib/supabase';
 import type { ApiError, ApiResponse } from '@/types/api.types';
-
-// ─────────────────────────────────────────────────────────
-// CLASSE DO CLIENTE API
-// ─────────────────────────────────────────────────────────
 
 class ApiClient {
   private baseURL: string;
@@ -26,23 +24,40 @@ class ApiClient {
   }
 
   /**
-   * Faz requisição HTTP genérica
+   * Retorna o JWT do usuário autenticado.
+   * Lança erro se não houver sessão ativa.
+   */
+  private async getAuthHeader(): Promise<Record<string, string>> {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      throw {
+        message: 'Não autenticado. Faça login novamente.',
+        code: 'UNAUTHORIZED',
+        status: 401,
+      } as ApiError;
+    }
+
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
+
+  /**
+   * Faz requisição HTTP genérica com autenticação automática
    */
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseURL}${endpoint}`;
-    
-    const defaultHeaders = {
-      'Content-Type': 'application/json',
-      'ngrok-skip-browser-warning': 'true',
-    };
+
+    const authHeader = await this.getAuthHeader();
 
     const config: RequestInit = {
       ...options,
       headers: {
-        ...defaultHeaders,
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+        ...authHeader,
         ...options.headers,
       },
     };
@@ -51,17 +66,11 @@ class ApiClient {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-      const response = await fetch(url, {
-        ...config,
-        signal: controller.signal,
-      });
-
+      const response = await fetch(url, { ...config, signal: controller.signal });
       clearTimeout(timeoutId);
 
-      // Parse JSON
       const data = await response.json().catch(() => null);
 
-      // Erro HTTP
       if (!response.ok) {
         throw {
           message: data?.error || data?.message || 'Erro na requisição',
@@ -73,97 +82,45 @@ class ApiClient {
       return data as ApiResponse<T>;
 
     } catch (error: any) {
-      // Timeout
       if (error.name === 'AbortError') {
-        throw {
-          message: 'Tempo de requisição excedido',
-          code: 'TIMEOUT',
-        } as ApiError;
+        throw { message: 'Tempo de requisição excedido', code: 'TIMEOUT' } as ApiError;
       }
-
-      // Erro de rede
       if (!navigator.onLine) {
-        throw {
-          message: 'Sem conexão com a internet',
-          code: 'NETWORK_ERROR',
-        } as ApiError;
+        throw { message: 'Sem conexão com a internet', code: 'NETWORK_ERROR' } as ApiError;
       }
-
-      // Repassa erro já formatado
-      if (error.message && error.status) {
-        throw error as ApiError;
-      }
-
-      // Erro genérico
-      throw {
-        message: 'Erro ao conectar com o servidor',
-        code: 'UNKNOWN_ERROR',
-        details: error,
-      } as ApiError;
+      if (error.message && error.status) throw error as ApiError;
+      throw { message: 'Erro ao conectar com o servidor', code: 'UNKNOWN_ERROR', details: error } as ApiError;
     }
   }
 
-  /**
-   * GET request
-   */
   async get<T>(endpoint: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
     let url = endpoint;
-    
     if (params) {
       const searchParams = new URLSearchParams();
       Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          searchParams.append(key, String(value));
-        }
+        if (value !== undefined && value !== null) searchParams.append(key, String(value));
       });
       url += `?${searchParams.toString()}`;
     }
-
     return this.request<T>(url, { method: 'GET' });
   }
 
-  /**
-   * POST request
-   */
   async post<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    return this.request<T>(endpoint, { method: 'POST', body: JSON.stringify(data) });
   }
 
-  /**
-   * PUT request
-   */
   async put<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+    return this.request<T>(endpoint, { method: 'PUT', body: JSON.stringify(data) });
   }
 
-  /**
-   * DELETE request
-   */
   async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, { method: 'DELETE' });
   }
 
-  /**
-   * PATCH request
-   */
   async patch<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    return this.request<T>(endpoint, { method: 'PATCH', body: JSON.stringify(data) });
   }
 }
 
-// ─────────────────────────────────────────────────────────
-// EXPORTAR INSTÂNCIA SINGLETON
-// ─────────────────────────────────────────────────────────
-
 export const apiClient = new ApiClient();
-
 export default apiClient;

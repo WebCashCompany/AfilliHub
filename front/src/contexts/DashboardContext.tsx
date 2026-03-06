@@ -1,4 +1,4 @@
-// src/contexts/DashboardContext.tsx - COM SSE E HISTÓRICO REAL - VERSÃO CORRIGIDA  
+// src/contexts/DashboardContext.tsx
 import React, {
   createContext,
   useContext,
@@ -24,13 +24,22 @@ import { scrapingService } from '@/api/services/scraping.service';
 import type { ScrapingRequestPayload } from '@/types/api.types';
 import { useToast } from '@/hooks/useToast';
 import { ENV } from '@/config/environment';
+import { supabase } from '@/lib/supabase';
 
 const API_BASE_URL = ENV.API_BASE_URL;
 
-const DEFAULT_HEADERS: HeadersInit = {
-  'Content-Type': 'application/json',
-  'ngrok-skip-browser-warning': 'true',
-};
+// ─────────────────────────────────────────────────────────
+// Retorna headers com JWT do usuário autenticado.
+// Usado nas chamadas diretas de fetch (SSE, cleanup, etc.)
+// ─────────────────────────────────────────────────────────
+async function getAuthHeaders(): Promise<HeadersInit> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return {
+    'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
+    ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+  };
+}
 
 interface DashboardContextType {
   products: Product[];
@@ -65,28 +74,9 @@ export interface ScrapingStatus {
   currentMarketplace: Marketplace | null;
   itemsCollected: number;
   totalItems: number;
-  lastProducts?: Array<{
-    name: string;
-    image: string;
-    price: number;
-    oldPrice: number;
-    discount: number;
-  }>;
-  liveProducts?: Array<{
-    name: string;
-    image: string;
-    price: number;
-    oldPrice: number;
-    discount: number;
-    status: 'processing' | 'saved' | 'error';
-  }>;
-  recentHistory?: Array<{
-    id: string;
-    marketplace: Marketplace;
-    itemsCollected: number;
-    completedAt: Date;
-    duration: number;
-  }>;
+  lastProducts?: Array<{ name: string; image: string; price: number; oldPrice: number; discount: number; }>;
+  liveProducts?: Array<{ name: string; image: string; price: number; oldPrice: number; discount: number; status: 'processing' | 'saved' | 'error'; }>;
+  recentHistory?: Array<{ id: string; marketplace: Marketplace; itemsCollected: number; completedAt: Date; duration: number; }>;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -94,29 +84,15 @@ const DashboardContext = createContext<DashboardContextType | undefined>(undefin
 function getInitialScrapingStatus(): ScrapingStatus {
   const savedHistory = localStorage.getItem('scraping_history');
   let recentHistory = [];
-  
   if (savedHistory) {
     try {
       const parsed = JSON.parse(savedHistory);
-      recentHistory = parsed.map((item: any) => ({
-        ...item,
-        completedAt: new Date(item.completedAt)
-      }));
+      recentHistory = parsed.map((item: any) => ({ ...item, completedAt: new Date(item.completedAt) }));
     } catch (e) {
       console.error('Erro ao carregar histórico:', e);
     }
   }
-
-  return {
-    isRunning: false,
-    progress: 0,
-    currentMarketplace: null,
-    itemsCollected: 0,
-    totalItems: 0,
-    lastProducts: [],
-    liveProducts: [],
-    recentHistory: recentHistory
-  };
+  return { isRunning: false, progress: 0, currentMarketplace: null, itemsCollected: 0, totalItems: 0, lastProducts: [], liveProducts: [], recentHistory };
 }
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
@@ -136,11 +112,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   function normalizeMarketplace(mp: string): Marketplace {
     const map: Record<string, Marketplace> = {
-      ML: 'mercadolivre',
-      mercadolivre: 'mercadolivre',
-      shopee: 'shopee',
-      amazon: 'amazon',
-      magalu: 'magalu'
+      ML: 'mercadolivre', mercadolivre: 'mercadolivre',
+      shopee: 'shopee', amazon: 'amazon', magalu: 'magalu'
     };
     return map[mp] || 'mercadolivre';
   }
@@ -150,18 +123,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }
 
   const saveToHistory = (data: any) => {
-    const duration = scrapingStartTimeRef.current 
+    const duration = scrapingStartTimeRef.current
       ? Math.floor((Date.now() - scrapingStartTimeRef.current) / 1000)
       : data.duration || 0;
 
     const completedSession = {
       id: sessionIdRef.current || Date.now().toString(),
-      marketplace: data.currentMarketplace 
-        ? normalizeMarketplace(data.currentMarketplace)
-        : 'mercadolivre',
+      marketplace: data.currentMarketplace ? normalizeMarketplace(data.currentMarketplace) : 'mercadolivre',
       itemsCollected: data.itemsCollected || 0,
       completedAt: new Date(),
-      duration: duration
+      duration,
     };
 
     const currentHistory = scrapingStatus.recentHistory || [];
@@ -172,12 +143,9 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const refreshProducts = async () => {
     setIsLoading(true);
-    const url = `${API_BASE_URL}/api/products`;
-
     try {
-      const res = await fetch(url, {
-        headers: DEFAULT_HEADERS,
-      });
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/api/products`, { headers });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
@@ -192,7 +160,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         const priceCents = parsePriceToCents(p.preco_para || p.price || 0);
         const oldPriceCents = parsePriceToCents(p.preco_de || p.oldPrice || 0);
         const discount = getDiscount(p);
-
         return {
           id: p._id || p.id,
           name: p.nome || p.title || 'Produto',
@@ -201,14 +168,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           marketplace: normalizeMarketplace(p.marketplace),
           price: priceCents,
           oldPrice: oldPriceCents,
-          discount: discount,
+          discount,
           affiliateLink: p.link_afiliado || '',
           clicks: 0,
           conversions: 0,
           revenue: 0,
           stock: 100,
           status: 'active',
-          addedAt: new Date(p.createdAt || Date.now())
+          addedAt: new Date(p.createdAt || Date.now()),
         };
       });
 
@@ -232,7 +199,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         if (response.success && response.data) {
           const backendStatus = response.data as any;
           if (backendStatus.status === 'running' && backendStatus.sessionId) {
-            console.log('🔄 Scraping ativo detectado, conectando SSE...');
             sessionIdRef.current = backendStatus.sessionId;
             scrapingStartTimeRef.current = Date.now();
             isCompletedRef.current = false;
@@ -245,30 +211,19 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     };
 
     checkInitialStatus();
-
-    return () => {
-      disconnectSSE();
-    };
+    return () => { disconnectSSE(); };
   }, []);
 
   const checkIfCompleted = (data: any): boolean => {
-    const statusCompleted = data.status === 'completed';
-    const progressCompleted = data.progress >= 100;
-    const itemsCompleted = data.totalItems > 0 && data.itemsCollected >= data.totalItems;
-    return statusCompleted || progressCompleted || itemsCompleted;
+    return data.status === 'completed' || data.progress >= 100 || (data.totalItems > 0 && data.itemsCollected >= data.totalItems);
   };
 
   const handleCompletion = (data: any) => {
-    if (isCompletedRef.current) {
-      console.log('⏭️ Completion já processado, ignorando...');
-      return;
-    }
-
+    if (isCompletedRef.current) return;
     console.log('🎉 SCRAPING COMPLETADO!');
     isCompletedRef.current = true;
 
     const newHistory = saveToHistory(data);
-
     toast({
       title: "✅ Automação concluída!",
       description: `${formatNumber(data.itemsCollected)} novos produtos foram adicionados.`,
@@ -278,12 +233,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setTimeout(() => {
       disconnectSSE();
       refreshProducts();
-
       setTimeout(() => {
-        setScrapingStatus({
-          ...getInitialScrapingStatus(),
-          recentHistory: newHistory
-        });
+        setScrapingStatus({ ...getInitialScrapingStatus(), recentHistory: newHistory });
         scrapingStartTimeRef.current = null;
         sessionIdRef.current = null;
         isCompletedRef.current = false;
@@ -292,7 +243,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   // ─────────────────────────────────────────────────────────
-  // SSE via fetch — suporta headers customizados (ngrok)
+  // SSE via fetch — com Authorization header
   // ─────────────────────────────────────────────────────────
   const connectSSE = (sessionId: string) => {
     disconnectSSE();
@@ -306,10 +257,12 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
+        const { data: { session } } = await supabase.auth.getSession();
         const response = await fetch(sseUrl, {
           headers: {
             'ngrok-skip-browser-warning': 'true',
             'Accept': 'text/event-stream',
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
           },
           signal: controller.signal,
         });
@@ -320,7 +273,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        console.log('✅ SSE CONECTADO COM SUCESSO!');
+        console.log('✅ SSE CONECTADO!');
         startBackupPolling();
 
         const reader = response.body.getReader();
@@ -339,29 +292,18 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             if (!line.startsWith('data:')) continue;
             const raw = line.slice(5).trim();
             if (!raw) continue;
-
             try {
               const data = JSON.parse(raw);
-              console.log('📊 SSE:', {
-                progress: data.progress,
-                items: `${data.itemsCollected}/${data.totalItems}`,
-                status: data.status,
-                marketplace: data.currentMarketplace
-              });
-
               setScrapingStatus(prev => ({
                 ...prev,
                 isRunning: !checkIfCompleted(data),
                 progress: Math.min(data.progress || 0, 100),
-                currentMarketplace: data.currentMarketplace
-                  ? normalizeMarketplace(data.currentMarketplace)
-                  : prev.currentMarketplace,
+                currentMarketplace: data.currentMarketplace ? normalizeMarketplace(data.currentMarketplace) : prev.currentMarketplace,
                 itemsCollected: data.itemsCollected || 0,
                 totalItems: data.totalItems || prev.totalItems,
                 lastProducts: data.lastProducts || prev.lastProducts,
-                liveProducts: data.liveProducts || prev.liveProducts
+                liveProducts: data.liveProducts || prev.liveProducts,
               }));
-
               if (checkIfCompleted(data)) handleCompletion(data);
             } catch (e) {
               console.error('❌ ERRO AO PROCESSAR SSE:', e);
@@ -379,40 +321,28 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     })();
   };
 
-  // ─────────────────────────────────────────────────────────
-  // BACKUP POLLING
-  // ─────────────────────────────────────────────────────────
   const backupPollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const startBackupPolling = () => {
     if (backupPollingRef.current) clearInterval(backupPollingRef.current);
-    console.log('🔄 Iniciando polling de backup (2s)...');
-
     backupPollingRef.current = setInterval(async () => {
       if (isCompletedRef.current) { stopBackupPolling(); return; }
-
       try {
-        const url = `${API_BASE_URL}/api/scraping/status`;
-        const response = await fetch(url, { headers: DEFAULT_HEADERS });
+        const headers = await getAuthHeaders();
+        const response = await fetch(`${API_BASE_URL}/api/scraping/status`, { headers });
         const json = await response.json();
-
         if (json.success && json.data) {
           const data = json.data;
-          console.log('📡 BACKUP:', { progress: data.progress, items: `${data.itemsCollected}/${data.totalItems}`, status: data.status });
-
           setScrapingStatus(prev => ({
             ...prev,
             isRunning: !checkIfCompleted(data),
             progress: Math.min(data.progress || 0, 100),
-            currentMarketplace: data.currentMarketplace
-              ? normalizeMarketplace(data.currentMarketplace)
-              : prev.currentMarketplace,
+            currentMarketplace: data.currentMarketplace ? normalizeMarketplace(data.currentMarketplace) : prev.currentMarketplace,
             itemsCollected: data.itemsCollected || 0,
             totalItems: data.totalItems || prev.totalItems,
             lastProducts: data.lastProducts || prev.lastProducts,
-            liveProducts: data.liveProducts || prev.liveProducts
+            liveProducts: data.liveProducts || prev.liveProducts,
           }));
-
           if (checkIfCompleted(data)) handleCompletion(data);
         }
       } catch (error) {
@@ -422,48 +352,32 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   const stopBackupPolling = () => {
-    if (backupPollingRef.current) {
-      clearInterval(backupPollingRef.current);
-      backupPollingRef.current = null;
-      console.log('⏹️ Backup polling parado');
-    }
+    if (backupPollingRef.current) { clearInterval(backupPollingRef.current); backupPollingRef.current = null; }
   };
 
-  // ─────────────────────────────────────────────────────────
-  // FALLBACK POLLING
-  // ─────────────────────────────────────────────────────────
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const startFallbackPolling = (sessionId: string) => {
     if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-    console.log('🔄 Iniciando fallback polling...');
     isCompletedRef.current = false;
-
     pollingIntervalRef.current = setInterval(async () => {
       if (isCompletedRef.current) { stopFallbackPolling(); return; }
-
       try {
-        const url = `${API_BASE_URL}/api/scraping/status`;
-        const response = await fetch(url, { headers: DEFAULT_HEADERS });
+        const headers = await getAuthHeaders();
+        const response = await fetch(`${API_BASE_URL}/api/scraping/status`, { headers });
         const json = await response.json();
-
         if (json.success && json.data) {
           const data = json.data;
-          console.log('📡 POLLING:', { progress: data.progress, items: `${data.itemsCollected}/${data.totalItems}`, status: data.status });
-
           setScrapingStatus(prev => ({
             ...prev,
             isRunning: !checkIfCompleted(data),
             progress: Math.min(data.progress || 0, 100),
-            currentMarketplace: data.currentMarketplace
-              ? normalizeMarketplace(data.currentMarketplace)
-              : prev.currentMarketplace,
+            currentMarketplace: data.currentMarketplace ? normalizeMarketplace(data.currentMarketplace) : prev.currentMarketplace,
             itemsCollected: data.itemsCollected || 0,
             totalItems: data.totalItems || prev.totalItems,
             lastProducts: data.lastProducts || prev.lastProducts,
-            liveProducts: data.liveProducts || prev.liveProducts
+            liveProducts: data.liveProducts || prev.liveProducts,
           }));
-
           if (checkIfCompleted(data)) handleCompletion(data);
         }
       } catch (error) {
@@ -473,53 +387,42 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   const stopFallbackPolling = () => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-      console.log('⏹️ Polling parado');
-    }
+    if (pollingIntervalRef.current) { clearInterval(pollingIntervalRef.current); pollingIntervalRef.current = null; }
   };
 
   const disconnectSSE = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-      console.log('⏹️ SSE desconectado');
-    }
+    if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
     stopFallbackPolling();
     stopBackupPolling();
   };
 
   const deleteProducts = async (ids: string[]) => {
+    const headers = await getAuthHeaders();
     await fetch(`${API_BASE_URL}/api/products/bulk-delete`, {
       method: 'POST',
-      headers: DEFAULT_HEADERS,
-      body: JSON.stringify({ ids })
+      headers,
+      body: JSON.stringify({ ids }),
     });
     await refreshProducts();
   };
 
   const runCleanup = async (): Promise<number> => {
+    const headers = await getAuthHeaders();
     await fetch(`${API_BASE_URL}/api/products/cleanup/all`, {
       method: 'DELETE',
-      headers: DEFAULT_HEADERS,
+      headers,
     });
     await refreshProducts();
     return 0;
   };
 
   const resetScrapingStatus = () => {
-    console.log('🔄 Reset manual do status');
     disconnectSSE();
     scrapingStartTimeRef.current = null;
     sessionIdRef.current = null;
     isCompletedRef.current = false;
     setScrapingStatus(getInitialScrapingStatus());
-
-    toast({
-      title: "Status resetado",
-      description: "O status de scraping foi reinicializado.",
-    });
+    toast({ title: "Status resetado", description: "O status de scraping foi reinicializado." });
   };
 
   const runScraping = async (config: ScrapingConfig): Promise<number> => {
@@ -542,7 +445,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       itemsCollected: 0,
       totalItems,
       lastProducts: [],
-      liveProducts: []
+      liveProducts: [],
     }));
 
     try {
@@ -550,43 +453,32 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         marketplaces: Object.fromEntries(
           Object.entries(config.marketplaces).map(([key, mp]: [string, any]) => {
             if (!mp) return [key, { enabled: false, quantity: 0 }];
-            return [
-              key,
-              {
-                enabled: mp.enabled ?? false,
-                quantity: mp.quantity ?? 0,
-                ...(mp.searchTerm  ? { searchTerm:  mp.searchTerm  } : {}),
-                ...(mp.categoria   ? { categoria:   mp.categoria   } : {}),
-                ...(mp.categoryKey ? { categoryKey: mp.categoryKey } : {}),
-                minDiscount: mp.minDiscount ?? config.minDiscount ?? 20,
-                maxPrice:    mp.maxPrice    ?? config.maxPrice    ?? 20000,
-              }
-            ];
+            return [key, {
+              enabled: mp.enabled ?? false,
+              quantity: mp.quantity ?? 0,
+              ...(mp.searchTerm  ? { searchTerm:  mp.searchTerm  } : {}),
+              ...(mp.categoria   ? { categoria:   mp.categoria   } : {}),
+              ...(mp.categoryKey ? { categoryKey: mp.categoryKey } : {}),
+              minDiscount: mp.minDiscount ?? config.minDiscount ?? 20,
+              maxPrice:    mp.maxPrice    ?? config.maxPrice    ?? 20000,
+            }];
           })
         ),
         minDiscount: config.minDiscount,
         maxPrice: config.maxPrice,
       } as any;
 
-      console.log('🚀 Iniciando scraping...');
-      console.log('📦 Payload enviado ao backend:', JSON.stringify(payload, null, 2));
-
       const res = await scrapingService.start(payload);
-
-      console.log('📥 Resposta do backend:', res);
 
       if (res.success && res.data?.sessionId) {
         sessionIdRef.current = res.data.sessionId;
-        console.log('✅ Session ID recebida:', res.data.sessionId);
         connectSSE(res.data.sessionId);
         return res.data.total || 0;
       } else {
-        console.warn('⚠️ Sem sessionId, usando fallback polling');
         startFallbackPolling('latest');
         return res.data?.total || 0;
       }
     } catch (error) {
-      console.error('❌ Erro ao iniciar scraping:', error);
       scrapingStartTimeRef.current = null;
       isCompletedRef.current = false;
       setScrapingStatus(getInitialScrapingStatus());
@@ -595,22 +487,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <DashboardContext.Provider
-      value={{
-        products,
-        dailyMetrics,
-        categoryMetrics,
-        marketplaceMetrics,
-        trashedProducts,
-        isLoading,
-        deleteProducts,
-        runCleanup,
-        refreshProducts,
-        runScraping,
-        scrapingStatus,
-        resetScrapingStatus,
-      }}
-    >
+    <DashboardContext.Provider value={{
+      products, dailyMetrics, categoryMetrics, marketplaceMetrics,
+      trashedProducts, isLoading, deleteProducts, runCleanup,
+      refreshProducts, runScraping, scrapingStatus, resetScrapingStatus,
+    }}>
       {children}
     </DashboardContext.Provider>
   );
