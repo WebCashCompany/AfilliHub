@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
+import { useAuth } from '@/contexts/AuthContext'; // ← ADICIONADO
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,9 +54,9 @@ import { ENV } from '@/config/environment';
 const API_BASE_URL = ENV.API_BASE_URL;
 
 // ─────────────────────────────────────────────────────────
-// HEADERS PADRÃO — ngrok obrigatório em todas as requisições
+// HEADERS BASE — sem Authorization (adicionado dinamicamente)
 // ─────────────────────────────────────────────────────────
-const DEFAULT_HEADERS: HeadersInit = {
+const BASE_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json',
   'ngrok-skip-browser-warning': 'true',
 };
@@ -201,6 +202,7 @@ function MobileFiltersSheet({
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export function ProductsPage() {
   const { products, deleteProducts, refreshProducts, isLoading } = useDashboard();
+  const { session } = useAuth(); // ← ADICIONADO: pega o token JWT do Supabase
   const { toast } = useToast();
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -231,6 +233,17 @@ export function ProductsPage() {
   const [originalProductData, setOriginalProductData] = useState<any>(null);
 
   const pageSize = 15;
+
+  // ─────────────────────────────────────────────────────────
+  // Helper: monta headers com Authorization quando disponível
+  // ─────────────────────────────────────────────────────────
+  const getAuthHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = { ...BASE_HEADERS };
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    return headers;
+  };
 
   const availableCategories = useMemo(() => {
     const cats = products.map(p => p.category || p.categoria).filter((c): c is string => !!c && c.trim() !== '');
@@ -313,7 +326,7 @@ export function ProductsPage() {
   };
 
   // ─────────────────────────────────────────────────────────
-  // CORREÇÃO: header ngrok adicionado no fetch de detalhes
+  // FIX PRINCIPAL: Authorization Bearer adicionado no fetch
   // ─────────────────────────────────────────────────────────
   const handleProductClick = async (product: any) => {
     setSelectedProduct(product);
@@ -328,11 +341,21 @@ export function ProductsPage() {
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`, {
-        headers: DEFAULT_HEADERS,
+        headers: getAuthHeaders(), // ← USA TOKEN JWT AQUI
       });
+
+      if (!response.ok) {
+        // Se ainda der 401, mostra produto local sem travar a UI
+        console.warn(`[ProductsPage] GET /api/products/${product.id} → ${response.status}`);
+        setOriginalProductData(product);
+        return;
+      }
+
       const data = await response.json();
       if (data.success && data.data) setOriginalProductData(data.data);
-    } catch {
+      else setOriginalProductData(product);
+    } catch (err) {
+      console.warn('[ProductsPage] Erro ao buscar detalhes do produto:', err);
       setOriginalProductData(product);
     }
   };
@@ -798,22 +821,14 @@ export function ProductsPage() {
 
       {/* ─── DESKTOP PRODUCT DETAIL DIALOG ─── */}
       <Dialog open={desktopDetailsOpen} onOpenChange={(open) => { setDesktopDetailsOpen(open); if (!open) setOriginalProductData(null); }}>
-        {/* [&>button]:hidden suprime o X nativo do shadcn/ui DialogContent */}
         <DialogContent className="max-w-3xl w-full max-h-[88vh] p-0 gap-0 overflow-hidden rounded-2xl [&>button]:hidden">
-          {/* DialogTitle + Description invisíveis para acessibilidade (screen readers) */}
           <DialogTitle className="sr-only">
             {displayProduct ? (displayProduct.nome || displayProduct.name || 'Detalhes do Produto') : 'Detalhes do Produto'}
           </DialogTitle>
           <DialogDescription className="sr-only">Informações completas e link de afiliado do produto</DialogDescription>
           {displayProduct && (
             <div className="flex flex-col h-full max-h-[88vh]">
-
-              {/* ════════════════════════════════════════
-                  HERO — imagem + info principal
-              ════════════════════════════════════════ */}
               <div className="relative flex gap-0 border-b overflow-hidden flex-shrink-0">
-
-                {/* Imagem lateral grande */}
                 <div className="relative w-52 flex-shrink-0 bg-muted/40">
                   <img
                     src={displayProduct.imagem || displayProduct.image || '/no-image.png'}
@@ -822,7 +837,6 @@ export function ProductsPage() {
                     style={{ aspectRatio: '1/1' }}
                     onError={(e) => { (e.target as HTMLImageElement).src = '/no-image.png'; }}
                   />
-                  {/* Badge de desconto sobre a imagem */}
                   {displayProduct.desconto && (
                     <div className="absolute top-3 left-3">
                       <Badge variant="destructive" className="gap-1 text-sm px-2.5 py-1 shadow-lg font-bold">
@@ -831,10 +845,7 @@ export function ProductsPage() {
                     </div>
                   )}
                 </div>
-
-                {/* Info principal */}
                 <div className="flex-1 min-w-0 px-7 py-6 flex flex-col justify-between">
-                  {/* Badges + título */}
                   <div className="space-y-3 pr-12">
                     <div className="flex flex-wrap gap-2">
                       <MarketplaceBadge marketplace={displayProduct.marketplace} />
@@ -849,8 +860,6 @@ export function ProductsPage() {
                       {displayProduct.nome || displayProduct.nome_normalizado || displayProduct.name}
                     </h2>
                   </div>
-
-                  {/* Bloco de preço */}
                   <div className="mt-4 p-4 rounded-xl bg-muted/40 border">
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1.5">Preço atual</p>
                     <div className="flex items-baseline gap-3 flex-wrap">
@@ -872,8 +881,6 @@ export function ProductsPage() {
                     )}
                   </div>
                 </div>
-
-                {/* Botão fechar — único, no canto superior direito */}
                 <button
                   onClick={() => setDesktopDetailsOpen(false)}
                   className="absolute right-4 top-4 w-8 h-8 rounded-full flex items-center justify-center bg-background/80 backdrop-blur-sm border hover:bg-muted transition-colors shadow-sm z-10"
@@ -881,14 +888,8 @@ export function ProductsPage() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-
-              {/* ════════════════════════════════════════
-                  CORPO — detalhes + link
-              ════════════════════════════════════════ */}
               <ScrollArea className="flex-1 overflow-auto">
                 <div className="px-7 py-5 space-y-5">
-
-                  {/* ── Grid de atributos ── */}
                   {(displayProduct.vendedor || displayProduct.frete || displayProduct.numero_avaliacoes || displayProduct.porcentagem_vendido || displayProduct.tempo_restante) && (
                     <div>
                       <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-3">Detalhes</p>
@@ -941,8 +942,6 @@ export function ProductsPage() {
                       </div>
                     </div>
                   )}
-
-                  {/* ── Datas ── */}
                   {(displayProduct.createdAt || displayProduct.createdat || displayProduct.updatedAt || displayProduct.updatedat || displayProduct.ultima_verificacao) && (
                     <div className="flex items-center gap-1 flex-wrap rounded-xl border bg-muted/20 px-4 py-3">
                       {(displayProduct.createdAt || displayProduct.createdat) && (
@@ -980,27 +979,17 @@ export function ProductsPage() {
                       )}
                     </div>
                   )}
-
-                  {/* ── Link de Afiliado ── */}
                   {affiliateLink && (
                     <div className="rounded-xl border border-green-500/30 bg-green-500/5 overflow-hidden">
-                      {/* Header do link */}
                       <div className="flex items-center justify-between px-4 py-3 border-b border-green-500/20 bg-green-500/10">
                         <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
                           <Link2 className="w-4 h-4" />
                           <span className="text-sm font-bold">Link de Afiliado</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleCopyLink(affiliateLink)}
-                            className="h-8 px-3 gap-2 text-xs font-semibold border-green-500/30 hover:bg-green-500/10 hover:border-green-500/50"
-                          >
-                            {copiedLink
-                              ? <><Check className="w-3.5 h-3.5 text-green-500" />Copiado!</>
-                              : <><Copy className="w-3.5 h-3.5" />Copiar link</>
-                            }
+                          <Button variant="outline" size="sm" onClick={() => handleCopyLink(affiliateLink)}
+                            className="h-8 px-3 gap-2 text-xs font-semibold border-green-500/30 hover:bg-green-500/10 hover:border-green-500/50">
+                            {copiedLink ? <><Check className="w-3.5 h-3.5 text-green-500" />Copiado!</> : <><Copy className="w-3.5 h-3.5" />Copiar link</>}
                           </Button>
                           <Button size="sm" asChild className="h-8 px-3 gap-2 text-xs font-semibold bg-green-600 hover:bg-green-700 text-white border-0">
                             <a href={affiliateLink} target="_blank" rel="noopener noreferrer">
@@ -1009,25 +998,15 @@ export function ProductsPage() {
                           </Button>
                         </div>
                       </div>
-                      {/* URL */}
                       <div className="px-4 py-3">
-                        <p className="text-xs font-mono text-muted-foreground break-all leading-relaxed select-all">
-                          {affiliateLink}
-                        </p>
+                        <p className="text-xs font-mono text-muted-foreground break-all leading-relaxed select-all">{affiliateLink}</p>
                       </div>
                     </div>
                   )}
-
                 </div>
               </ScrollArea>
-
-              {/* ════════════════════════════════════════
-                  FOOTER
-              ════════════════════════════════════════ */}
               <div className="flex items-center justify-between gap-3 px-7 py-4 border-t bg-muted/20 flex-shrink-0">
-                <Button variant="outline" size="lg" onClick={() => setDesktopDetailsOpen(false)} className="h-10 px-6">
-                  Fechar
-                </Button>
+                <Button variant="outline" size="lg" onClick={() => setDesktopDetailsOpen(false)} className="h-10 px-6">Fechar</Button>
                 {affiliateLink && (
                   <Button size="lg" asChild className="h-10 px-6 gap-2 bg-green-600 hover:bg-green-700 text-white border-0">
                     <a href={affiliateLink} target="_blank" rel="noopener noreferrer">
@@ -1036,7 +1015,6 @@ export function ProductsPage() {
                   </Button>
                 )}
               </div>
-
             </div>
           )}
         </DialogContent>
