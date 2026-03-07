@@ -10,6 +10,7 @@ import { DashboardProvider } from "@/contexts/DashboardContext.tsx";
 import { WhatsAppProvider } from "@/contexts/WhatsAppContext.tsx";
 import { AuthProvider } from "@/contexts/AuthContext.tsx";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { DevToolsGuard } from "@/components/auth/DevToolsGuard";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/LoginPage";
 import { DashboardHome } from "@/pages/DashboardHome";
@@ -29,9 +30,6 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 const queryClient = new QueryClient();
 
 // ─── AppRoutes ────────────────────────────────────────────────────────────────
-// AuthProvider fica aqui dentro para que useAuth() funcione em todos os filhos.
-// UserPreferencesProvider DEVE vir depois do AuthProvider (precisa do useAuth).
-// WhatsAppProvider DEVE vir depois do UserPreferencesProvider.
 function AppRoutes() {
   return (
     <AuthProvider>
@@ -65,8 +63,6 @@ function AppRoutes() {
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
-// Providers que NÃO dependem de auth ficam aqui fora (QueryClient, Tooltip, etc.)
-// DashboardProvider também não depende de auth diretamente, fica aqui.
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -75,7 +71,9 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <AppRoutes />
+            <DevToolsGuard>
+              <AppRoutes />
+            </DevToolsGuard>
           </BrowserRouter>
 
           <Analytics />
