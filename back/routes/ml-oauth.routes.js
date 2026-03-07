@@ -32,12 +32,13 @@ async function upsertIntegration(userId, provider, fields) {
 
 // ─── GET /api/ml/auth ────────────────────────────────────────────────────────
 // Exige JWT — extrai userId e embute no state do OAuth
-router.get('/auth', async (req, res) => {
+router.get('/auth-url', async (req, res) => {
   const userId = await getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Não autenticado' });
 
-  console.log(`🔗 [ML OAuth] Redirecionando userId=${userId} para login ML...`);
-  res.redirect(mlAffiliate.getAuthUrl(userId));
+  console.log(`🔗 [ML OAuth] Gerando URL para userId=${userId}...`);
+  const url = mlAffiliate.getAuthUrl(userId);
+  res.json({ url });
 });
 
 // ─── GET /api/ml/callback ────────────────────────────────────────────────────

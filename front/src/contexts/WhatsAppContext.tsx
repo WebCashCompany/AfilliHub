@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, ReactNode, useCallback,
 import { socketService } from '@/api/services/socket.service';
 import { whatsappService, WhatsAppSession, WhatsAppGroup } from '@/api/services/whatsapp.service';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 
 interface WhatsAppContextData {
   sessions: WhatsAppSession[];
@@ -27,6 +28,8 @@ const WhatsAppContext = createContext<WhatsAppContextData>({} as WhatsAppContext
 
 export function WhatsAppProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  // ── Fonte de verdade: preferências do backend ────────────────────────────
+  const { preferences, isLoading: prefsLoading } = useUserPreferences();
 
   const [sessions, setSessions]                 = useState<WhatsAppSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -40,101 +43,81 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
   const currentSessionIdRef = useRef<string | null>(null);
   currentSessionIdRef.current = currentSessionId;
 
-  // ─────────────────────────────────────────────────────────
-  // FIX F5: debounce para não limpar sessão com lista vazia transitória
-  // ─────────────────────────────────────────────────────────
   const sessionUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ─────────────────────────────────────────────────────────
-  // LOCALSTORAGE VINCULADO AO USUÁRIO
-  // ─────────────────────────────────────────────────────────
-  const storageKey = useCallback((key: string) =>
-    user?.id ? `whatsapp_${key}_${user.id}` : null,
-  [user?.id]);
-
-  const saveToStorage = useCallback((key: string, value: any) => {
-    const k = storageKey(key);
-    if (!k) return;
-    localStorage.setItem(k, JSON.stringify(value));
-  }, [storageKey]);
-
-  const loadFromStorage = useCallback(<T,>(key: string, fallback: T): T => {
-    const k = storageKey(key);
-    if (!k) return fallback;
-    try {
-      const raw = localStorage.getItem(k);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch {
-      return fallback;
-    }
-  }, [storageKey]);
-
-  const removeFromStorage = useCallback((key: string) => {
-    const k = storageKey(key);
-    if (k) localStorage.removeItem(k);
-  }, [storageKey]);
-
-  // ─────────────────────────────────────────────────────────
-  // NORMALIZAR SESSÕES
-  // ─────────────────────────────────────────────────────────
+  // ── Normalizar sessões ────────────────────────────────────────────────────
   const normalizeSessions = (data: any): WhatsAppSession[] => {
     if (Array.isArray(data)) return data;
     if (data && typeof data === 'object') return Object.values(data);
     return [];
   };
 
-  // ─────────────────────────────────────────────────────────
-  // CONECTAR SOCKET — só após usuário logado
-  // ─────────────────────────────────────────────────────────
+  // ── Conectar Socket — só após usuário logado ──────────────────────────────
   useEffect(() => {
     if (!user?.id) return;
-
-    console.log('🔌 Conectando Socket.IO (usuário autenticado)...');
     socketService.connect();
-
     const checkInterval = setInterval(() => {
       setSocketConnected(socketService.isConnected());
     }, 1000);
-
-    return () => {
-      clearInterval(checkInterval);
-      // NÃO desconecta o socket aqui para não perder estado no StrictMode
-    };
+    return () => clearInterval(checkInterval);
   }, [user?.id]);
 
-  // ─────────────────────────────────────────────────────────
-  // CARREGAR DADOS SALVOS AO LOGAR
-  // ─────────────────────────────────────────────────────────
+  // ── BOOT: restaura sessão e grupos a partir do backend (preferences) ──────
+  // Roda quando preferences carregarem — substitui o localStorage
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || prefsLoading || !preferences) return;
 
-    const savedSession = loadFromStorage<string | null>('current_session', null);
-    const savedGroups  = loadFromStorage<string[]>('selected_groups', []);
+    const savedSessionId = preferences.whatsapp?.currentSessionId ?? null;
+    const savedGroups    = (preferences.whatsapp?.selectedGroups ?? []).map(g => g.id);
 
-    if (savedSession) {
-      console.log('💾 Sessão restaurada do storage:', savedSession);
-      setCurrentSessionId(savedSession);
-    }
-
-    if (savedGroups.length > 0) {
-      console.log('💾 Grupos restaurados do storage:', savedGroups.length);
-      setSelectedGroups(savedGroups);
-    }
-
-    // FIX F5: busca sessões via HTTP logo após login, não espera socket
+    // Busca sessões via HTTP pra verificar se a sessão salva ainda está online
     whatsappService.listSessions().then(allSessions => {
       const list = Array.isArray(allSessions) ? allSessions : [];
       setSessions(list);
       console.log('🔄 Sessões carregadas via HTTP no boot:', list.length);
+
+      if (savedSessionId) {
+        const stillOnline = list.find(s => s.sessionId === savedSessionId && s.conectado);
+        if (stillOnline) {
+          console.log('✅ Sessão restaurada do backend:', savedSessionId);
+          setCurrentSessionId(savedSessionId);
+        } else {
+          // Sessão salva existe mas está offline — ainda define como current
+          // pra o usuário ver que tem uma sessão e poder reconectar
+          const exists = list.find(s => s.sessionId === savedSessionId);
+          if (exists) {
+            console.log('⚠️ Sessão salva está offline, mantendo referência:', savedSessionId);
+            setCurrentSessionId(savedSessionId);
+          } else {
+            // Não existe mais — tenta qualquer sessão online
+            const anyActive = list.find(s => s.conectado);
+            if (anyActive) {
+              console.log('🔄 Sessão salva não existe, usando:', anyActive.sessionId);
+              setCurrentSessionId(anyActive.sessionId);
+            }
+          }
+        }
+      } else {
+        // Nenhuma sessão salva — auto-seleciona a primeira online
+        const anyActive = list.find(s => s.conectado);
+        if (anyActive) {
+          console.log('🔄 Auto-selecionando sessão ativa:', anyActive.sessionId);
+          setCurrentSessionId(anyActive.sessionId);
+        }
+      }
+
+      // Restaura grupos selecionados
+      if (savedGroups.length > 0) {
+        console.log('💾 Grupos restaurados do backend:', savedGroups.length);
+        setSelectedGroups(savedGroups);
+      }
     }).catch(err => {
       console.warn('⚠️ Não foi possível carregar sessões no boot:', err);
     });
 
-  }, [user?.id]);
+  }, [user?.id, prefsLoading]); // ← roda quando preferences terminam de carregar
 
-  // ─────────────────────────────────────────────────────────
-  // LIMPAR ESTADO AO DESLOGAR
-  // ─────────────────────────────────────────────────────────
+  // ── Limpar estado ao deslogar ─────────────────────────────────────────────
   useEffect(() => {
     if (!user) {
       setCurrentSessionId(null);
@@ -145,9 +128,7 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  // ─────────────────────────────────────────────────────────
-  // SOCKET.IO — EVENTOS EM TEMPO REAL
-  // ─────────────────────────────────────────────────────────
+  // ── Socket.IO — eventos em tempo real ─────────────────────────────────────
   useEffect(() => {
     const handleQRCode = (data: { sessionId: string; qrCode: string }) => {
       console.log('📱 [REAL-TIME] QR Code recebido:', data.sessionId);
@@ -159,6 +140,12 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
       console.log('✅ [REAL-TIME] Sessão conectada:', data.sessionId);
       setQrCode(null);
       setIsConnecting(false);
+      // Atualiza a sessão na lista como conectada
+      setSessions(prev => prev.map(s =>
+        s.sessionId === data.sessionId
+          ? { ...s, conectado: true, status: 'online' as const, phoneNumber: data.phoneNumber }
+          : s
+      ));
     };
 
     const handleDisconnected = (data: { sessionId: string; reason: string }) => {
@@ -172,7 +159,6 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
         setCurrentSessionId(null);
         setGroups([]);
         setQrCode(null);
-        removeFromStorage('current_session');
       }
     };
 
@@ -181,89 +167,56 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
       const list = normalizeSessions(raw);
       console.log('📋 [REAL-TIME] Sessões atualizadas:', list.length);
 
-      // FIX F5: ignora listas vazias transitórias logo após reconexão do socket
-      // O backend pode demorar um tick para responder — não limpamos estado com lista vazia
       if (list.length === 0) {
-        console.warn('⚠️ Lista de sessões vazia recebida — ignorando para não limpar estado');
+        console.warn('⚠️ Lista de sessões vazia recebida — ignorando');
         return;
       }
 
       setSessions(list);
 
-      // FIX F5: só atualiza currentSessionId após debounce de 500ms
-      // evita troca de sessão por evento transitório de reconexão
-      if (sessionUpdateTimerRef.current) {
-        clearTimeout(sessionUpdateTimerRef.current);
-      }
+      if (sessionUpdateTimerRef.current) clearTimeout(sessionUpdateTimerRef.current);
 
       sessionUpdateTimerRef.current = setTimeout(() => {
         const saved = currentSessionIdRef.current;
         if (saved) {
           const stillActive = list.find(s => s.sessionId === saved && s.conectado);
           if (!stillActive) {
-            // Sessão salva não está mais online — tenta outra
             const anyActive = list.find(s => s.conectado);
             if (anyActive) {
-              console.log('🔄 Sessão anterior offline, usando:', anyActive.sessionId);
               setCurrentSessionId(anyActive.sessionId);
-              saveToStorage('current_session', anyActive.sessionId);
             } else {
-              // Nenhuma sessão ativa — mas só limpa se o backend confirmar via HTTP
               whatsappService.listSessions().then(fresh => {
-                const freshList = Array.isArray(fresh) ? fresh : [];
+                const freshList   = Array.isArray(fresh) ? fresh : [];
                 const freshActive = freshList.find(s => s.sessionId === saved && s.conectado);
                 if (!freshActive) {
-                  console.log('🗑️ Sessão confirmada offline via HTTP, limpando estado');
                   setCurrentSessionId(null);
                   setGroups([]);
-                  removeFromStorage('current_session');
                 }
-              }).catch(() => {
-                // Não faz nada se o HTTP falhar — mantém estado atual
-              });
+              }).catch(() => {});
             }
           }
         } else {
           const anyActive = list.find(s => s.conectado);
-          if (anyActive) {
-            setCurrentSessionId(anyActive.sessionId);
-            saveToStorage('current_session', anyActive.sessionId);
-          }
+          if (anyActive) setCurrentSessionId(anyActive.sessionId);
         }
       }, 500);
     };
 
-    socketService.on('whatsapp:qr', handleQRCode);
-    socketService.on('whatsapp:connected', handleConnected);
-    socketService.on('whatsapp:disconnected', handleDisconnected);
+    socketService.on('whatsapp:qr',              handleQRCode);
+    socketService.on('whatsapp:connected',       handleConnected);
+    socketService.on('whatsapp:disconnected',    handleDisconnected);
     socketService.on('whatsapp:sessions-update', handleSessionsUpdate);
 
     return () => {
-      socketService.off('whatsapp:qr', handleQRCode);
-      socketService.off('whatsapp:connected', handleConnected);
-      socketService.off('whatsapp:disconnected', handleDisconnected);
+      socketService.off('whatsapp:qr',              handleQRCode);
+      socketService.off('whatsapp:connected',       handleConnected);
+      socketService.off('whatsapp:disconnected',    handleDisconnected);
       socketService.off('whatsapp:sessions-update', handleSessionsUpdate);
       if (sessionUpdateTimerRef.current) clearTimeout(sessionUpdateTimerRef.current);
     };
   }, [user?.id]);
 
-  // ─────────────────────────────────────────────────────────
-  // PERSISTÊNCIA
-  // ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!user?.id) return;
-    if (currentSessionId) saveToStorage('current_session', currentSessionId);
-    else removeFromStorage('current_session');
-  }, [currentSessionId, user?.id]);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    saveToStorage('selected_groups', selectedGroups);
-  }, [selectedGroups, user?.id]);
-
-  // ─────────────────────────────────────────────────────────
-  // FUNÇÕES
-  // ─────────────────────────────────────────────────────────
+  // ── Funções ───────────────────────────────────────────────────────────────
   const refreshSessions = useCallback(async () => {
     try {
       const allSessions = await whatsappService.listSessions();
@@ -307,13 +260,12 @@ export function WhatsAppProvider({ children }: { children: ReactNode }) {
         setGroups([]);
         setSelectedGroups([]);
         setQrCode(null);
-        removeFromStorage('current_session');
       }
     } catch (error) {
       console.error('Erro ao desconectar sessão:', error);
       throw error;
     }
-  }, [user?.id]);
+  }, []);
 
   const setCurrentSession = useCallback((sessionId: string | null) => {
     setCurrentSessionId(sessionId);

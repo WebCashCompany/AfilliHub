@@ -1,12 +1,12 @@
 // back/services/AutomationService.js
 
 class AutomationService {
-  constructor(whatsappService, io, AutomationState) { // ✅ Agora recebe o modelo Mongoose inicializado
+  constructor(whatsappService, io, AutomationState) {
     this.whatsappService = whatsappService;
     this.io = io;
-    this.AutomationState = AutomationState; // ✅ Referência ao modelo do MongoDB
-    this.automations = new Map(); // Armazena o estado em memória para execução rápida
-    this.timers = new Map(); // Armazena os IDs dos setInterval
+    this.AutomationState = AutomationState;
+    this.automations = new Map();
+    this.timers = new Map();
   }
 
   // ─── Helper: emite SOMENTE para o usuário dono ────────────────────────────
@@ -14,45 +14,36 @@ class AutomationService {
     this.io.to(`user:${userId}`).emit(event, data);
   }
 
-  // ✅ Carregar estado da automação do banco de dados (MongoDB)
+  // ─── MongoDB: carregar ────────────────────────────────────────────────────
   async _loadAutomationStateFromDB(userId) {
     try {
-      // Busca a automação do usuário
       const stateDoc = await this.AutomationState.findOne({ userId });
-
       if (stateDoc) {
-        console.log("📦 [AutomationService] Estado da automação restaurado do BD para", userId);
+        console.log("📦 [AutomationService] Estado restaurado do BD para", userId);
         const state = stateDoc.toObject();
-        
-        // Garantir que os campos obrigatórios sejam arrays
-        state.products = state.products || [];
-        state.grupoIds = state.grupoIds || [];
-        state.categories = state.categories || [];
+        state.products    = state.products    || [];
+        state.grupoIds    = state.grupoIds    || [];
+        state.categories  = state.categories  || [];
         state.marketplaces = state.marketplaces || [];
-
         this.automations.set(userId, { state, intervalId: null });
         return state;
       }
       return null;
     } catch (error) {
-      console.error("[AutomationService] Erro ao carregar estado do BD:", error);
+      console.error("[AutomationService] Erro ao carregar do BD:", error);
       return null;
     }
   }
 
-  // ✅ Salvar estado da automação no banco de dados (MongoDB)
+  // ─── MongoDB: salvar ──────────────────────────────────────────────────────
   async _saveAutomationStateToDB(state) {
     try {
-      const { userId } = state;
-
-      // Tenta encontrar e atualizar, se não existir, cria um novo (upsert)
       const updatedDoc = await this.AutomationState.findOneAndUpdate(
-        { userId },
+        { userId: state.userId },
         state,
         { new: true, upsert: true, setDefaultsOnInsert: true }
       );
-
-      console.log("💾 [AutomationService] Estado salvo no BD para usuário:", userId);
+      console.log("💾 [AutomationService] Estado salvo no BD para:", state.userId);
       return updatedDoc.toObject();
     } catch (error) {
       console.error("[AutomationService] Erro ao salvar no BD:", error);
@@ -60,12 +51,12 @@ class AutomationService {
     }
   }
 
-  // ✅ Remover estado da automação do banco de dados (MongoDB)
+  // ─── MongoDB: deletar ─────────────────────────────────────────────────────
   async _deleteAutomationStateFromDB(userId) {
     try {
       const result = await this.AutomationState.deleteOne({ userId });
       if (result.deletedCount > 0) {
-        console.log("🗑️ [AutomationService] Estado deletado do BD para usuário:", userId);
+        console.log("🗑️ [AutomationService] Estado deletado do BD para:", userId);
         return true;
       }
       return false;
@@ -75,9 +66,8 @@ class AutomationService {
     }
   }
 
-  // ✅ Iniciar o timer periódico
+  // ─── Timer ────────────────────────────────────────────────────────────────
   _startTimer(userId, intervalMinutes) {
-    // Limpa qualquer timer existente para este usuário
     if (this.timers.has(userId)) {
       clearInterval(this.timers.get(userId));
       this.timers.delete(userId);
@@ -91,15 +81,13 @@ class AutomationService {
     }, ms);
 
     this.timers.set(userId, timerId);
-    const automationEntry = this.automations.get(userId);
-    if (automationEntry) {
-      automationEntry.intervalId = timerId;
-    }
+    const entry = this.automations.get(userId);
+    if (entry) entry.intervalId = timerId;
   }
 
-  // ─── Iniciar automação ────────────────────────────────────────────────────
+  // ─── Iniciar ──────────────────────────────────────────────────────────────
   async start({ userId, sessionId, grupoIds, products, intervalMinutes, currentIndex = 0, totalSent = 0, categories = [], marketplaces = [] }) {
-    await this.stop(userId); // Para qualquer automação anterior
+    await this.stop(userId);
 
     if (!products || products.length === 0) {
       throw new Error("Nenhum produto para automatizar");
@@ -119,76 +107,65 @@ class AutomationService {
       marketplaces,
     };
 
-    // Salvar estado inicial no MongoDB
     await this._saveAutomationStateToDB(state);
-
     this.automations.set(userId, { state, intervalId: null });
     this._startTimer(userId, intervalMinutes);
 
-    console.log(`🤖 [AutomationService] Automação iniciada para ${userId} — a cada ${intervalMinutes}min`);
+    console.log(`🤖 [AutomationService] Iniciada para ${userId} — a cada ${intervalMinutes}min`);
     this._emitState(userId);
-
     return this._getPublicState(state);
   }
 
-  // ─── Parar automação ──────────────────────────────────────────────────────
+  // ─── Parar ────────────────────────────────────────────────────────────────
   async stop(userId) {
-    const entry = this.automations.get(userId);
-    
-    // Limpar timers em memória
     if (this.timers.has(userId)) {
       clearInterval(this.timers.get(userId));
       this.timers.delete(userId);
     }
 
+    const entry = this.automations.get(userId);
     if (entry) {
       clearInterval(entry.intervalId);
       this.automations.delete(userId);
     }
 
-    // ✅ Remover do MongoDB
     await this._deleteAutomationStateFromDB(userId);
 
-    console.log(`🛑 [AutomationService] Automação cancelada para ${userId}`);
+    console.log(`🛑 [AutomationService] Cancelada para ${userId}`);
     this._emit(userId, "automation:cancelled", { userId });
     return true;
   }
 
-  // ─── Pausar / Retomar ─────────────────────────────────────────────────────
+  // ─── Pausar ───────────────────────────────────────────────────────────────
   async pause(userId) {
     const entry = this.automations.get(userId);
     if (!entry) return false;
 
     entry.state.isPaused = true;
-    
-    // ✅ Salvar estado pausado no BD
     await this._saveAutomationStateToDB(entry.state);
 
-    // Parar o timer
     if (this.timers.has(userId)) {
       clearInterval(this.timers.get(userId));
       this.timers.delete(userId);
     }
 
-    console.log(`⏸️  [AutomationService] Automação pausada para ${userId}`);
+    console.log(`⏸️  [AutomationService] Pausada para ${userId}`);
     this._emit(userId, "automation:paused", { userId });
     this._emitState(userId);
     return true;
   }
 
+  // ─── Retomar ──────────────────────────────────────────────────────────────
   async resume(userId) {
     const entry = this.automations.get(userId);
     if (!entry) return false;
 
     entry.state.isPaused = false;
     entry.state.nextFireAt = Date.now() + entry.state.intervalMinutes * 60 * 1000;
-
-    // ✅ Salvar estado retomado no BD
     await this._saveAutomationStateToDB(entry.state);
-
     this._startTimer(userId, entry.state.intervalMinutes);
 
-    console.log(`▶️  [AutomationService] Automação retomada para ${userId}`);
+    console.log(`▶️  [AutomationService] Retomada para ${userId}`);
     this._emit(userId, "automation:resumed", { userId });
     this._emitState(userId);
     return true;
@@ -201,7 +178,6 @@ class AutomationService {
 
     await this._sendNext(userId);
 
-    // Reinicia o timer para o próximo ciclo
     entry.state.nextFireAt = Date.now() + entry.state.intervalMinutes * 60 * 1000;
     await this._saveAutomationStateToDB(entry.state);
     this._startTimer(userId, entry.state.intervalMinutes);
@@ -213,7 +189,6 @@ class AutomationService {
   async getStatus(userId) {
     let entry = this.automations.get(userId);
     if (!entry) {
-      // ✅ Tenta carregar do MongoDB se não estiver em memória
       const stateFromDB = await this._loadAutomationStateFromDB(userId);
       if (stateFromDB) {
         entry = { state: stateFromDB, intervalId: null };
@@ -222,20 +197,17 @@ class AutomationService {
         }
       }
     }
-
     if (!entry) return null;
     return this._getPublicState(entry.state);
   }
 
-  // ✅ Inicializar automações ativas ao carregar o servidor
+  // ─── Inicializar automações ativas no boot do servidor ───────────────────
   async initializeActiveAutomations() {
     try {
       console.log("🚀 [AutomationService] Inicializando automações do MongoDB...");
-      // Busca todas as automações que não estão pausadas
       const activeStates = await this.AutomationState.find({ isPaused: false });
-
       if (activeStates && activeStates.length > 0) {
-        console.log(`📦 [AutomationService] Restaurando ${activeStates.length} automação(ões) ativa(s)`);
+        console.log(`📦 [AutomationService] Restaurando ${activeStates.length} automação(ões)`);
         for (const stateDoc of activeStates) {
           const state = stateDoc.toObject();
           this.automations.set(state.userId, { state, intervalId: null });
@@ -264,10 +236,17 @@ class AutomationService {
     }
 
     const session = this.whatsappService.getSession(userId, sessionId);
+
+    // ── FIX: sessão não conectada → só avisa, NÃO pausa ──────────────────
+    // Pausar aqui causava estado inconsistente no frontend ao recarregar a
+    // página, porque o backend recebia automation:request-state antes da
+    // sessão reconectar e travava a automação desnecessariamente.
     if (!session || !session.isReady) {
-      await this.pause(userId);
-      this._emit(userId, "automation:error", { error: `Sessão ${sessionId} não está conectada` });
-      return;
+      console.warn(`⚠️ [AutomationService] Sessão ${sessionId} não está pronta — pulando ciclo para ${userId}`);
+      this._emit(userId, "automation:error", {
+        error: `Sessão ${sessionId} não está conectada — tentará novamente no próximo ciclo`,
+      });
+      return; // ← só retorna, não pausa nem cancela
     }
 
     try {
@@ -276,37 +255,38 @@ class AutomationService {
       for (const grupoId of grupoIds) {
         await session.enviarOfertas(grupoId, [
           {
-            nome: product.nome || product.name,
+            nome:     product.nome || product.name,
             mensagem: product._mensagem,
-            imagem: product.imagem || product.image || null,
-            link: product.link_afiliado || product.affiliateLink || "",
+            imagem:   product.imagem || product.image || null,
+            link:     product.link_afiliado || product.affiliateLink || "",
           },
         ]);
       }
 
       state.currentIndex = (currentIndex + 1) % products.length;
-      state.totalSent += 1;
-      state.nextFireAt = Date.now() + state.intervalMinutes * 60 * 1000;
+      state.totalSent   += 1;
+      state.nextFireAt   = Date.now() + state.intervalMinutes * 60 * 1000;
 
-      // ✅ Salvar progresso no MongoDB
       await this._saveAutomationStateToDB(state);
 
       this._emit(userId, "automation:product-sent", {
         userId,
-        product: { nome: product.nome || product.name, imagem: product.imagem || product.image },
-        totalSent: state.totalSent,
+        product:      { nome: product.nome || product.name, imagem: product.imagem || product.image },
+        totalSent:    state.totalSent,
         currentIndex: state.currentIndex,
-        nextFireAt: state.nextFireAt,
+        nextFireAt:   state.nextFireAt,
       });
 
       console.log(`✅ [AutomationService] Enviado! Total: ${state.totalSent}`);
     } catch (error) {
       console.error(`❌ [AutomationService] Erro ao enviar:`, error.message);
+      // Erro de envio real → pausa para não ficar em loop de erro
       await this.pause(userId);
       this._emit(userId, "automation:error", { userId, error: error.message });
     }
   }
 
+  // ─── Helpers ──────────────────────────────────────────────────────────────
   _emitState(userId) {
     const entry = this.automations.get(userId);
     if (!entry) return;
@@ -315,16 +295,16 @@ class AutomationService {
 
   _getPublicState(state) {
     return {
-      userId: state.userId,
-      sessionId: state.sessionId,
+      userId:         state.userId,
+      sessionId:      state.sessionId,
       intervalMinutes: state.intervalMinutes,
-      currentIndex: state.currentIndex,
-      totalSent: state.totalSent,
-      isPaused: state.isPaused,
-      nextFireAt: state.nextFireAt,
-      totalProducts: state.products.length,
-      categories: state.categories,
-      marketplaces: state.marketplaces,
+      currentIndex:   state.currentIndex,
+      totalSent:      state.totalSent,
+      isPaused:       state.isPaused,
+      nextFireAt:     state.nextFireAt,
+      totalProducts:  state.products.length,
+      categories:     state.categories,
+      marketplaces:   state.marketplaces,
     };
   }
 }
