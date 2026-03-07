@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
-import { useAuth } from '@/contexts/AuthContext'; // ← ADICIONADO
+import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,6 @@ import {
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MarketplaceBadge } from '@/components/dashboard/MarketplaceBadge';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
@@ -53,9 +52,6 @@ type QuickFilter = 'all' | 'today' | 'yesterday' | 'last7' | 'last30';
 import { ENV } from '@/config/environment';
 const API_BASE_URL = ENV.API_BASE_URL;
 
-// ─────────────────────────────────────────────────────────
-// HEADERS BASE — sem Authorization (adicionado dinamicamente)
-// ─────────────────────────────────────────────────────────
 const BASE_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json',
   'ngrok-skip-browser-warning': 'true',
@@ -72,11 +68,6 @@ function MobileFiltersSheet({
   dateRange, setDateRange,
   availableCategories, setPage, clearDateFilter,
 }: any) {
-  const quickFilterLabels: Record<QuickFilter, string> = {
-    all: 'Qualquer data', today: 'Hoje', yesterday: 'Ontem',
-    last7: 'Últimos 7 dias', last30: 'Últimos 30 dias',
-  };
-
   const activeCount = [
     marketplaceFilter !== 'all',
     categoryFilter !== 'all',
@@ -201,8 +192,8 @@ function MobileFiltersSheet({
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export function ProductsPage() {
-  const { products, deleteProducts, refreshProducts, isLoading } = useDashboard();
-  const { session } = useAuth(); // ← ADICIONADO: pega o token JWT do Supabase
+  const { products, refreshProducts, isLoading } = useDashboard();
+  const { session } = useAuth();
   const { toast } = useToast();
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -234,9 +225,7 @@ export function ProductsPage() {
 
   const pageSize = 15;
 
-  // ─────────────────────────────────────────────────────────
-  // Helper: monta headers com Authorization quando disponível
-  // ─────────────────────────────────────────────────────────
+  // ─── Helper: monta headers com Authorization quando disponível ───────────────
   const getAuthHeaders = (): Record<string, string> => {
     const headers: Record<string, string> = { ...BASE_HEADERS };
     if (session?.access_token) {
@@ -325,9 +314,6 @@ export function ProductsPage() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  // ─────────────────────────────────────────────────────────
-  // FIX PRINCIPAL: Authorization Bearer adicionado no fetch
-  // ─────────────────────────────────────────────────────────
   const handleProductClick = async (product: any) => {
     setSelectedProduct(product);
     setOriginalProductData(null);
@@ -341,11 +327,10 @@ export function ProductsPage() {
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/products/${product.id}`, {
-        headers: getAuthHeaders(), // ← USA TOKEN JWT AQUI
+        headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
-        // Se ainda der 401, mostra produto local sem travar a UI
         console.warn(`[ProductsPage] GET /api/products/${product.id} → ${response.status}`);
         setOriginalProductData(product);
         return;
@@ -371,22 +356,61 @@ export function ProductsPage() {
     }
   };
 
+  // ─── CLEANUP CORRIGIDO: rotas exatas do productsService + finally garantido ──
   const handleCleanup = async () => {
     setIsCleaningUp(true);
     try {
       let deleted = 0;
-      switch (cleanupType) {
-        case 'all': const resAll = await productsService.deleteAll(); deleted = resAll.data?.deleted || 0; break;
-        case 'marketplace': const mpKey = cleanupMarketplace === 'mercadolivre' ? 'ML' : cleanupMarketplace; const resMP = await productsService.deleteByMarketplace(mpKey as any); deleted = resMP.data?.deleted || 0; break;
-        case 'old': const resOld = await productsService.deleteOld(cleanupDays); deleted = resOld.data?.deleted || 0; break;
-        case 'selected': if (selectedIds.length > 0) { await deleteProducts(selectedIds); deleted = selectedIds.length; setSelectedIds([]); } break;
+
+      if (cleanupType === 'all') {
+        // → DELETE /api/products/cleanup/all
+        const res = await productsService.deleteAll();
+        deleted = res.data?.deleted ?? 0;
+
+      } else if (cleanupType === 'marketplace') {
+        // → DELETE /api/products/marketplace/:key
+        const mpKey = cleanupMarketplace === 'mercadolivre' ? 'ML' : cleanupMarketplace as 'ML' | 'shopee' | 'amazon' | 'magalu';
+        const res = await productsService.deleteByMarketplace(mpKey);
+        deleted = res.data?.deleted ?? 0;
+
+      } else if (cleanupType === 'old') {
+        // → POST /api/products/cleanup/old  { days }
+        const res = await productsService.deleteOld(cleanupDays);
+        deleted = res.data?.deleted ?? 0;
+
+      } else if (cleanupType === 'selected') {
+        if (selectedIds.length === 0) {
+          toast({ title: 'Nenhum produto selecionado', description: 'Selecione ao menos um produto para excluir.', variant: 'destructive' });
+          return;
+        }
+        // → POST /api/products/bulk-delete  { ids }
+        const res = await productsService.bulkDelete(selectedIds);
+        deleted = res.data?.deleted ?? selectedIds.length;
+        setSelectedIds([]);
       }
-      await refreshProducts();
-      toast({ title: 'Limpeza concluída', description: `${deleted} produtos removidos` });
+
+      // Atualiza lista — wrapped para não travar se refresh falhar
+      try {
+        await refreshProducts();
+      } catch (refreshErr) {
+        console.warn('[handleCleanup] refreshProducts falhou, ignorando:', refreshErr);
+      }
+
+      toast({
+        title: 'Limpeza concluída ✓',
+        description: `${deleted} produto${deleted !== 1 ? 's' : ''} removido${deleted !== 1 ? 's' : ''} com sucesso.`,
+      });
       setCleanupDialogOpen(false);
-    } catch {
-      toast({ title: 'Erro na limpeza', description: 'Falha ao excluir produtos', variant: 'destructive' });
+
+    } catch (err: any) {
+      console.error('[handleCleanup] erro:', err);
+      toast({
+        title: 'Erro na limpeza',
+        description: err?.message || 'Falha ao excluir produtos. Verifique o console.',
+        variant: 'destructive',
+      });
     } finally {
+      // Garante que o spinner SEMPRE para, independente de qualquer erro
       setIsCleaningUp(false);
     }
   };
