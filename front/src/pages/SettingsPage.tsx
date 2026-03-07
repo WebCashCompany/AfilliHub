@@ -105,30 +105,30 @@ export function SettingsPage() {
     }
   };
 
-  // ── connectML: chama /api/ml/auth com JWT no header via fetch ────────────
-  // window.location.href não manda headers, então fazemos uma chamada
-  // autenticada que retorna a URL de redirect e aí navegamos pra ela
+  // ── connectML: chama /api/ml/auth-url (retorna JSON com a URL) ────────────
+  // Não usamos window.location.href direto nem fetch+redirect:manual
+  // porque ambos têm problemas com CORS/headers. O novo endpoint /auth-url
+  // retorna { url } como JSON e o frontend navega pra ela.
   const connectML = async () => {
     setMlAwaitingReturn(true);
     try {
       const headers = await getAuthHeaders();
-      // Chama /auth que agora exige JWT e retorna redirect — seguimos o redirect manualmente
-      const response = await fetch(`${ENV.API_BASE_URL}/api/ml/auth`, {
-        method: 'GET',
-        headers,
-        redirect: 'manual', // não seguir redirect automaticamente
-      });
+      const { data } = await axios.get(`${API_URL}/ml/auth-url`, { headers });
 
-      // O backend redireciona para o ML — pegamos a URL do Location header
-      const redirectUrl = response.headers.get('location') || response.url;
-      if (redirectUrl) {
-        window.location.href = redirectUrl;
-      } else {
-        throw new Error('URL de redirect não recebida');
-      }
-    } catch (err) {
-      console.error('Erro ao iniciar OAuth ML:', err);
-      toast({ title: 'Erro', description: 'Falha ao iniciar conexão com Mercado Livre.', variant: 'destructive' });
+      if (!data?.url) throw new Error('URL de autenticação não recebida');
+
+      // Navega para o Mercado Livre OAuth
+      window.location.href = data.url;
+    } catch (err: any) {
+      console.error('[connectML] erro:', err);
+
+      // Mensagem amigável para 401
+      const status = err?.response?.status;
+      const description = status === 401
+        ? 'Sessão expirada. Faça login novamente.'
+        : 'Falha ao iniciar conexão com Mercado Livre.';
+
+      toast({ title: 'Erro ao conectar', description, variant: 'destructive' });
       setMlAwaitingReturn(false);
     }
   };
