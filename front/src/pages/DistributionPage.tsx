@@ -27,9 +27,8 @@ import { AutomationTimer } from '@/components/dashboard/AutomationTimer';
 import { WhatsAppSettingsModal } from '@/components/modals/WhatsAppSettingsModal';
 import {
   Send, MessageCircle, Search, CheckCircle, Eye, Copy,
-  Smartphone, Zap, Bot, Settings, Loader2, CalendarDays,
-  Filter, Tag, ArrowUpDown, ArrowUp, ArrowDown, X,
-  ChevronUp, SlidersHorizontal, Package,
+  Smartphone, Zap, Bot, Settings, Loader2,
+  Filter, Tag, X, SlidersHorizontal, Package,
 } from 'lucide-react';
 import { useToast } from '@/hooks/useToast';
 import { Product } from '@/lib/mockData';
@@ -89,7 +88,6 @@ export function DistributionPage() {
   const { toast } = useToast();
   const { getActiveSession, currentSessionId } = useWhatsApp();
 
-  // ── UserPreferences: fonte de verdade para grupos, mensagem e enabled ──
   const {
     preferences,
     isLoading: prefsLoading,
@@ -110,7 +108,6 @@ export function DistributionPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-  const [calendarOpen, setCalendarOpen] = useState(false);
 
   // ── Canal / envio ────────────────────────────────────────────────────────
   const [sending, setSending] = useState(false);
@@ -126,6 +123,9 @@ export function DistributionPage() {
   const [nextFireAt, setNextFireAt] = useState<number | null>(null);
   const [isAutoSending, setIsAutoSending] = useState(false);
 
+  // ── Ref para não pedir estado da automação mais de uma vez por sessão ────
+  const automationStateRequestedRef = useRef(false);
+
   // ── Derivados das preferências (fonte de verdade = backend) ─────────────
   const whatsappGroups: WhatsAppGroup[] = useMemo(() => {
     return (preferences?.whatsapp?.selectedGroups ?? []) as WhatsAppGroup[];
@@ -133,6 +133,9 @@ export function DistributionPage() {
 
   const whatsappEnabled: boolean = preferences?.whatsapp?.enabled ?? true;
   const customMessage: string = preferences?.customMessage ?? '';
+
+  const activeSession = getActiveSession();
+  const botConnected  = activeSession?.conectado || false;
 
   const setWhatsappEnabled = useCallback(async (enabled: boolean) => {
     await updatePreferences({
@@ -144,22 +147,19 @@ export function DistributionPage() {
     await updateCustomMessage(message);
   }, [updateCustomMessage]);
 
-  // ── Salvar grupos no backend (substitui localStorage) ───────────────────
   const handleGroupsSaved = useCallback(async (groups: WhatsAppGroup[]) => {
-    // Normaliza para o formato salvo nas preferências
     const normalized = groups.map(g => ({
-      id:           g.id,
-      nome:         g.nome || (g as any).name || '',
+      id:            g.id,
+      nome:          g.nome || (g as any).name || '',
       participantes: g.participantes ?? 0,
-      sessionId:    currentSessionId ?? '',
+      sessionId:     currentSessionId ?? '',
     }));
     await updateWhatsAppGroups(normalized);
   }, [updateWhatsAppGroups, currentSessionId]);
 
-  // ── Socket.IO ────────────────────────────────────────────────────────────
+  // ── Socket.IO — só pede estado da automação após bot conectar ────────────
   useEffect(() => {
-    socketService.emit('automation:request-state', {});
-
+    // Registra listeners sempre (independe de botConnected)
     const onState = (data: any) => {
       if (!data) return;
       setAutomationActive(!!data.active || !!data.intervalMinutes);
@@ -214,6 +214,15 @@ export function DistributionPage() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Só pede estado da automação quando o bot estiver de fato conectado ───
+  // Isso evita o erro "Sessão X não está conectada" ao recarregar a página
+  useEffect(() => {
+    if (!botConnected || automationStateRequestedRef.current) return;
+    automationStateRequestedRef.current = true;
+    console.log('🤖 Bot conectado — solicitando estado da automação');
+    socketService.emit('automation:request-state', {});
+  }, [botConnected]);
+
   // ── Dados ────────────────────────────────────────────────────────────────
   const activeProducts = products.filter(p => p.status === 'active' || p.status === 'protected');
 
@@ -241,15 +250,6 @@ export function DistributionPage() {
         return { from: null, to: null };
     }
   };
-
-  const calendarLabel = useMemo(() => {
-    if (quickFilter !== 'all') return null;
-    if (!dateRange?.from) return 'Selecionar período';
-    if (!dateRange.to || dateRange.from.toDateString() === dateRange.to.toDateString()) {
-      return format(dateRange.from, 'dd/MM/yyyy', { locale: ptBR });
-    }
-    return `${format(dateRange.from, 'dd/MM/yy', { locale: ptBR })} → ${format(dateRange.to, 'dd/MM/yy', { locale: ptBR })}`;
-  }, [quickFilter, dateRange]);
 
   const isDateFilterActive = quickFilter !== 'all' || !!dateRange?.from;
   const clearDateFilter = () => { setQuickFilter('all'); setDateRange(undefined); };
@@ -285,18 +285,6 @@ export function DistributionPage() {
   }, [activeProducts, search, marketplaceFilter, categoryFilter, sortField, sortDirection, quickFilter, dateRange]);
 
   const selectedProducts = products.filter(p => selectedIds.includes(p.id));
-
-  const getEligibleProducts = useCallback(() => {
-    if (!automationConfig) return [];
-    let eligible = activeProducts;
-    if (!automationConfig.categories.includes('all')) {
-      eligible = eligible.filter(p => automationConfig.categories.includes(p.category));
-    }
-    if (!automationConfig.marketplaces.includes('all')) {
-      eligible = eligible.filter(p => automationConfig.marketplaces.includes(p.marketplace));
-    }
-    return eligible;
-  }, [automationConfig, activeProducts]);
 
   const handleSelect = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -376,10 +364,10 @@ export function DistributionPage() {
     }
 
     const productsPayload = eligible.map(p => ({
-      nome:         (p as any).nome || p.name,
-      imagem:       (p as any).imagem || p.image || null,
+      nome:          (p as any).nome || p.name,
+      imagem:        (p as any).imagem || p.image || null,
       link_afiliado: (p as any).link_afiliado || p.affiliateLink || '',
-      _mensagem:    generateMessagePreview(p),
+      _mensagem:     generateMessagePreview(p),
     }));
 
     try {
@@ -438,10 +426,8 @@ export function DistributionPage() {
     }
   };
 
-  const activeSession  = getActiveSession();
-  const botConnected   = activeSession?.conectado || false;
-  const hasActiveFilters   = marketplaceFilter !== 'all' || categoryFilter !== 'all' || !!sortField || isDateFilterActive;
-  const activeFilterCount  = [marketplaceFilter !== 'all', categoryFilter !== 'all', !!sortField, isDateFilterActive].filter(Boolean).length;
+  const hasActiveFilters  = marketplaceFilter !== 'all' || categoryFilter !== 'all' || !!sortField || isDateFilterActive;
+  const activeFilterCount = [marketplaceFilter !== 'all', categoryFilter !== 'all', !!sortField, isDateFilterActive].filter(Boolean).length;
 
   // ── Mobile Filter Sheet ───────────────────────────────────────────────────
   const MobileFilterSheet = () => (
