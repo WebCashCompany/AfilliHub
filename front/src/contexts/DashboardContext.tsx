@@ -28,10 +28,6 @@ import { supabase } from '@/lib/supabase';
 
 const API_BASE_URL = ENV.API_BASE_URL;
 
-// ─────────────────────────────────────────────────────────
-// Retorna headers com JWT do usuário autenticado.
-// Usado nas chamadas diretas de fetch (SSE, cleanup, etc.)
-// ─────────────────────────────────────────────────────────
 async function getAuthHeaders(): Promise<HeadersInit> {
   const { data: { session } } = await supabase.auth.getSession();
   return {
@@ -104,6 +100,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [scrapingStatus, setScrapingStatus] = useState<ScrapingStatus>(getInitialScrapingStatus);
 
+  // ─── NOVO: rastreia se a sessão já foi resolvida pelo Supabase ───────────
+  const [authReady, setAuthReady] = useState(false);
+  const currentUserIdRef = useRef<string | null>(null);
+
   const { toast } = useToast();
   const eventSourceRef = useRef<any>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -144,7 +144,21 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const refreshProducts = async () => {
     setIsLoading(true);
     try {
-      const headers = await getAuthHeaders();
+      // Garante que o token está disponível antes de qualquer fetch
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        console.warn('[Dashboard] refreshProducts chamado sem sessão ativa — abortando.');
+        setProducts([]);
+        return;
+      }
+
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+        Authorization: `Bearer ${session.access_token}`,
+      };
+
       const res = await fetch(`${API_BASE_URL}/api/products`, { headers });
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -190,7 +204,61 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // ─── AGUARDA SESSÃO DO SUPABASE ANTES DE CARREGAR PRODUTOS ───────────────
+  // onAuthStateChange dispara SIGNED_IN ou INITIAL_SESSION assim que o
+  // Supabase restaura a sessão do localStorage. Só aí carregamos os produtos,
+  // garantindo que o token correto (do usuário atual) seja enviado.
   useEffect(() => {
+    // Verifica se já existe sessão ativa (caso o Provider monte após o login)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        currentUserIdRef.current = session.user.id;
+        setAuthReady(true);
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`[Dashboard] Auth event: ${event}`);
+
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        const newUserId = session?.user?.id ?? null;
+
+        // Troca de usuário: limpa produtos do usuário anterior imediatamente
+        if (newUserId && newUserId !== currentUserIdRef.current) {
+          console.log('[Dashboard] Usuário trocado — limpando produtos anteriores');
+          setProducts([]);
+          disconnectSSE();
+        }
+
+        currentUserIdRef.current = newUserId;
+        setAuthReady(!!session?.user);
+      }
+
+      if (event === 'SIGNED_OUT') {
+        console.log('[Dashboard] SIGNED_OUT — limpando estado');
+        currentUserIdRef.current = null;
+        setAuthReady(false);
+        setProducts([]);
+        disconnectSSE();
+      }
+
+      if (event === 'TOKEN_REFRESHED') {
+        // Token renovado — não precisa recarregar, o próximo refreshProducts
+        // já vai buscar a sessão atualizada
+        console.log('[Dashboard] Token renovado');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      disconnectSSE();
+    };
+  }, []);
+
+  // ─── SÓ CARREGA PRODUTOS QUANDO A SESSÃO ESTIVER PRONTA ─────────────────
+  useEffect(() => {
+    if (!authReady) return;
+
     refreshProducts();
 
     const checkInitialStatus = async () => {
@@ -211,8 +279,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     };
 
     checkInitialStatus();
-    return () => { disconnectSSE(); };
-  }, []);
+  }, [authReady]);
 
   const checkIfCompleted = (data: any): boolean => {
     return data.status === 'completed' || data.progress >= 100 || (data.totalItems > 0 && data.itemsCollected >= data.totalItems);
@@ -242,9 +309,6 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }, 1000);
   };
 
-  // ─────────────────────────────────────────────────────────
-  // SSE via fetch — com Authorization header
-  // ─────────────────────────────────────────────────────────
   const connectSSE = (sessionId: string) => {
     disconnectSSE();
     isCompletedRef.current = false;
