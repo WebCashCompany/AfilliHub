@@ -1,4 +1,4 @@
-// src/components/modals/WhatsAppSettingsModal.tsx - CORRIGIDO: LIXEIRA = EXCLUIR / RADIO = CONECTAR/DESCONECTAR
+// src/components/modals/WhatsAppSettingsModal.tsx
 import { useState, useEffect } from 'react';
 import { useWhatsApp } from '@/contexts/WhatsAppContext';
 import { useToast } from '@/hooks/useToast';
@@ -59,13 +59,14 @@ export function WhatsAppSettingsModal({
   const [searchGroups, setSearchGroups] = useState('');
   const [loadingGroups, setLoadingGroups] = useState(false);
 
+  // ── Fix: initialSelectedGroups na dep array — garante pré-seleção correta ──
   useEffect(() => {
     if (open) {
       setSelectedSessionForGroups(null);
       setGroups([]);
       setSelectedGroupIds(initialSelectedGroups.map(g => g.id));
     }
-  }, [open]);
+  }, [open, initialSelectedGroups]);
 
   const loadGroupsForSession = async (sessionId: string) => {
     setLoadingGroups(true);
@@ -121,11 +122,8 @@ export function WhatsAppSettingsModal({
     }
   };
 
-  // ⭐ EXCLUIR SESSÃO (Botão Lixeira)
   const handleDeleteSession = async (sessionId: string) => {
-    if (!confirm(`Deseja realmente EXCLUIR a sessão "${sessionId}"?`)) {
-      return;
-    }
+    if (!confirm(`Deseja realmente EXCLUIR a sessão "${sessionId}"?`)) return;
 
     try {
       await disconnectSession(sessionId);
@@ -142,51 +140,28 @@ export function WhatsAppSettingsModal({
     }
   };
 
-  // ⭐ CONECTAR/DESCONECTAR SESSÃO (Botão Radio Verde)
   const handleToggleSession = async (session: any) => {
     if (session.conectado) {
-      // Desconectar
-      if (!confirm(`Deseja DESCONECTAR a sessão "${session.sessionId}"?`)) {
-        return;
-      }
-      
+      if (!confirm(`Deseja DESCONECTAR a sessão "${session.sessionId}"?`)) return;
       try {
         await disconnectSession(session.sessionId);
-        toast({
-          title: "Sessão desconectada",
-          description: `Sessão "${session.sessionId}" foi desconectada.`
-        });
+        toast({ title: "Sessão desconectada", description: `"${session.sessionId}" foi desconectada.` });
       } catch (error: any) {
-        toast({
-          title: "Erro ao desconectar",
-          description: error.message,
-          variant: "destructive"
-        });
+        toast({ title: "Erro ao desconectar", description: error.message, variant: "destructive" });
       }
     } else {
-      // Reconectar
       try {
         await connectNewSession(session.sessionId);
-        toast({
-          title: "Reconectando...",
-          description: "Aguarde o QR Code aparecer"
-        });
+        toast({ title: "Reconectando...", description: "Aguarde o QR Code aparecer" });
       } catch (error: any) {
-        toast({
-          title: "Erro ao reconectar",
-          description: error.message,
-          variant: "destructive"
-        });
+        toast({ title: "Erro ao reconectar", description: error.message, variant: "destructive" });
       }
     }
   };
 
   const handleSelectSession = async (sessionId: string) => {
     setCurrentSession(sessionId);
-    toast({
-      title: "Sessão alterada",
-      description: `Agora usando "${sessionId}"`
-    });
+    toast({ title: "Sessão alterada", description: `Agora usando "${sessionId}"` });
   };
 
   const handleToggleGroup = (groupId: string) => {
@@ -199,9 +174,7 @@ export function WhatsAppSettingsModal({
 
   const handleSaveGroups = () => {
     const selected = groups.filter(g => selectedGroupIds.includes(g.id));
-    if (onSaveGroups) {
-      onSaveGroups(selected);
-    }
+    if (onSaveGroups) onSaveGroups(selected);
     toast({
       title: "Grupos salvos!",
       description: `${selected.length} grupo${selected.length > 1 ? 's' : ''} selecionado${selected.length > 1 ? 's' : ''}`
@@ -236,10 +209,7 @@ export function WhatsAppSettingsModal({
               Gerencie sessões e selecione grupos
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-sm opacity-70 hover:opacity-100 transition-opacity"
-          >
+          <button onClick={onClose} className="rounded-sm opacity-70 hover:opacity-100 transition-opacity">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -248,9 +218,7 @@ export function WhatsAppSettingsModal({
         {qrCode && (
           <div className="mb-6 p-4 border-2 border-green-500 rounded-lg bg-green-50 dark:bg-green-950/20">
             <div className="flex flex-col items-center gap-3">
-              <p className="font-medium text-green-700 dark:text-green-400">
-                Escaneie o QR Code
-              </p>
+              <p className="font-medium text-green-700 dark:text-green-400">Escaneie o QR Code</p>
               <div className="bg-white p-3 rounded-lg">
                 <QRCode value={qrCode} size={200} />
               </div>
@@ -261,7 +229,6 @@ export function WhatsAppSettingsModal({
           </div>
         )}
 
-        {/* Tabs */}
         <Tabs defaultValue="sessions" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="sessions">
@@ -277,10 +244,7 @@ export function WhatsAppSettingsModal({
           {/* TAB: SESSÕES */}
           <TabsContent value="sessions" className="space-y-4 mt-4">
             {!showNewSessionForm && (
-              <Button 
-                onClick={() => setShowNewSessionForm(true)}
-                className="w-full"
-              >
+              <Button onClick={() => setShowNewSessionForm(true)} className="w-full">
                 <Plus className="w-4 h-4 mr-2" />
                 Conectar Novo Número
               </Button>
@@ -298,37 +262,16 @@ export function WhatsAppSettingsModal({
                   disabled={isConnecting}
                 />
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowNewSessionForm(false);
-                      setNewSessionName('');
-                    }}
-                    disabled={isConnecting}
-                  >
+                  <Button variant="outline" onClick={() => { setShowNewSessionForm(false); setNewSessionName(''); }} disabled={isConnecting}>
                     Cancelar
                   </Button>
-                  <Button
-                    onClick={handleConnectNew}
-                    disabled={isConnecting || !newSessionName.trim()}
-                  >
-                    {isConnecting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Conectando...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Conectar
-                      </>
-                    )}
+                  <Button onClick={handleConnectNew} disabled={isConnecting || !newSessionName.trim()}>
+                    {isConnecting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Conectando...</> : <><Plus className="w-4 h-4 mr-2" />Conectar</>}
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Lista de Sessões */}
             <div className="space-y-2">
               {!Array.isArray(sessions) || sessions.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
@@ -346,24 +289,16 @@ export function WhatsAppSettingsModal({
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      {/* ⭐ BOTÃO RADIO - CONECTAR/DESCONECTAR */}
-                      <button
-                        onClick={() => handleToggleSession(session)}
-                        className="flex items-center justify-center"
-                      >
-                        {session.conectado ? (
-                          <Power className="w-5 h-5 text-green-500 cursor-pointer hover:text-green-600" />
-                        ) : (
-                          <PowerOff className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
-                        )}
+                      <button onClick={() => handleToggleSession(session)} className="flex items-center justify-center">
+                        {session.conectado
+                          ? <Power className="w-5 h-5 text-green-500 cursor-pointer hover:text-green-600" />
+                          : <PowerOff className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+                        }
                       </button>
-                      
                       <div>
                         <p className="font-medium">{session.sessionId}</p>
                         {session.phoneNumber && (
-                          <p className="text-xs text-muted-foreground">
-                            {session.phoneNumber}
-                          </p>
+                          <p className="text-xs text-muted-foreground">{session.phoneNumber}</p>
                         )}
                       </div>
                     </div>
@@ -374,25 +309,14 @@ export function WhatsAppSettingsModal({
                       </Badge>
 
                       {currentSessionId === session.sessionId ? (
-                        <Badge variant="outline" className="border-green-500 text-green-700">
-                          Em uso
-                        </Badge>
+                        <Badge variant="outline" className="border-green-500 text-green-700">Em uso</Badge>
                       ) : session.conectado ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleSelectSession(session.sessionId)}
-                        >
+                        <Button size="sm" variant="outline" onClick={() => handleSelectSession(session.sessionId)}>
                           Usar
                         </Button>
                       ) : null}
 
-                      {/* ⭐ BOTÃO LIXEIRA - EXCLUIR */}
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleDeleteSession(session.sessionId)}
-                      >
+                      <Button size="sm" variant="destructive" onClick={() => handleDeleteSession(session.sessionId)}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -409,9 +333,7 @@ export function WhatsAppSettingsModal({
                 <div className="text-center py-4">
                   <Users className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
                   <p className="font-medium mb-2">Selecione um número</p>
-                  <p className="text-sm text-muted-foreground">
-                    Escolha qual número deseja gerenciar os grupos
-                  </p>
+                  <p className="text-sm text-muted-foreground">Escolha qual número deseja gerenciar os grupos</p>
                 </div>
 
                 {onlineSessions.length === 0 ? (
@@ -433,9 +355,7 @@ export function WhatsAppSettingsModal({
                         <div className="text-left">
                           <p className="font-medium">{session.sessionId}</p>
                           {session.phoneNumber && (
-                            <p className="text-sm text-muted-foreground">
-                              {session.phoneNumber}
-                            </p>
+                            <p className="text-sm text-muted-foreground">{session.phoneNumber}</p>
                           )}
                         </div>
                       </div>
@@ -447,20 +367,14 @@ export function WhatsAppSettingsModal({
             ) : (
               <>
                 <div className="flex items-center gap-2 pb-3 border-b">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleBackToSessionSelection}
-                  >
+                  <Button variant="ghost" size="sm" onClick={handleBackToSessionSelection}>
                     ← Voltar
                   </Button>
                   <div className="flex-1">
                     <p className="font-medium">
                       {sessions.find(s => s.sessionId === selectedSessionForGroups)?.sessionId}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      Selecione os grupos
-                    </p>
+                    <p className="text-xs text-muted-foreground">Selecione os grupos</p>
                   </div>
                 </div>
 
@@ -503,9 +417,7 @@ export function WhatsAppSettingsModal({
                           />
                           <div className="flex-1">
                             <p className="font-medium">{group.nome}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {group.participantes} participantes
-                            </p>
+                            <p className="text-xs text-muted-foreground">{group.participantes} participantes</p>
                           </div>
                         </div>
                       ))
@@ -514,15 +426,11 @@ export function WhatsAppSettingsModal({
                 )}
 
                 {selectedGroupIds.length > 0 && (
-                  <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg">
+                  <div className="flex items-center justify-between p-3 bg-primary/5 rounded-lg mt-4">
                     <span className="text-sm font-medium">
                       {selectedGroupIds.length} grupo{selectedGroupIds.length > 1 ? 's' : ''} selecionado{selectedGroupIds.length > 1 ? 's' : ''}
                     </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedGroupIds([])}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setSelectedGroupIds([])}>
                       Limpar
                     </Button>
                   </div>
@@ -534,13 +442,8 @@ export function WhatsAppSettingsModal({
 
         {/* Footer */}
         <div className="flex justify-end gap-2 mt-6 pt-6 border-t">
-          <Button variant="outline" onClick={onClose}>
-            Fechar
-          </Button>
-          <Button 
-            onClick={handleSaveGroups}
-            disabled={selectedGroupIds.length === 0}
-          >
+          <Button variant="outline" onClick={onClose}>Fechar</Button>
+          <Button onClick={handleSaveGroups} disabled={selectedGroupIds.length === 0}>
             <CheckCircle className="w-4 h-4 mr-2" />
             Salvar Seleção
           </Button>

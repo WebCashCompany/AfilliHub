@@ -1,5 +1,5 @@
 // src/contexts/UserPreferencesContext.tsx
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { socketService } from '@/api/services/socket.service';
 import { useAuth } from '@/contexts/AuthContext';
 import { ENV } from '@/config/environment';
@@ -68,6 +68,12 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
   const [isLoading,   setIsLoading]   = useState(true);
   const [isSyncing,   setIsSyncing]   = useState(false);
 
+  // ── Ref sempre atualizada — evita closure stale em todos os callbacks ──
+  const preferencesRef = useRef<UserPreferences | null>(null);
+  useEffect(() => {
+    preferencesRef.current = preferences;
+  }, [preferences]);
+
   // ── Helper: headers com token JWT ────────────────────────────────
   const getHeaders = useCallback((): Record<string, string> => {
     const headers: Record<string, string> = {
@@ -125,7 +131,6 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated && user) {
       loadPreferences();
     } else if (!isAuthenticated) {
-      // Limpar preferências ao fazer logout — evita vazamento entre logins
       setPreferences(null);
       setIsLoading(false);
     }
@@ -134,7 +139,6 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
   // ── Socket.IO — sincronização em tempo real ───────────────────────
   useEffect(() => {
     const handlePreferencesUpdated = (data: { userId: string; preferences: UserPreferences }) => {
-      // Só atualiza se for do mesmo usuário (redundante com rooms, mas seguro)
       if (!user || data.userId !== user.id) return;
       console.log('🔄 [REAL-TIME] Preferências atualizadas');
       setPreferences(data.preferences);
@@ -145,15 +149,18 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     return () => { socketService.off('preferences:updated', handlePreferencesUpdated); };
   }, [user?.id]);
 
-  // ── Atualizar preferências ────────────────────────────────────────
+  // ── Atualizar preferências — sem closure stale via ref ────────────
   const updatePreferences = useCallback(async (updates: Partial<UserPreferences>) => {
-    if (!preferences || !isAuthenticated) return;
+    if (!isAuthenticated) return;
 
-    setIsSyncing(true);
+    const current = preferencesRef.current;
+    if (!current) return;
+
+    const newPreferences = { ...current, ...updates };
 
     // Otimista: atualiza local imediatamente
-    const newPreferences = { ...preferences, ...updates };
     setPreferences(newPreferences);
+    setIsSyncing(true);
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/preferences`, {
@@ -165,37 +172,49 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
       const data = await response.json();
       if (!data.success) {
         console.error('❌ Erro ao sincronizar preferências:', data.error);
-        // Reverter em caso de erro
-        setPreferences(preferences);
+        setPreferences(current); // reverte pro valor correto (não stale)
       }
     } catch (error) {
       console.error('❌ Erro ao salvar preferências:', error);
-      setPreferences(preferences);
+      setPreferences(current);
     } finally {
       setIsSyncing(false);
     }
-  }, [preferences, isAuthenticated, getHeaders]);
+  }, [isAuthenticated, getHeaders]); // ← sem `preferences` nas deps
 
   const updateTheme = useCallback(async (theme: 'light' | 'dark' | 'system') => {
     applyTheme(theme);
     await updatePreferences({ theme });
   }, [updatePreferences]);
 
+  // ── updateWhatsAppGroups — lê whatsapp atual via ref, sem stale ───
   const updateWhatsAppGroups = useCallback(async (groups: any[]) => {
-    await updatePreferences({ whatsapp: { ...preferences!.whatsapp, selectedGroups: groups } });
-  }, [updatePreferences, preferences]);
+    const current = preferencesRef.current;
+    if (!current) return;
+    await updatePreferences({
+      whatsapp: { ...current.whatsapp, selectedGroups: groups }
+    });
+  }, [updatePreferences]);
 
   const updateWhatsAppSession = useCallback(async (sessionId: string | null) => {
-    await updatePreferences({ whatsapp: { ...preferences!.whatsapp, currentSessionId: sessionId } });
-  }, [updatePreferences, preferences]);
+    const current = preferencesRef.current;
+    if (!current) return;
+    await updatePreferences({
+      whatsapp: { ...current.whatsapp, currentSessionId: sessionId }
+    });
+  }, [updatePreferences]);
 
   const updateCustomMessage = useCallback(async (message: string) => {
     await updatePreferences({ customMessage: message });
   }, [updatePreferences]);
 
   const updateAutomation = useCallback(async (automation: Partial<UserPreferences['automation']>) => {
-    await updatePreferences({ automation: { ...preferences!.automation, ...automation } });
-  }, [updatePreferences, preferences]);
+    const current = preferencesRef.current;
+    if (!current) return;
+    await updatePreferences({
+      automation: { ...current.automation, ...automation }
+    });
+  }, [updatePreferences]);
 
   const resetPreferences = useCallback(async () => {
     if (!isAuthenticated) return;

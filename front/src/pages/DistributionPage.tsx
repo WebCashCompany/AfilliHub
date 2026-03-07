@@ -1,7 +1,8 @@
-// src/pages/DistributionPage.tsx - AUTOMAÇÃO BACKEND-DRIVEN
+// src/pages/DistributionPage.tsx - GRUPOS PERSISTIDOS VIA BACKEND (UserPreferencesContext)
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useDashboard } from '@/contexts/DashboardContext';
+import { useUserPreferences } from '@/contexts/UserPreferencesContext';
 import { formatCurrency, getCurrentPrice, getOldPrice, getDiscount } from '@/lib/priceUtils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -60,7 +61,6 @@ const quickFilterLabels: Record<QuickFilter, string> = {
 
 type MobileTab = 'ofertas' | 'canais' | 'preview';
 
-// ─── Helper: chama a API de automação com JWT ─────────────────────────────────
 async function callAutomationAPI(path: string, body?: object) {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token || '';
@@ -89,6 +89,15 @@ export function DistributionPage() {
   const { toast } = useToast();
   const { getActiveSession, currentSessionId } = useWhatsApp();
 
+  // ── UserPreferences: fonte de verdade para grupos, mensagem e enabled ──
+  const {
+    preferences,
+    isLoading: prefsLoading,
+    updateWhatsAppGroups,
+    updateCustomMessage,
+    updatePreferences,
+  } = useUserPreferences();
+
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [mobileTab, setMobileTab] = useState<MobileTab>('ofertas');
@@ -104,27 +113,11 @@ export function DistributionPage() {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   // ── Canal / envio ────────────────────────────────────────────────────────
-  const [whatsappEnabled, setWhatsappEnabled] = useState(() => {
-    const saved = localStorage.getItem('distribution_whatsapp_enabled');
-    return saved !== null ? saved === 'true' : true;
-  });
-  const [telegramEnabled, setTelegramEnabled] = useState(() => {
-    const saved = localStorage.getItem('distribution_telegram_enabled');
-    return saved !== null ? saved === 'true' : false;
-  });
-  const [customMessage, setCustomMessage] = useState(() =>
-    localStorage.getItem('distribution_custom_message') || ''
-  );
   const [sending, setSending] = useState(false);
-  const [whatsappGroups, setWhatsappGroups] = useState<WhatsAppGroup[]>(() => {
-    const saved = localStorage.getItem('distribution_whatsapp_groups');
-    if (saved) { try { return JSON.parse(saved); } catch { } }
-    return [];
-  });
   const [showWhatsAppSettings, setShowWhatsAppSettings] = useState(false);
   const [showAutomationModal, setShowAutomationModal] = useState(false);
 
-  // ── Estado da automação (sincronizado com backend) ───────────────────────
+  // ── Estado da automação ──────────────────────────────────────────────────
   const [automationActive, setAutomationActive] = useState(false);
   const [automationPaused, setAutomationPaused] = useState(false);
   const [automationConfig, setAutomationConfig] = useState<AutomationConfig | null>(null);
@@ -133,13 +126,37 @@ export function DistributionPage() {
   const [nextFireAt, setNextFireAt] = useState<number | null>(null);
   const [isAutoSending, setIsAutoSending] = useState(false);
 
-  // ── Persistência simples ─────────────────────────────────────────────────
-  useEffect(() => { localStorage.setItem('distribution_whatsapp_enabled', String(whatsappEnabled)); }, [whatsappEnabled]);
-  useEffect(() => { localStorage.setItem('distribution_telegram_enabled', String(telegramEnabled)); }, [telegramEnabled]);
-  useEffect(() => { localStorage.setItem('distribution_custom_message', customMessage); }, [customMessage]);
-  useEffect(() => { localStorage.setItem('distribution_whatsapp_groups', JSON.stringify(whatsappGroups)); }, [whatsappGroups]);
+  // ── Derivados das preferências (fonte de verdade = backend) ─────────────
+  const whatsappGroups: WhatsAppGroup[] = useMemo(() => {
+    return (preferences?.whatsapp?.selectedGroups ?? []) as WhatsAppGroup[];
+  }, [preferences?.whatsapp?.selectedGroups]);
 
-  // ── Socket.IO: escuta eventos do backend via socketService ───────────────
+  const whatsappEnabled: boolean = preferences?.whatsapp?.enabled ?? true;
+  const customMessage: string = preferences?.customMessage ?? '';
+
+  const setWhatsappEnabled = useCallback(async (enabled: boolean) => {
+    await updatePreferences({
+      whatsapp: { ...preferences!.whatsapp, enabled },
+    });
+  }, [updatePreferences, preferences]);
+
+  const setCustomMessage = useCallback(async (message: string) => {
+    await updateCustomMessage(message);
+  }, [updateCustomMessage]);
+
+  // ── Salvar grupos no backend (substitui localStorage) ───────────────────
+  const handleGroupsSaved = useCallback(async (groups: WhatsAppGroup[]) => {
+    // Normaliza para o formato salvo nas preferências
+    const normalized = groups.map(g => ({
+      id:           g.id,
+      nome:         g.nome || (g as any).name || '',
+      participantes: g.participantes ?? 0,
+      sessionId:    currentSessionId ?? '',
+    }));
+    await updateWhatsAppGroups(normalized);
+  }, [updateWhatsAppGroups, currentSessionId]);
+
+  // ── Socket.IO ────────────────────────────────────────────────────────────
   useEffect(() => {
     socketService.emit('automation:request-state', {});
 
@@ -210,7 +227,6 @@ export function DistributionPage() {
     return Array.from(mps).sort();
   }, [products]);
 
-  // ── Filtros de data ───────────────────────────────────────────────────────
   const getActiveDateRange = (): { from: Date | null; to: Date | null } => {
     const now = new Date();
     switch (quickFilter) {
@@ -238,7 +254,6 @@ export function DistributionPage() {
   const isDateFilterActive = quickFilter !== 'all' || !!dateRange?.from;
   const clearDateFilter = () => { setQuickFilter('all'); setDateRange(undefined); };
 
-  // ── Produtos filtrados ────────────────────────────────────────────────────
   const filteredProducts = useMemo(() => {
     const { from, to } = getActiveDateRange();
     let result = activeProducts.filter(p => {
@@ -287,8 +302,6 @@ export function DistributionPage() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  const handleGroupsSaved = (groups: WhatsAppGroup[]) => setWhatsappGroups(groups);
-
   const generateMessagePreview = (product: Product) => {
     const currentPriceCents = getCurrentPrice(product);
     const oldPriceCents     = getOldPrice(product);
@@ -303,7 +316,6 @@ export function DistributionPage() {
       `🔗 Link: ${link}`;
   };
 
-  // ── Envio manual ──────────────────────────────────────────────────────────
   const handleSend = async () => {
     if (selectedIds.length === 0) {
       toast({ title: 'Selecione produtos', description: 'Escolha pelo menos um produto para divulgar.', variant: 'destructive' });
@@ -324,10 +336,10 @@ export function DistributionPage() {
       if (whatsappEnabled) {
         for (const group of whatsappGroups) {
           const ofertas = selectedProducts.map(p => ({
-            nome: p.name,
+            nome:     p.name,
             mensagem: generateMessagePreview(p),
-            imagem: p.image,
-            link: p.affiliateLink || (p as any).link_afiliado || 'Link indisponível',
+            imagem:   p.image,
+            link:     p.affiliateLink || (p as any).link_afiliado || 'Link indisponível',
           }));
           await whatsappService.sendOffers({ sessionId: currentSessionId, grupoId: group.id, ofertas });
         }
@@ -341,7 +353,6 @@ export function DistributionPage() {
     }
   };
 
-  // ── Iniciar automação no BACKEND ──────────────────────────────────────────
   const handleStartAutomation = async (config: AutomationConfig) => {
     if (!currentSessionId) {
       toast({ title: 'Conecte uma sessão', description: 'WhatsApp precisa estar conectado.', variant: 'destructive' });
@@ -365,17 +376,17 @@ export function DistributionPage() {
     }
 
     const productsPayload = eligible.map(p => ({
-      nome: (p as any).nome || p.name,
-      imagem: (p as any).imagem || p.image || null,
+      nome:         (p as any).nome || p.name,
+      imagem:       (p as any).imagem || p.image || null,
       link_afiliado: (p as any).link_afiliado || p.affiliateLink || '',
-      _mensagem: generateMessagePreview(p),
+      _mensagem:    generateMessagePreview(p),
     }));
 
     try {
       const result = await callAutomationAPI('/start', {
-        sessionId: currentSessionId,
-        grupoIds: whatsappGroups.map(g => g.id),
-        products: productsPayload,
+        sessionId:       currentSessionId,
+        grupoIds:        whatsappGroups.map(g => g.id),
+        products:        productsPayload,
         intervalMinutes: config.intervalMinutes,
       });
 
@@ -427,17 +438,10 @@ export function DistributionPage() {
     }
   };
 
-  // ── Timer ─────────────────────────────────────────────────────────────────
-  const getSecondsLeft = () => {
-    if (!nextFireAt || !automationConfig) return automationConfig?.intervalMinutes ? automationConfig.intervalMinutes * 60 : 60;
-    const diff = Math.round((nextFireAt - Date.now()) / 1000);
-    return Math.max(0, diff);
-  };
-
-  const activeSession = getActiveSession();
-  const botConnected  = activeSession?.conectado || false;
-  const hasActiveFilters = marketplaceFilter !== 'all' || categoryFilter !== 'all' || !!sortField || isDateFilterActive;
-  const activeFilterCount = [marketplaceFilter !== 'all', categoryFilter !== 'all', !!sortField, isDateFilterActive].filter(Boolean).length;
+  const activeSession  = getActiveSession();
+  const botConnected   = activeSession?.conectado || false;
+  const hasActiveFilters   = marketplaceFilter !== 'all' || categoryFilter !== 'all' || !!sortField || isDateFilterActive;
+  const activeFilterCount  = [marketplaceFilter !== 'all', categoryFilter !== 'all', !!sortField, isDateFilterActive].filter(Boolean).length;
 
   // ── Mobile Filter Sheet ───────────────────────────────────────────────────
   const MobileFilterSheet = () => (
@@ -511,7 +515,6 @@ export function DistributionPage() {
     </>
   );
 
-  // ── Mobile Tabs ───────────────────────────────────────────────────────────
   const MobileOfertasTab = () => (
     <div className="flex flex-col h-full">
       <div className="flex gap-2 px-4 pt-4 pb-3">
@@ -601,7 +604,9 @@ export function DistributionPage() {
           </div>
           <div className="flex-1">
             <p className="font-semibold text-sm">WhatsApp</p>
-            <p className="text-xs text-muted-foreground">{whatsappGroups.length > 0 ? `${whatsappGroups.length} grupo(s) configurado(s)` : 'Nenhum grupo configurado'}</p>
+            <p className="text-xs text-muted-foreground">
+              {whatsappGroups.length > 0 ? `${whatsappGroups.length} grupo(s) configurado(s)` : 'Nenhum grupo configurado'}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowWhatsAppSettings(true)}><Settings className="w-4 h-4" /></Button>
@@ -636,7 +641,13 @@ export function DistributionPage() {
       </div>
       <div className="space-y-2">
         <Label className="text-sm font-medium">Mensagem personalizada</Label>
-        <Textarea placeholder="🔥 *PROMOFORIA ESTÁ NO AR!*" value={customMessage} onChange={e => setCustomMessage(e.target.value)} rows={3} className="rounded-xl resize-none" />
+        <Textarea
+          placeholder="🔥 *PROMOFORIA ESTÁ NO AR!*"
+          value={customMessage}
+          onChange={e => setCustomMessage(e.target.value)}
+          rows={3}
+          className="rounded-xl resize-none"
+        />
         <p className="text-xs text-muted-foreground">Deixe em branco para usar a mensagem padrão</p>
       </div>
     </div>
@@ -659,7 +670,7 @@ export function DistributionPage() {
             <button className="text-xs text-destructive" onClick={() => setSelectedIds([])}>Limpar</button>
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            {selectedProducts.map((product, idx) => (
+            {selectedProducts.map((product) => (
               <div key={product.id} className="rounded-2xl border overflow-hidden">
                 <img src={product.image} alt={product.name} className="w-full h-40 object-cover" />
                 <div className="p-4">
@@ -684,9 +695,7 @@ export function DistributionPage() {
 
   return (
     <>
-      {/* ═══════════════════════════════════════════════ */}
-      {/* DESKTOP                                        */}
-      {/* ═══════════════════════════════════════════════ */}
+      {/* DESKTOP */}
       <div className="hidden md:block p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -844,11 +853,16 @@ export function DistributionPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Mensagem personalizada (opcional)</Label>
-                  <Textarea placeholder="🔥 *PROMOFORIA ESTÁ NO AR!*" value={customMessage} onChange={e => setCustomMessage(e.target.value)} rows={2} />
+                  <Textarea
+                    placeholder="🔥 *PROMOFORIA ESTÁ NO AR!*"
+                    value={customMessage}
+                    onChange={e => setCustomMessage(e.target.value)}
+                    rows={2}
+                  />
                 </div>
                 {selectedProducts.length > 0 && (
                   <div className="max-h-[400px] overflow-y-auto space-y-4">
-                    {selectedProducts.map((product, idx) => (
+                    {selectedProducts.map((product) => (
                       <div key={product.id} className="space-y-3">
                         <div className="relative rounded-lg overflow-hidden border">
                           <img src={product.image} alt={product.name} className="w-full h-48 object-cover" />
@@ -873,9 +887,7 @@ export function DistributionPage() {
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════ */}
-      {/* MOBILE                                         */}
-      {/* ═══════════════════════════════════════════════ */}
+      {/* MOBILE */}
       <div className="flex flex-col h-[100dvh] md:hidden bg-background">
         <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b bg-background/95 backdrop-blur-md sticky top-0 z-10">
           <div>
@@ -951,8 +963,19 @@ export function DistributionPage() {
 
       <MobileFilterSheet />
 
-      <WhatsAppSettingsModal open={showWhatsAppSettings} onClose={() => setShowWhatsAppSettings(false)} initialSelectedGroups={whatsappGroups} onSaveGroups={handleGroupsSaved} />
-      <AutomationModal open={showAutomationModal} onClose={() => setShowAutomationModal(false)} onStart={handleStartAutomation} availableCategories={availableCategories} availableMarketplaces={availableMarketplaces} />
+      <WhatsAppSettingsModal
+        open={showWhatsAppSettings}
+        onClose={() => setShowWhatsAppSettings(false)}
+        initialSelectedGroups={whatsappGroups}
+        onSaveGroups={handleGroupsSaved}
+      />
+      <AutomationModal
+        open={showAutomationModal}
+        onClose={() => setShowAutomationModal(false)}
+        onStart={handleStartAutomation}
+        availableCategories={availableCategories}
+        availableMarketplaces={availableMarketplaces}
+      />
     </>
   );
 }
